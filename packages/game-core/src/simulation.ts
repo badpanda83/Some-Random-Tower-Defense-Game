@@ -609,15 +609,15 @@ class GameSimulation implements Simulation {
           ? definition.armor
           : 0;
     const damage = Math.max(1, rawDamage - definition.armor + ignoredArmor);
-    const health = Math.max(0, enemy.health - damage);
+    let health = Math.max(0, enemy.health - damage);
     let bossPhase = enemy.bossPhase;
 
     if (
       definition.boss &&
       !bossPhase &&
-      health > 0 &&
       health <= Math.floor(enemy.maxHealth / 2)
     ) {
+      health = Math.floor(enemy.maxHealth / 2);
       bossPhase = true;
       events.push({ type: "boss-phase", instanceId });
     }

@@ -15,7 +15,11 @@ import {
 } from "@srtg/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Battlefield, type BattlefieldHandle } from "../game/Battlefield.js";
+import {
+  Battlefield,
+  type BattlefieldHandle,
+  type PlacementPreview,
+} from "../game/Battlefield.js";
 import { GameAudio } from "../game/audio.js";
 
 interface GameScreenProps {
@@ -29,6 +33,79 @@ interface GameScreenProps {
   readonly onRetry: () => void;
   readonly onExit: () => void;
   readonly onSettings: (settings: Settings) => void;
+}
+
+function TowerPortrait({ towerId }: { readonly towerId: string }) {
+  if (towerId === "fork-knight") {
+    return (
+      <svg viewBox="0 0 48 48" role="img" aria-label="Fork Knight portrait">
+        <path d="M9 42 13 23h20l6 19Z" fill="#6d3852" />
+        <path d="M15 25V14a9 9 0 0 1 18 0v11Z" fill="#cbd6d8" />
+        <path
+          d="m17 14 7-10 7 10M16 19h17"
+          fill="none"
+          stroke="#303943"
+          strokeWidth="3"
+        />
+        <circle cx="28" cy="18" r="2" fill="#332738" />
+        <path
+          d="M37 42V9m-5 0v-6m5 6V3m5 6V3M32 9h10"
+          fill="none"
+          stroke="#f3d58a"
+          strokeWidth="3"
+        />
+        <circle
+          cx="12"
+          cy="31"
+          r="7"
+          fill="#8f4d62"
+          stroke="#f3d58a"
+          strokeWidth="2"
+        />
+      </svg>
+    );
+  }
+  if (towerId === "discount-wizard") {
+    return (
+      <svg viewBox="0 0 48 48" role="img" aria-label="Discount Wizard portrait">
+        <path d="m7 43 11-26h15l9 26Z" fill="#4d3271" />
+        <path d="m8 18 17-16 15 17Z" fill="#764ca0" />
+        <circle cx="25" cy="21" r="8" fill="#f0c2a7" />
+        <path d="m19 26 13-1-6 14Z" fill="#e6e1d5" />
+        <circle cx="22" cy="20" r="1.6" fill="#332738" />
+        <circle cx="28" cy="20" r="1.6" fill="#332738" />
+        <path d="M37 42 42 10" stroke="#8b603d" strokeWidth="3" />
+        <circle
+          cx="42"
+          cy="9"
+          r="5"
+          fill="#ffe989"
+          stroke="#fff5c8"
+          strokeWidth="2"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 48 48" role="img" aria-label="Bardbarian portrait">
+      <path d="M8 43 13 22h22l5 21Z" fill="#325f56" />
+      <circle cx="24" cy="17" r="9" fill="#efb88f" />
+      <path d="m15 12 9-10 9 10" fill="#203b38" />
+      <circle cx="21" cy="17" r="1.6" fill="#332738" />
+      <circle cx="27" cy="17" r="1.6" fill="#332738" />
+      <ellipse
+        cx="32"
+        cy="32"
+        rx="10"
+        ry="12"
+        fill="#8b5533"
+        stroke="#f4dfaa"
+        strokeWidth="2"
+      />
+      <circle cx="32" cy="32" r="3" fill="#2c1c19" />
+      <path d="M24 40 39 19M14 26 6 37" stroke="#e6c778" strokeWidth="3" />
+    </svg>
+  );
 }
 
 export function GameScreen({
@@ -53,7 +130,9 @@ export function GameScreen({
     [checkpoint, modifierIds, seed],
   );
   const [state, setState] = useState<GameState>(simulation.state);
-  const [selectedTowerId, setSelectedTowerId] = useState("fork-knight");
+  const [selectedTowerId, setSelectedTowerId] = useState<string | null>(null);
+  const [placementPreview, setPlacementPreview] =
+    useState<PlacementPreview | null>(null);
   const [selectedTower, setSelectedTower] = useState<TowerState | null>(null);
   const [paused, setPaused] = useState(false);
   const [message, setMessage] = useState<string | null>(
@@ -138,6 +217,10 @@ export function GameScreen({
         }
       }
     }
+    if (next.phase === "victory" || next.phase === "defeat") {
+      setPlacementPreview(null);
+      setSelectedTowerId(null);
+    }
   }
 
   function setSpeed(speed: GameSpeed) {
@@ -171,6 +254,35 @@ export function GameScreen({
   const combatManagementDisabled =
     state.phase !== "preparing" && state.phase !== "active";
   const sellingDisabled = state.phase !== "preparing";
+  const previewDefinition = placementPreview
+    ? towerDefinitions[
+        placementPreview.towerId as keyof typeof towerDefinitions
+      ]
+    : null;
+  const remainingEnemies =
+    state.phase === "active" && wave
+      ? state.enemies.length + wave.spawns.length - state.nextSpawnIndex
+      : 0;
+
+  function cancelPlacement() {
+    setPlacementPreview(null);
+  }
+
+  function confirmPlacement() {
+    if (
+      !placementPreview ||
+      !previewDefinition ||
+      combatManagementDisabled ||
+      state.gold < previewDefinition.cost
+    ) {
+      return;
+    }
+    if (battlefield.current?.confirmPlacement(placementPreview)) {
+      setPlacementPreview(null);
+      setSelectedTowerId(null);
+      setMessage(`${previewDefinition.shortName} deployed.`);
+    }
+  }
 
   return (
     <main className="game-screen">
@@ -238,11 +350,29 @@ export function GameScreen({
           ref={battlefield}
           simulation={simulation}
           selectedTowerId={selectedTowerId}
+          placementPreview={placementPreview}
           gameSpeed={settings.gameSpeed}
           lowEffects={settings.lowEffects}
           reducedMotion={settings.reducedMotion}
           onState={handleState}
           onTowerSelected={setSelectedTower}
+          onPlacementPreview={(preview) => {
+            if (combatManagementDisabled) {
+              setPlacementPreview(null);
+              setMessage("The battle is already decided.");
+              return;
+            }
+            setPlacementPreview(preview);
+            if (preview) {
+              const definition =
+                towerDefinitions[
+                  preview.towerId as keyof typeof towerDefinitions
+                ];
+              setMessage(
+                `${definition.shortName} previewed. Confirm to spend ${definition.cost}g.`,
+              );
+            }
+          }}
           onPauseChanged={setPaused}
           onError={setMessage}
         />
@@ -273,16 +403,14 @@ export function GameScreen({
                 onClick={() => {
                   setSelectedTowerId(tower.id);
                   setSelectedTower(null);
+                  setPlacementPreview(null);
                   setMessage(`${tower.shortName} selected. Tap an empty pad.`);
                 }}
                 disabled={combatManagementDisabled}
+                aria-pressed={selected}
               >
                 <span className="tower-portrait" aria-hidden="true">
-                  {tower.id === "fork-knight"
-                    ? "♜"
-                    : tower.id === "discount-wizard"
-                      ? "✦"
-                      : "♫"}
+                  <TowerPortrait towerId={tower.id} />
                 </span>
                 <span>
                   <strong>{tower.shortName}</strong>
@@ -295,7 +423,41 @@ export function GameScreen({
         </div>
 
         <div className="wave-panel">
-          {inspected && inspectedDefinition && inspectedLevel ? (
+          {placementPreview && previewDefinition ? (
+            <div className="placement-panel" aria-live="polite">
+              <span className={`tower-portrait tower-${previewDefinition.id}`}>
+                <TowerPortrait towerId={previewDefinition.id} />
+              </span>
+              <div>
+                <span className="eyebrow">Placement preview</span>
+                <strong>{previewDefinition.shortName}</strong>
+                <small>
+                  Deploy for {previewDefinition.cost} gold
+                  {state.gold < previewDefinition.cost
+                    ? ` · need ${previewDefinition.cost - state.gold} more`
+                    : ""}
+                </small>
+              </div>
+              <div className="placement-actions">
+                <button
+                  className="button button-small button-ghost"
+                  onClick={cancelPlacement}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="button button-small button-primary"
+                  onClick={confirmPlacement}
+                  disabled={
+                    combatManagementDisabled ||
+                    state.gold < previewDefinition.cost
+                  }
+                >
+                  Confirm {previewDefinition.cost}g
+                </button>
+              </div>
+            </div>
+          ) : inspected && inspectedDefinition && inspectedLevel ? (
             <div className="inspection-panel">
               <div>
                 <span className="eyebrow">Hero inspection</span>
@@ -354,29 +516,42 @@ export function GameScreen({
             </div>
           )}
 
-          <div className="wave-actions">
-            {state.phase === "preparing" && (
-              <>
-                <button className="button button-ghost" onClick={onExit}>
-                  Map
-                </button>
-                <button
-                  className="button button-primary"
-                  onClick={() =>
-                    battlefield.current?.dispatch({ type: "start-wave" })
-                  }
-                >
-                  Start wave {state.waveIndex + 1}
-                </button>
-              </>
-            )}
-            {state.phase === "active" && (
-              <span className="wave-live">
-                <span className="status-dot" /> Wave in progress · Build +
-                upgrade
-              </span>
-            )}
-          </div>
+          {!placementPreview && (
+            <div className="wave-actions">
+              {state.phase === "preparing" && (
+                <>
+                  <button
+                    className="button button-ghost"
+                    onClick={() => {
+                      cancelPlacement();
+                      setSelectedTowerId(null);
+                      onExit();
+                    }}
+                  >
+                    Map
+                  </button>
+                  <button
+                    className="button button-primary"
+                    onClick={() => {
+                      cancelPlacement();
+                      setSelectedTowerId(null);
+                      battlefield.current?.dispatch({ type: "start-wave" });
+                    }}
+                  >
+                    Start wave {state.waveIndex + 1}
+                  </button>
+                </>
+              )}
+              {state.phase === "active" && (
+                <span className="wave-live">
+                  <span className="status-dot" /> Wave in progress ·{" "}
+                  {remainingEnemies}{" "}
+                  {remainingEnemies === 1 ? "enemy" : "enemies"} remaining ·
+                  Build + upgrade
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
