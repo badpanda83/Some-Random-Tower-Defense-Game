@@ -57,6 +57,68 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await context.setOffline(false);
 });
 
+test("keeps global settings accessible and persisted across screens", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const settingsButton = page.getByRole("button", { name: "Open settings" });
+  await expect(settingsButton).toBeVisible();
+  await settingsButton.click();
+
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  const keepPlaying = dialog.getByRole("checkbox", {
+    name: /Keep playing while away/i,
+  });
+  await expect(dialog).toBeVisible();
+  await expect(keepPlaying).not.toBeChecked();
+  await keepPlaying.check();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open("dubious-realm", 1);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const record = await new Promise<{
+          data?: { settings?: { keepPlayingWhileAway?: boolean } };
+        } | null>((resolve, reject) => {
+          const transaction = database.transaction("saves", "readonly");
+          const request = transaction.objectStore("saves").get("campaign");
+          request.onsuccess = () => resolve(request.result ?? null);
+          request.onerror = () => reject(request.error);
+        });
+        database.close();
+        return record?.data?.settings?.keepPlayingWhileAway ?? false;
+      }),
+    )
+    .toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(settingsButton).toBeFocused();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await expect(settingsButton).toBeVisible();
+  await settingsButton.click();
+  await expect(keepPlaying).toBeChecked();
+  await page.getByRole("button", { name: "Close settings" }).click();
+
+  await page.getByRole("button", { name: "Begin defense" }).click();
+  await expect(settingsButton).toBeVisible();
+  await settingsButton.click();
+  await expect(
+    page.getByRole("button", { name: "Start wave 1" }),
+  ).not.toBeVisible();
+  await page.getByRole("button", { name: "Close settings" }).click();
+  await expect(
+    page.getByRole("button", { name: "Start wave 1" }),
+  ).toBeVisible();
+
+  await page.reload();
+  await settingsButton.click();
+  await expect(keepPlaying).toBeChecked();
+});
+
 test("previews, confirms, and safely cancels touch-friendly placement", async ({
   page,
 }, testInfo) => {
@@ -143,6 +205,20 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   await expect(
     page.getByText(/Battle resumes automatically when your phone is sideways/),
   ).toBeVisible();
+  const settingsButton = page.getByRole("button", { name: "Open settings" });
+  await expect(settingsButton).toBeVisible();
+  await settingsButton.click();
+  const settingsDialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(settingsDialog).toBeVisible();
+  const settingsBox = await settingsDialog.boundingBox();
+  expect(settingsBox).not.toBeNull();
+  expect(
+    (settingsBox?.x ?? -1) + (settingsBox?.width ?? 394),
+  ).toBeLessThanOrEqual(393);
+  expect(
+    (settingsBox?.y ?? -1) + (settingsBox?.height ?? 853),
+  ).toBeLessThanOrEqual(852);
+  await page.getByRole("button", { name: "Close settings" }).click();
 
   await page.setViewportSize({ width: 568, height: 320 });
   await expect(orientation).not.toBeVisible();
@@ -156,6 +232,7 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
     ["tower", forkKnight],
     ["ability", ability],
     ["leave", leave],
+    ["settings", settingsButton],
     ["wave", startWave],
   ] as const) {
     await expect(control).toBeVisible();
@@ -296,6 +373,9 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   await expect(
     page.getByRole("heading", { name: "The moat is defended!" }),
   ).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByRole("button", { name: "Open settings" }),
+  ).toBeVisible();
   await page.evaluate(async () => navigator.serviceWorker.ready);
   await context.setOffline(true);
   await page.getByRole("button", { name: "Continue to campaign" }).click();

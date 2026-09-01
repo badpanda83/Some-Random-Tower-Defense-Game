@@ -22,6 +22,7 @@ import {
   overwriteCloudSave,
   synchronizeSave,
 } from "./api.js";
+import { SettingsDialog } from "./components/Settings.js";
 import { CampaignScreen } from "./screens/CampaignScreen.js";
 import { TitleScreen } from "./screens/TitleScreen.js";
 import {
@@ -69,7 +70,9 @@ export function App() {
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [battle, setBattle] = useState<BattleSetup | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const recordRef = useRef<LocalSaveRecord | null>(null);
+  const settingsTrigger = useRef<HTMLButtonElement | null>(null);
   const conflictRef = useRef<CloudSave | null>(null);
   const conflictResolutionRef = useRef(false);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -169,6 +172,12 @@ export function App() {
     };
   }, [scheduleSync]);
 
+  useEffect(() => {
+    if (conflict) {
+      setSettingsOpen(false);
+    }
+  }, [conflict]);
+
   async function install() {
     if (!installPrompt) {
       return;
@@ -177,6 +186,15 @@ export function App() {
     await installPrompt.userChoice;
     setInstallPrompt(null);
   }
+
+  const openSettings = useCallback((trigger: HTMLButtonElement) => {
+    settingsTrigger.current = trigger;
+    setSettingsOpen(true);
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+  }, []);
 
   async function commit(data: SaveData): Promise<void> {
     const current = recordRef.current;
@@ -332,14 +350,15 @@ export function App() {
     <>
       <div
         className="app-surface"
-        inert={conflict ? true : undefined}
-        aria-hidden={conflict ? true : undefined}
+        inert={conflict || settingsOpen ? true : undefined}
+        aria-hidden={conflict || settingsOpen ? true : undefined}
       >
         {screen === "title" && (
           <TitleScreen
             installAvailable={Boolean(installPrompt)}
             onInstall={() => void install()}
             onContinue={() => setScreen("campaign")}
+            onOpenSettings={openSettings}
           />
         )}
 
@@ -352,8 +371,8 @@ export function App() {
             onInstall={() => void install()}
             onStart={(modifiers) => beginBattle(modifiers)}
             onResume={() => beginBattle([], record.data.checkpoint)}
-            onSettings={updateSettings}
             onHome={() => setScreen("title")}
+            onOpenSettings={openSettings}
           />
         )}
 
@@ -372,6 +391,7 @@ export function App() {
               modifierIds={battle.modifierIds}
               checkpoint={battle.checkpoint}
               settings={record.data.settings}
+              settingsOpen={settingsOpen}
               synchronizationBlocked={Boolean(conflict)}
               onCheckpoint={(checkpoint) => {
                 void commit(
@@ -396,6 +416,7 @@ export function App() {
                 setBattle(null);
               }}
               onSettings={updateSettings}
+              onOpenSettings={openSettings}
             />
           </Suspense>
         )}
@@ -412,6 +433,15 @@ export function App() {
           </div>
         )}
       </div>
+
+      {settingsOpen && (
+        <SettingsDialog
+          settings={record.data.settings}
+          returnFocus={settingsTrigger.current}
+          onChange={updateSettings}
+          onClose={closeSettings}
+        />
+      )}
 
       {conflict && (
         <div className="modal-backdrop">

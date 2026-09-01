@@ -12,12 +12,17 @@ import {
 } from "@srtg/game-core";
 import type { GameCommand, GameSpeed } from "@srtg/protocol";
 import Phaser from "phaser";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+} from "react";
 
 export interface BattlefieldHandle {
   dispatch(command: GameCommand): boolean;
   confirmPlacement(preview: PlacementPreview): boolean;
-  setPaused(paused: boolean): void;
   setSpeed(speed: GameSpeed): void;
 }
 
@@ -30,13 +35,13 @@ interface BattlefieldProps {
   readonly simulation: Simulation;
   readonly selectedTowerId: string | null;
   readonly placementPreview: PlacementPreview | null;
+  readonly paused: boolean;
   readonly gameSpeed: GameSpeed;
   readonly lowEffects: boolean;
   readonly reducedMotion: boolean;
   readonly onState: (state: GameState, events: readonly GameEvent[]) => void;
   readonly onTowerSelected: (tower: TowerState | null) => void;
   readonly onPlacementPreview: (preview: PlacementPreview | null) => void;
-  readonly onPauseChanged: (paused: boolean) => void;
   readonly onError: (message: string) => void;
 }
 
@@ -45,8 +50,13 @@ interface SceneCallbacks {
   readonly onState: BattlefieldProps["onState"];
   readonly onTowerSelected: BattlefieldProps["onTowerSelected"];
   readonly onPlacementPreview: BattlefieldProps["onPlacementPreview"];
-  readonly onPauseChanged: BattlefieldProps["onPauseChanged"];
   readonly onError: BattlefieldProps["onError"];
+}
+
+interface BattleSceneRuntime {
+  readonly paused: boolean;
+  readonly speed: GameSpeed;
+  readonly placementPreview: PlacementPreview | null;
 }
 
 const DECORATIONS = [
@@ -76,10 +86,10 @@ class BattleScene extends Phaser.Scene {
   private mapGraphics!: Phaser.GameObjects.Graphics;
   private effectsGraphics!: Phaser.GameObjects.Graphics;
   private accumulator = 0;
-  private pausedByPlayer = false;
-  private speed: GameSpeed = 1;
+  private paused: boolean;
+  private speed: GameSpeed;
   private selectedTowerInstanceId: string | null = null;
-  private placementPreview: PlacementPreview | null = null;
+  private placementPreview: PlacementPreview | null;
   private enemySnapshots = new Map<string, EnemySnapshot>();
   private transientEffects: TransientEffect[] = [];
 
@@ -88,8 +98,12 @@ class BattleScene extends Phaser.Scene {
     private readonly callbacks: SceneCallbacks,
     private readonly lowEffects: boolean,
     private readonly reducedMotion: boolean,
+    runtime: BattleSceneRuntime,
   ) {
     super({ key: "battle" });
+    this.paused = runtime.paused;
+    this.speed = runtime.speed;
+    this.placementPreview = runtime.placementPreview;
   }
 
   public create(): void {
@@ -99,20 +113,18 @@ class BattleScene extends Phaser.Scene {
       "pointerdown",
       this.handleCanvasPointerDown,
     );
-    document.addEventListener("visibilitychange", this.handleVisibility);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.canvas.removeEventListener(
         "pointerdown",
         this.handleCanvasPointerDown,
       );
-      document.removeEventListener("visibilitychange", this.handleVisibility);
     });
     this.renderState(this.simulation.state, []);
     this.callbacks.onState(this.simulation.state, []);
   }
 
   public override update(_time: number, delta: number): void {
-    if (this.pausedByPlayer || this.simulation.state.phase !== "active") {
+    if (this.paused || this.simulation.state.phase !== "active") {
       return;
     }
 
@@ -169,19 +181,12 @@ class BattleScene extends Phaser.Scene {
   }
 
   public setPaused(paused: boolean): void {
-    this.pausedByPlayer = paused;
-    this.callbacks.onPauseChanged(paused);
+    this.paused = paused;
   }
 
   public setSpeed(speed: GameSpeed): void {
     this.speed = speed;
   }
-
-  private readonly handleVisibility = (): void => {
-    if (document.hidden && this.simulation.state.phase === "active") {
-      this.setPaused(true);
-    }
-  };
 
   private readonly handleCanvasPointerDown = (event: PointerEvent): void => {
     const bounds = this.game.canvas.getBoundingClientRect();
@@ -1037,13 +1042,13 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       simulation,
       selectedTowerId,
       placementPreview,
+      paused,
       gameSpeed,
       lowEffects,
       reducedMotion,
       onState,
       onTowerSelected,
       onPlacementPreview,
-      onPauseChanged,
       onError,
     },
     ref,
@@ -1055,16 +1060,24 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       onState,
       onTowerSelected,
       onPlacementPreview,
-      onPauseChanged,
       onError,
+    });
+    const runtime = useRef<BattleSceneRuntime>({
+      paused,
+      speed: gameSpeed,
+      placementPreview,
     });
     callbacks.current = {
       selectedTowerId,
       onState,
       onTowerSelected,
       onPlacementPreview,
-      onPauseChanged,
       onError,
+    };
+    runtime.current = {
+      paused,
+      speed: gameSpeed,
+      placementPreview,
     };
 
     useImperativeHandle(ref, () => ({
@@ -1074,9 +1087,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       confirmPlacement(preview) {
         return scene.current?.confirmPlacement(preview) ?? false;
       },
-      setPaused(paused) {
-        scene.current?.setPaused(paused);
-      },
       setSpeed(speed) {
         scene.current?.setSpeed(speed);
       },
@@ -1085,6 +1095,10 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     useEffect(() => {
       scene.current?.setSpeed(gameSpeed);
     }, [gameSpeed]);
+
+    useLayoutEffect(() => {
+      scene.current?.setPaused(paused);
+    }, [paused]);
 
     useEffect(() => {
       scene.current?.setPlacementPreview(placementPreview);
@@ -1096,27 +1110,28 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
         return;
       }
 
-      const battleScene = new BattleScene(
-        simulation,
-        {
-          selectedTowerId: () => callbacks.current.selectedTowerId,
-          onState: (state, events) => callbacks.current.onState(state, events),
-          onTowerSelected: (tower) => callbacks.current.onTowerSelected(tower),
-          onPlacementPreview: (preview) =>
-            callbacks.current.onPlacementPreview(preview),
-          onPauseChanged: (paused) => callbacks.current.onPauseChanged(paused),
-          onError: (message) => callbacks.current.onError(message),
-        },
-        lowEffects,
-        reducedMotion,
-      );
-      battleScene.setSpeed(gameSpeed);
       let game: Phaser.Game | null = null;
       const startFrame = window.requestAnimationFrame(() => {
         if (!container.isConnected) {
           return;
         }
         container.replaceChildren();
+        const battleScene = new BattleScene(
+          simulation,
+          {
+            selectedTowerId: () => callbacks.current.selectedTowerId,
+            onState: (state, events) =>
+              callbacks.current.onState(state, events),
+            onTowerSelected: (tower) =>
+              callbacks.current.onTowerSelected(tower),
+            onPlacementPreview: (preview) =>
+              callbacks.current.onPlacementPreview(preview),
+            onError: (message) => callbacks.current.onError(message),
+          },
+          lowEffects,
+          reducedMotion,
+          runtime.current,
+        );
         scene.current = battleScene;
         game = new Phaser.Game({
           type: Phaser.AUTO,

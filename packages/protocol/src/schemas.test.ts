@@ -21,6 +21,7 @@ describe("protocol schemas", () => {
 
     expect(save.settings.gameSpeed).toBe(1);
     expect(save.settings.muted).toBe(false);
+    expect(save.settings.keepPlayingWhileAway).toBe(false);
   });
 
   it("rejects unknown commands", () => {
