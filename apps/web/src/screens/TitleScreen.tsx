@@ -1,16 +1,24 @@
+import { SettingsButton } from "../components/Settings.js";
+
 interface TitleScreenProps {
   readonly installAvailable: boolean;
   readonly onInstall: () => void;
   readonly onContinue: () => void;
+  readonly onOpenSettings: (trigger: HTMLButtonElement) => void;
 }
 
 export function TitleScreen({
   installAvailable,
   onInstall,
   onContinue,
+  onOpenSettings,
 }: TitleScreenProps) {
   return (
     <main className="title-screen">
+      <SettingsButton
+        className="title-settings-button"
+        onOpen={onOpenSettings}
+      />
       <div className="title-stars" aria-hidden="true" />
       <section className="title-copy">
         <span className="eyebrow">A highly reputable defense concern</span>

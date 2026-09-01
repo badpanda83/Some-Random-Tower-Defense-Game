@@ -3,10 +3,11 @@ import {
   modifierDefinitions,
   muddyMoatLevel,
 } from "@srtg/game-core";
-import type { Profile, SaveData, Settings } from "@srtg/protocol";
+import type { Profile, SaveData } from "@srtg/protocol";
 import { useState } from "react";
 
 import { AccountPanel } from "../components/AccountPanel.js";
+import { SettingsButton } from "../components/Settings.js";
 
 interface CampaignScreenProps {
   readonly save: SaveData;
@@ -16,8 +17,8 @@ interface CampaignScreenProps {
   readonly onInstall: () => void;
   readonly onStart: (modifierIds: readonly string[]) => void;
   readonly onResume: () => void;
-  readonly onSettings: (settings: Settings) => void;
   readonly onHome: () => void;
+  readonly onOpenSettings: (trigger: HTMLButtonElement) => void;
 }
 
 export function CampaignScreen({
@@ -28,21 +29,14 @@ export function CampaignScreen({
   onInstall,
   onStart,
   onResume,
-  onSettings,
   onHome,
+  onOpenSettings,
 }: CampaignScreenProps) {
   const progress = save.campaign.levels["muddy-moat"];
   const [challenge, setChallenge] = useState(false);
   const challengeAvailable = (progress?.victories ?? 0) > 0;
   const completedMastery = new Set(progress?.completedMasteryIds ?? []);
   const unlocked = new Set(save.campaign.unlockedNodeIds);
-
-  function updateSetting<Key extends keyof Settings>(
-    key: Key,
-    value: Settings[Key],
-  ) {
-    onSettings({ ...save.settings, [key]: value });
-  }
 
   return (
     <main className="campaign-screen">
@@ -64,6 +58,7 @@ export function CampaignScreen({
               Install
             </button>
           )}
+          <SettingsButton onOpen={onOpenSettings} />
         </div>
       </header>
 
@@ -211,42 +206,6 @@ export function CampaignScreen({
               </span>
             </label>
           </section>
-
-          <details className="settings-card card">
-            <summary>Traveling settings cart</summary>
-            <div className="settings-grid">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={save.settings.muted}
-                  onChange={(event) =>
-                    updateSetting("muted", event.target.checked)
-                  }
-                />
-                Mute tiny battle noises
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={save.settings.reducedMotion}
-                  onChange={(event) =>
-                    updateSetting("reducedMotion", event.target.checked)
-                  }
-                />
-                Reduce motion
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={save.settings.lowEffects}
-                  onChange={(event) =>
-                    updateSetting("lowEffects", event.target.checked)
-                  }
-                />
-                Low-effects mode
-              </label>
-            </div>
-          </details>
 
           <AccountPanel profile={profile} />
         </aside>

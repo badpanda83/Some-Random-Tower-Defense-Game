@@ -10,11 +10,15 @@ import type {
   BattleCheckpoint,
   BattleResult,
   GameCommand,
+  Settings,
 } from "@srtg/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { PageActivitySource } from "../page-activity.js";
+
 const battlefieldTest = vi.hoisted(() => ({
   setPaused: vi.fn<(paused: boolean) => void>(),
+  paused: false,
   advance: null as null | ((ticks: number) => void),
 }));
 
@@ -41,15 +45,22 @@ vi.mock("../game/Battlefield.js", async () => {
             events: readonly unknown[];
           };
         };
+        paused: boolean;
         onState: (state: unknown, events: readonly unknown[]) => void;
-        onPauseChanged: (paused: boolean) => void;
       },
       ref: React.ForwardedRef<unknown>,
     ) {
       battlefieldTest.advance = (ticks) => {
+        if (battlefieldTest.paused) {
+          return;
+        }
         const result = props.simulation.step(ticks);
         props.onState(result.state, result.events);
       };
+      React.useEffect(() => {
+        battlefieldTest.paused = props.paused;
+        battlefieldTest.setPaused(props.paused);
+      }, [props.paused]);
       React.useImperativeHandle(ref, () => ({
         dispatch(command: GameCommand) {
           const result = props.simulation.dispatch(command);
@@ -58,10 +69,6 @@ vi.mock("../game/Battlefield.js", async () => {
         },
         confirmPlacement() {
           return false;
-        },
-        setPaused(paused: boolean) {
-          battlefieldTest.setPaused(paused);
-          props.onPauseChanged(paused);
         },
         setSpeed() {},
       }));
@@ -77,7 +84,32 @@ const settings = {
   reducedMotion: false,
   lowEffects: false,
   gameSpeed: 1 as const,
+  keepPlayingWhileAway: false,
 };
+
+const activePage: PageActivitySource = {
+  isAway: () => false,
+  subscribe: () => () => undefined,
+};
+
+class TestPageActivity implements PageActivitySource {
+  private away = false;
+  private readonly listeners = new Set<() => void>();
+
+  public isAway() {
+    return this.away;
+  }
+
+  public subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  public setAway(away: boolean) {
+    this.away = away;
+    this.listeners.forEach((listener) => listener());
+  }
+}
 
 function renderGame(
   checkpoint: BattleCheckpoint | null = null,
@@ -93,6 +125,7 @@ function renderGame(
     onRetry: vi.fn(),
     onAbandon: vi.fn().mockResolvedValue(undefined),
     onSettings: vi.fn(),
+    onOpenSettings: vi.fn(),
     ...overrides,
   };
   render(
@@ -101,7 +134,9 @@ function renderGame(
       modifierIds={[]}
       checkpoint={checkpoint}
       settings={settings}
+      settingsOpen={false}
       synchronizationBlocked={false}
+      pageActivity={activePage}
       {...callbacks}
     />,
   );
@@ -110,6 +145,7 @@ function renderGame(
 
 describe("mission abandonment", () => {
   beforeEach(() => {
+    battlefieldTest.paused = false;
     battlefieldTest.setPaused.mockClear();
   });
 
@@ -297,7 +333,8 @@ describe("mission abandonment", () => {
     fireEvent.click(screen.getByRole("button", { name: "Leave mission" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue mission" }));
 
-    expect(battlefieldTest.setPaused.mock.calls).toEqual([[true], [true]]);
+    expect(battlefieldTest.paused).toBe(true);
+    expect(battlefieldTest.setPaused).not.toHaveBeenCalledWith(false);
     expect(
       screen.getByRole("button", { name: "Resume battle" }),
     ).toBeInTheDocument();
@@ -310,6 +347,7 @@ describe("mission abandonment", () => {
       onRetry: vi.fn(),
       onAbandon: vi.fn(),
       onSettings: vi.fn(),
+      onOpenSettings: vi.fn(),
     };
     const game = (synchronizationBlocked: boolean) => (
       <GameScreen
@@ -317,7 +355,9 @@ describe("mission abandonment", () => {
         modifierIds={[]}
         checkpoint={null}
         settings={settings}
+        settingsOpen={false}
         synchronizationBlocked={synchronizationBlocked}
+        pageActivity={activePage}
         {...callbacks}
       />
     );
@@ -343,4 +383,87 @@ describe("mission abandonment", () => {
     expect(callbacks.onComplete).not.toHaveBeenCalled();
     expect(callbacks.onCheckpoint).not.toHaveBeenCalled();
   });
+
+  it("restores exactly the prior pause state after settings closes", () => {
+    const callbacks = {
+      onCheckpoint: vi.fn(),
+      onComplete: vi.fn(),
+      onRetry: vi.fn(),
+      onAbandon: vi.fn(),
+      onSettings: vi.fn(),
+      onOpenSettings: vi.fn(),
+    };
+    const game = (settingsOpen: boolean, synchronizationBlocked = false) => (
+      <GameScreen
+        seed={7}
+        modifierIds={[]}
+        checkpoint={null}
+        settings={settings}
+        settingsOpen={settingsOpen}
+        synchronizationBlocked={synchronizationBlocked}
+        pageActivity={activePage}
+        {...callbacks}
+      />
+    );
+    const view = render(game(false));
+    fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+    battlefieldTest.setPaused.mockClear();
+
+    view.rerender(game(true));
+    expect(battlefieldTest.setPaused).toHaveBeenLastCalledWith(true);
+    view.rerender(game(false));
+    expect(battlefieldTest.setPaused).toHaveBeenLastCalledWith(false);
+
+    battlefieldTest.setPaused.mockClear();
+    view.rerender(game(true, true));
+    view.rerender(game(false, true));
+    expect(battlefieldTest.paused).toBe(true);
+    expect(battlefieldTest.setPaused).not.toHaveBeenCalledWith(false);
+    view.rerender(game(false, false));
+    expect(battlefieldTest.setPaused).toHaveBeenLastCalledWith(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause battle" }));
+    battlefieldTest.setPaused.mockClear();
+    view.rerender(game(true));
+    view.rerender(game(false));
+    expect(battlefieldTest.paused).toBe(true);
+    expect(battlefieldTest.setPaused).not.toHaveBeenCalledWith(false);
+  });
+
+  it.each([
+    [false, "0% charged"],
+    [true, "25% charged"],
+  ])(
+    "handles away-state ticks when keep-playing is %s",
+    (keepPlayingWhileAway, expectedCharge) => {
+      const pageActivity = new TestPageActivity();
+      const activitySettings: Settings = {
+        ...settings,
+        keepPlayingWhileAway,
+      };
+      render(
+        <GameScreen
+          seed={7}
+          modifierIds={[]}
+          checkpoint={null}
+          settings={activitySettings}
+          settingsOpen={false}
+          synchronizationBlocked={false}
+          pageActivity={pageActivity}
+          onCheckpoint={vi.fn()}
+          onComplete={vi.fn()}
+          onRetry={vi.fn()}
+          onAbandon={vi.fn()}
+          onSettings={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+
+      act(() => pageActivity.setAway(true));
+      act(() => battlefieldTest.advance?.(60));
+
+      expect(screen.getByText(expectedCharge)).toBeInTheDocument();
+    },
+  );
 });

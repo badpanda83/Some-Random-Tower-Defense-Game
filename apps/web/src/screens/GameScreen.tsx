@@ -24,18 +24,26 @@ import {
   type PlacementPreview,
 } from "../game/Battlefield.js";
 import { GameAudio } from "../game/audio.js";
+import {
+  browserPageActivity,
+  type PageActivitySource,
+} from "../page-activity.js";
+import { SettingsButton } from "../components/Settings.js";
 
 interface GameScreenProps {
   readonly seed: number;
   readonly modifierIds: readonly string[];
   readonly checkpoint: BattleCheckpoint | null;
   readonly settings: Settings;
+  readonly settingsOpen: boolean;
   readonly synchronizationBlocked: boolean;
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
   readonly onComplete: (result: BattleResult) => Promise<void>;
   readonly onRetry: () => void;
   readonly onAbandon: () => Promise<void>;
   readonly onSettings: (settings: Settings) => void;
+  readonly onOpenSettings: (trigger: HTMLButtonElement) => void;
+  readonly pageActivity?: PageActivitySource;
 }
 
 function TowerPortrait({ towerId }: { readonly towerId: string }) {
@@ -116,12 +124,15 @@ export function GameScreen({
   modifierIds,
   checkpoint,
   settings,
+  settingsOpen,
   synchronizationBlocked,
   onCheckpoint,
   onComplete,
   onRetry,
   onAbandon,
   onSettings,
+  onOpenSettings,
+  pageActivity = browserPageActivity,
 }: GameScreenProps) {
   const simulation = useMemo(
     () =>
@@ -137,7 +148,8 @@ export function GameScreen({
   const [placementPreview, setPlacementPreview] =
     useState<PlacementPreview | null>(null);
   const [selectedTower, setSelectedTower] = useState<TowerState | null>(null);
-  const [paused, setPaused] = useState(false);
+  const [manualPaused, setManualPaused] = useState(false);
+  const [pageAway, setPageAway] = useState(() => pageActivity.isAway());
   const [abilityArmed, setAbilityArmed] = useState(false);
   const [portraitBlocked, setPortraitBlocked] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
@@ -152,18 +164,19 @@ export function GameScreen({
   const quitDialog = useRef<HTMLElement>(null);
   const cancelQuitButton = useRef<HTMLButtonElement>(null);
   const quitTrigger = useRef<HTMLButtonElement>(null);
-  const quitPause = useRef<{ wasPaused: boolean } | null>(null);
   const quitSavingRef = useRef(false);
   const resultSavingRef = useRef(false);
-  const orientationPause = useRef<{ wasPaused: boolean } | null>(null);
   const checkpointSignature = useRef(
     checkpoint ? JSON.stringify(checkpoint) : "",
   );
   const audio = useRef(new GameAudio(settings.muted));
-  const synchronizationPause = useRef({
-    applied: false,
-    wasPaused: false,
-  });
+  const paused =
+    manualPaused ||
+    settingsOpen ||
+    portraitBlocked ||
+    quitOpen ||
+    synchronizationBlocked ||
+    (pageAway && !settings.keepPlayingWhileAway);
 
   useEffect(
     () => () => {
@@ -177,6 +190,12 @@ export function GameScreen({
   }, [settings.muted]);
 
   useEffect(() => {
+    const updateActivity = () => setPageAway(pageActivity.isAway());
+    updateActivity();
+    return pageActivity.subscribe(updateActivity);
+  }, [pageActivity]);
+
+  useEffect(() => {
     if (!window.matchMedia) {
       return;
     }
@@ -185,26 +204,14 @@ export function GameScreen({
     );
     const updateOrientation = () => {
       setPortraitBlocked(portrait.matches);
-      if (
-        portrait.matches &&
-        state.phase === "active" &&
-        !orientationPause.current
-      ) {
-        orientationPause.current = { wasPaused: paused };
+      if (portrait.matches) {
         setAbilityArmed(false);
-        battlefield.current?.setPaused(true);
-      } else if (!portrait.matches && orientationPause.current) {
-        const restorePaused = orientationPause.current.wasPaused;
-        orientationPause.current = null;
-        battlefield.current?.setPaused(
-          quitOpen || synchronizationBlocked ? true : restorePaused,
-        );
       }
     };
     updateOrientation();
     portrait.addEventListener("change", updateOrientation);
     return () => portrait.removeEventListener("change", updateOrientation);
-  }, [paused, quitOpen, state.phase, synchronizationBlocked]);
+  }, []);
 
   useEffect(() => {
     if (!quitOpen) {
@@ -244,30 +251,22 @@ export function GameScreen({
 
   useEffect(() => {
     if (
-      synchronizationBlocked &&
-      state.phase === "active" &&
-      !synchronizationPause.current.applied
+      settingsOpen ||
+      portraitBlocked ||
+      quitOpen ||
+      synchronizationBlocked ||
+      (pageAway && !settings.keepPlayingWhileAway)
     ) {
-      synchronizationPause.current = {
-        applied: true,
-        wasPaused: quitPause.current?.wasPaused ?? paused,
-      };
-      battlefield.current?.setPaused(true);
-    } else if (
-      synchronizationBlocked &&
-      synchronizationPause.current.applied &&
-      !paused
-    ) {
-      battlefield.current?.setPaused(true);
-    } else if (
-      !synchronizationBlocked &&
-      synchronizationPause.current.applied
-    ) {
-      const restorePaused = synchronizationPause.current.wasPaused;
-      synchronizationPause.current.applied = false;
-      battlefield.current?.setPaused(quitOpen ? true : restorePaused);
+      setAbilityArmed(false);
     }
-  }, [paused, quitOpen, state.phase, synchronizationBlocked]);
+  }, [
+    pageAway,
+    portraitBlocked,
+    quitOpen,
+    settings.keepPlayingWhileAway,
+    settingsOpen,
+    synchronizationBlocked,
+  ]);
 
   const inspected = selectedTower
     ? (state.towers.find((tower) => tower.id === selectedTower.id) ?? null)
@@ -324,28 +323,20 @@ export function GameScreen({
     if (synchronizationBlocked) {
       return;
     }
-    const next = !paused;
+    const next = !manualPaused;
     if (next) {
       setAbilityArmed(false);
     }
-    battlefield.current?.setPaused(next);
-    setPaused(next);
+    setManualPaused(next);
   }
 
   function requestQuit() {
     setAbilityArmed(false);
-    quitPause.current = { wasPaused: paused };
-    battlefield.current?.setPaused(true);
     setQuitOpen(true);
   }
 
   function cancelQuit() {
-    const restorePaused = quitPause.current?.wasPaused ?? paused;
-    quitPause.current = null;
     setQuitOpen(false);
-    battlefield.current?.setPaused(
-      synchronizationBlocked ? true : restorePaused,
-    );
     requestAnimationFrame(() => quitTrigger.current?.focus());
   }
 
@@ -360,7 +351,6 @@ export function GameScreen({
     setSelectedTowerId(null);
     setSelectedTower(null);
     setMessage(null);
-    quitPause.current = null;
     try {
       await onAbandon();
     } catch (error) {
@@ -444,8 +434,8 @@ export function GameScreen({
   return (
     <main
       className="game-screen"
-      inert={quitOpen ? true : undefined}
-      aria-hidden={quitOpen ? true : undefined}
+      inert={quitOpen || settingsOpen ? true : undefined}
+      aria-hidden={quitOpen || settingsOpen ? true : undefined}
     >
       <div
         className="rotate-prompt"
@@ -459,6 +449,10 @@ export function GameScreen({
           Rotate to landscape. Battle resumes automatically when your phone is
           sideways.
         </span>
+        <SettingsButton
+          className="rotate-settings-button"
+          onOpen={onOpenSettings}
+        />
       </div>
 
       <header className="game-hud">
@@ -484,6 +478,11 @@ export function GameScreen({
           </span>
         </div>
         <div className="hud-actions">
+          {!portraitBlocked &&
+            state.phase !== "victory" &&
+            state.phase !== "defeat" && (
+              <SettingsButton onOpen={onOpenSettings} />
+            )}
           <button
             ref={quitTrigger}
             className="quit-mission-button"
@@ -512,12 +511,12 @@ export function GameScreen({
             {settings.gameSpeed}×
           </button>
           <button
-            className={`icon-button ${paused ? "is-active" : ""}`}
+            className={`icon-button ${manualPaused ? "is-active" : ""}`}
             onClick={togglePause}
             disabled={state.phase !== "active" || synchronizationBlocked}
-            aria-label={paused ? "Resume battle" : "Pause battle"}
+            aria-label={manualPaused ? "Resume battle" : "Pause battle"}
           >
-            {paused ? "▶" : "Ⅱ"}
+            {manualPaused ? "▶" : "Ⅱ"}
           </button>
         </div>
       </header>
@@ -528,6 +527,7 @@ export function GameScreen({
           simulation={simulation}
           selectedTowerId={selectedTowerId}
           placementPreview={placementPreview}
+          paused={paused}
           gameSpeed={settings.gameSpeed}
           lowEffects={settings.lowEffects}
           reducedMotion={settings.reducedMotion}
@@ -550,7 +550,6 @@ export function GameScreen({
               );
             }
           }}
-          onPauseChanged={setPaused}
           onError={setMessage}
         />
         <div
@@ -824,6 +823,10 @@ export function GameScreen({
                 {resultSaving ? "Saving result…" : "Continue to campaign"}
               </button>
             </div>
+            <SettingsButton
+              className="result-settings-button"
+              onOpen={onOpenSettings}
+            />
           </section>
         </div>
       )}
