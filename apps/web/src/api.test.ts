@@ -2,7 +2,7 @@ import { CONTENT_VERSION, type CloudSave, type Profile } from "@srtg/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { synchronizeSave } from "./api.js";
-import { createFreshSave } from "./save.js";
+import { createFreshSave, withBattleResult } from "./save.js";
 import type { LocalSaveRecord } from "./storage.js";
 
 vi.mock("./auth.js", () => ({
@@ -37,7 +37,6 @@ function localSave(muted: boolean): LocalSaveRecord {
     },
     cloudOwnerId: "guest-user",
     cloudRevision: 1,
-    localRevision: 1,
     pending: false,
     updatedAt: "2026-08-31T11:00:00.000Z",
   };
@@ -64,22 +63,6 @@ afterEach(() => {
 });
 
 describe("cloud identity boundaries", () => {
-  it("does not replace an intentionally changed fresh-looking save", async () => {
-    mockCloud(remoteSave(true));
-    const local: LocalSaveRecord = {
-      data: createFreshSave(),
-      cloudOwnerId: null,
-      cloudRevision: 0,
-      localRevision: 1,
-      pending: true,
-      updatedAt: "2026-08-31T11:00:00.000Z",
-    };
-
-    const result = await synchronizeSave(local);
-
-    expect(result.type).toBe("conflict");
-  });
-
   it("surfaces equal revision numbers as a conflict when owners differ", async () => {
     mockCloud(remoteSave(false));
 
@@ -98,5 +81,117 @@ describe("cloud identity boundaries", () => {
       expect(result.record.cloudOwnerId).toBe("linked-user");
       expect(result.record.pending).toBe(false);
     }
+  });
+
+  it("rebases over a cloud revision this client already submitted", async () => {
+    const submitted = remoteSave(false).data;
+    const pending = {
+      ...localSave(true),
+      cloudOwnerId: linkedProfile.id,
+      pending: true,
+    };
+    const put = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        Response.json({
+          ...remoteSave(true),
+          revision: 2,
+          data: pending.data,
+        }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/profile") {
+          return Response.json(linkedProfile);
+        }
+        if (path === "/api/saves/campaign" && init?.method === "PUT") {
+          return put(input, init);
+        }
+        if (path === "/api/saves/campaign") {
+          return Response.json({
+            ...remoteSave(false),
+            revision: 2,
+            data: submitted,
+          });
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      }),
+    );
+
+    const result = await synchronizeSave(pending, [submitted]);
+
+    expect(result.type).toBe("synced");
+    expect(put).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(put.mock.calls[0]?.[1]?.body))).toMatchObject({
+      expectedRevision: 2,
+      data: pending.data,
+    });
+  });
+
+  it("does not infer ancestry from monotonic-looking progress", async () => {
+    const checkpoint = {
+      levelId: "muddy-moat",
+      seed: 7,
+      modifierIds: [],
+      tick: 100,
+      nextWave: 5,
+      lives: 12,
+      gold: 100,
+      score: 1000,
+      spawnedEnemies: 50,
+      placements: [],
+      metrics: {
+        spentGold: 0,
+        leakedEnemies: 0,
+        soldTowers: 0,
+        usedTowerIds: [],
+      },
+    };
+    const remote = {
+      ...remoteSave(false),
+      revision: 2,
+      data: { ...createFreshSave(), checkpoint },
+    };
+    const result = {
+      levelId: "muddy-moat",
+      seed: 7,
+      contentVersion: CONTENT_VERSION,
+      modifierIds: [],
+      result: "victory" as const,
+      score: 5000,
+      completedMasteryIds: [],
+      completedAt: "2026-08-31T12:05:00.000Z",
+    };
+    const local = {
+      ...localSave(false),
+      cloudOwnerId: linkedProfile.id,
+      pending: true,
+      data: withBattleResult(createFreshSave(), result),
+    };
+    const put = vi.fn(async () =>
+      Response.json({ ...remote, revision: 3, data: local.data }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const path = String(input);
+        if (path === "/api/profile") {
+          return Response.json(linkedProfile);
+        }
+        if (path === "/api/saves/campaign" && init?.method === "PUT") {
+          return put();
+        }
+        if (path === "/api/saves/campaign") {
+          return Response.json(remote);
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      }),
+    );
+
+    const synchronized = await synchronizeSave(local);
+
+    expect(synchronized.type).toBe("conflict");
+    expect(put).not.toHaveBeenCalled();
   });
 });

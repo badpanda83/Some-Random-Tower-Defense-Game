@@ -4,6 +4,29 @@ import {
   type BattleResult,
   type SaveData,
 } from "@srtg/protocol";
+import { campaignNodes } from "@srtg/game-core";
+
+const MAX_RECORDED_ATTEMPTS = 2000;
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, canonicalize(nested)]),
+    );
+  }
+  return value;
+}
+
+export function saveDataEqual(left: SaveData, right: SaveData): boolean {
+  return (
+    JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+  );
+}
 
 export function createFreshSave(): SaveData {
   return {
@@ -12,6 +35,7 @@ export function createFreshSave(): SaveData {
       unlockedNodeIds: ["muddy-moat"],
       levels: {},
       recentResults: [],
+      recordedAttemptIds: [],
     },
     settings: {
       muted: false,
@@ -34,61 +58,131 @@ export function withoutBattleCheckpoint(save: SaveData): SaveData {
   return { ...save, checkpoint: null };
 }
 
-export function withBattleResult(
-  save: SaveData,
-  result: BattleResult,
-): SaveData {
-  const alreadyRecorded = save.campaign.recentResults.some(
-    (recorded) =>
-      recorded.levelId === result.levelId &&
-      recorded.seed === result.seed &&
-      recorded.completedAt === result.completedAt &&
-      recorded.result === result.result,
-  );
-  if (alreadyRecorded) {
-    return { ...save, checkpoint: null };
-  }
-  const previous = save.campaign.levels[result.levelId];
-  const mastery = Array.from(
-    new Set([
-      ...(previous?.completedMasteryIds ?? []),
-      ...result.completedMasteryIds,
-    ]),
-  ).sort();
-  const modifiers =
-    result.result === "victory"
-      ? Array.from(
-          new Set([
-            ...(previous?.completedModifierIds ?? []),
-            ...result.modifierIds,
-          ]),
-        ).sort()
-      : [...(previous?.completedModifierIds ?? [])];
-  const unlocked = new Set(save.campaign.unlockedNodeIds);
+function battleAttemptKey(result: BattleResult): string {
+  return [
+    result.contentVersion,
+    result.levelId,
+    result.seed,
+    [...result.modifierIds].sort().join(","),
+    result.completedAt,
+  ].join(":");
+}
 
-  if (result.result === "victory") {
-    unlocked.add("mimic-market");
-    if (result.modifierIds.includes("stingy-king")) {
-      unlocked.add("troll-tollway");
+export function normalizeSaveProgress(save: SaveData): SaveData {
+  const unlocked = new Set(save.campaign.unlockedNodeIds);
+  const victoriousLevels = new Set(
+    Object.entries(save.campaign.levels)
+      .filter(([, progress]) => progress.victories > 0)
+      .map(([levelId]) => levelId),
+  );
+  const completedModifiers = new Set(
+    Object.values(save.campaign.levels).flatMap(
+      (progress) => progress.completedModifierIds,
+    ),
+  );
+  const recordedAttemptIds = Array.from(
+    new Set([
+      ...save.campaign.recordedAttemptIds,
+      ...save.campaign.recentResults.map(battleAttemptKey),
+    ]),
+  );
+
+  for (const result of save.campaign.recentResults) {
+    if (result.result === "victory") {
+      victoriousLevels.add(result.levelId);
+      result.modifierIds.forEach((modifierId) =>
+        completedModifiers.add(modifierId),
+      );
     }
+  }
+
+  for (const node of campaignNodes) {
+    if (
+      node.unlock === "start" ||
+      (node.unlock === "victory" &&
+        node.unlockSourceId !== null &&
+        victoriousLevels.has(node.unlockSourceId)) ||
+      (node.unlock === "modifier" &&
+        node.unlockSourceId !== null &&
+        completedModifiers.has(node.unlockSourceId))
+    ) {
+      unlocked.add(node.id);
+    }
+  }
+
+  const unlockedNodeIds = campaignNodes
+    .map((node) => node.id)
+    .filter((nodeId) => unlocked.has(nodeId));
+  if (
+    unlockedNodeIds.length === save.campaign.unlockedNodeIds.length &&
+    unlockedNodeIds.every(
+      (nodeId, index) => nodeId === save.campaign.unlockedNodeIds[index],
+    ) &&
+    recordedAttemptIds.length === save.campaign.recordedAttemptIds.length
+  ) {
+    return save;
   }
 
   return {
     ...save,
+    campaign: {
+      ...save.campaign,
+      unlockedNodeIds,
+      recordedAttemptIds,
+    },
+  };
+}
+
+export function withBattleResult(
+  save: SaveData,
+  result: BattleResult,
+): SaveData {
+  const attemptKey = battleAttemptKey(result);
+  const alreadyRecorded =
+    save.campaign.recentResults.some(
+      (recorded) => battleAttemptKey(recorded) === attemptKey,
+    ) || save.campaign.recordedAttemptIds.includes(attemptKey);
+  if (alreadyRecorded) {
+    return normalizeSaveProgress({ ...save, checkpoint: null });
+  }
+  if (save.campaign.recordedAttemptIds.length >= MAX_RECORDED_ATTEMPTS) {
+    throw new Error(
+      "The result history is full. Link or export this save before recording another battle.",
+    );
+  }
+  const previous = save.campaign.levels[result.levelId];
+  const victory = result.result === "victory";
+  const mastery = Array.from(
+    new Set([
+      ...(previous?.completedMasteryIds ?? []),
+      ...(victory ? result.completedMasteryIds : []),
+    ]),
+  ).sort();
+  const modifiers = victory
+    ? Array.from(
+        new Set([
+          ...(previous?.completedModifierIds ?? []),
+          ...result.modifierIds,
+        ]),
+      ).sort()
+    : [...(previous?.completedModifierIds ?? [])];
+
+  return normalizeSaveProgress({
+    ...save,
     checkpoint: null,
     campaign: {
-      unlockedNodeIds: [...unlocked],
+      unlockedNodeIds: save.campaign.unlockedNodeIds,
       levels: {
         ...save.campaign.levels,
         [result.levelId]: {
           bestScore: Math.max(previous?.bestScore ?? 0, result.score),
-          victories:
-            (previous?.victories ?? 0) + (result.result === "victory" ? 1 : 0),
+          victories: (previous?.victories ?? 0) + (victory ? 1 : 0),
           completedMasteryIds: mastery,
           completedModifierIds: modifiers,
         },
       },
       recentResults: [result, ...save.campaign.recentResults].slice(0, 20),
+      recordedAttemptIds: [...save.campaign.recordedAttemptIds, attemptKey],
     },
-  };
+  });
 }

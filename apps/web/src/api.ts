@@ -8,7 +8,11 @@ import {
 } from "@srtg/protocol";
 
 import { ensureGuestSession } from "./auth.js";
-import { createFreshSave } from "./save.js";
+import {
+  createFreshSave,
+  normalizeSaveProgress,
+  saveDataEqual,
+} from "./save.js";
 import type { LocalSaveRecord } from "./storage.js";
 
 class ApiResponseError extends Error {
@@ -56,7 +60,8 @@ export async function getProfile(): Promise<Profile> {
 export async function getCloudSave(): Promise<CloudSave | null> {
   try {
     const response = await request(`/api/saves/${DEFAULT_SAVE_SLOT}`);
-    return cloudSaveSchema.parse(await response.json());
+    const remote = cloudSaveSchema.parse(await response.json());
+    return { ...remote, data: normalizeSaveProgress(remote.data) };
   } catch (error) {
     if (error instanceof ApiResponseError && error.status === 404) {
       return null;
@@ -99,16 +104,11 @@ export type SyncResult =
       readonly profile: Profile;
     };
 
-function fromCloud(
-  remote: CloudSave,
-  ownerId: string,
-  localRevision = 0,
-): LocalSaveRecord {
+function fromCloud(remote: CloudSave, ownerId: string): LocalSaveRecord {
   return {
     data: remote.data,
     cloudOwnerId: ownerId,
     cloudRevision: remote.revision,
-    localRevision,
     pending: false,
     updatedAt: remote.updatedAt,
   };
@@ -116,6 +116,7 @@ function fromCloud(
 
 export async function synchronizeSave(
   local: LocalSaveRecord,
+  knownSubmittedData: readonly LocalSaveRecord["data"][] = [],
 ): Promise<SyncResult> {
   await ensureGuestSession();
   const [profile, remote] = await Promise.all([getProfile(), getCloudSave()]);
@@ -130,7 +131,7 @@ export async function synchronizeSave(
         const created = await putCloudSave(local.data, 0);
         return {
           type: "synced",
-          record: fromCloud(created, profile.id, local.localRevision),
+          record: fromCloud(created, profile.id),
           profile,
         };
       } catch (error) {
@@ -141,22 +142,21 @@ export async function synchronizeSave(
       }
     }
 
-    if (JSON.stringify(remote.data) === JSON.stringify(local.data)) {
+    if (saveDataEqual(remote.data, local.data)) {
       return {
         type: "synced",
-        record: fromCloud(remote, profile.id, local.localRevision),
+        record: fromCloud(remote, profile.id),
         profile,
       };
     }
     if (
       identityUnknown &&
       local.cloudRevision === 0 &&
-      local.localRevision === 0 &&
-      JSON.stringify(local.data) === JSON.stringify(createFreshSave())
+      saveDataEqual(local.data, createFreshSave())
     ) {
       return {
         type: "synced",
-        record: fromCloud(remote, profile.id, local.localRevision),
+        record: fromCloud(remote, profile.id),
         profile,
       };
     }
@@ -168,7 +168,7 @@ export async function synchronizeSave(
       const created = await putCloudSave(local.data, 0);
       return {
         type: "synced",
-        record: fromCloud(created, profile.id, local.localRevision),
+        record: fromCloud(created, profile.id),
         profile,
       };
     } catch (error) {
@@ -181,13 +181,31 @@ export async function synchronizeSave(
 
   if (local.pending) {
     if (remote.revision !== local.cloudRevision) {
+      const remoteWasSubmittedHere = knownSubmittedData.some((submitted) =>
+        saveDataEqual(submitted, remote.data),
+      );
+      if (remoteWasSubmittedHere) {
+        try {
+          const saved = await putCloudSave(local.data, remote.revision);
+          return {
+            type: "synced",
+            record: fromCloud(saved, profile.id),
+            profile,
+          };
+        } catch (error) {
+          if (error instanceof CloudSaveConflictError) {
+            return { type: "conflict", local, remote: error.remote, profile };
+          }
+          throw error;
+        }
+      }
       return { type: "conflict", local, remote, profile };
     }
     try {
       const saved = await putCloudSave(local.data, local.cloudRevision);
       return {
         type: "synced",
-        record: fromCloud(saved, profile.id, local.localRevision),
+        record: fromCloud(saved, profile.id),
         profile,
       };
     } catch (error) {
@@ -201,7 +219,7 @@ export async function synchronizeSave(
   if (remote.revision !== local.cloudRevision) {
     return {
       type: "synced",
-      record: fromCloud(remote, profile.id, local.localRevision),
+      record: fromCloud(remote, profile.id),
       profile,
     };
   }
@@ -214,11 +232,7 @@ export async function overwriteCloudSave(
   remoteRevision: number,
   ownerId: string,
 ): Promise<LocalSaveRecord> {
-  return fromCloud(
-    await putCloudSave(local.data, remoteRevision),
-    ownerId,
-    local.localRevision,
-  );
+  return fromCloud(await putCloudSave(local.data, remoteRevision), ownerId);
 }
 
 export function acceptCloudSave(

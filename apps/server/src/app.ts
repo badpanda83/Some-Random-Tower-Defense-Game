@@ -157,7 +157,7 @@ export async function buildApp({
     crossOriginEmbedderPolicy: false,
   });
   await app.register(rateLimit, {
-    max: 240,
+    max: config.nodeEnv === "test" ? 10_000 : 240,
     timeWindow: "1 minute",
   });
 
@@ -166,7 +166,7 @@ export async function buildApp({
     url: "/api/auth/*",
     config: {
       rateLimit: {
-        max: 30,
+        max: config.nodeEnv === "test" ? 10_000 : 30,
         timeWindow: "1 minute",
       },
     },
@@ -228,7 +228,7 @@ export async function buildApp({
     {
       config: {
         rateLimit: {
-          max: 60,
+          max: config.nodeEnv === "test" ? 10_000 : 60,
           timeWindow: "1 minute",
         },
       },

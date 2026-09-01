@@ -151,6 +151,7 @@ export function GameScreen({
   const quitPause = useRef<{ wasPaused: boolean } | null>(null);
   const quitSavingRef = useRef(false);
   const resultSavingRef = useRef(false);
+  const completedResult = useRef<BattleResult | null>(null);
   const orientationPause = useRef<{ wasPaused: boolean } | null>(null);
   const checkpointSignature = useRef(
     checkpoint ? JSON.stringify(checkpoint) : "",
@@ -365,16 +366,19 @@ export function GameScreen({
     resultSavingRef.current = true;
     setResultSaving(true);
     setResultError(null);
-    const result: BattleResult = {
-      levelId: state.levelId,
-      seed: state.seed,
-      contentVersion: CONTENT_VERSION,
-      modifierIds: [...state.modifierIds],
-      result: state.phase === "victory" ? "victory" : "defeat",
-      score: state.score,
-      completedMasteryIds: [...state.completedMasteryIds],
-      completedAt: new Date().toISOString(),
-    };
+    const result =
+      completedResult.current ??
+      ({
+        levelId: state.levelId,
+        seed: state.seed,
+        contentVersion: CONTENT_VERSION,
+        modifierIds: [...state.modifierIds],
+        result: state.phase === "victory" ? "victory" : "defeat",
+        score: state.score,
+        completedMasteryIds: [...state.completedMasteryIds],
+        completedAt: new Date().toISOString(),
+      } satisfies BattleResult);
+    completedResult.current = result;
     try {
       await onComplete(result);
     } catch (error) {

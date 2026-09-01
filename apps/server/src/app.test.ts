@@ -28,6 +28,7 @@ const freshSave: SaveData = {
     unlockedNodeIds: ["muddy-moat"],
     levels: {},
     recentResults: [],
+    recordedAttemptIds: [],
   },
   settings: {
     muted: false,

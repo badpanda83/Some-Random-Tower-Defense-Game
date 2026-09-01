@@ -1,13 +1,12 @@
 import { saveDataSchema, type SaveData } from "@srtg/protocol";
 import { openDB, type DBSchema } from "idb";
 
-import { createFreshSave } from "./save.js";
+import { createFreshSave, normalizeSaveProgress } from "./save.js";
 
 export interface LocalSaveRecord {
   readonly data: SaveData;
   readonly cloudOwnerId: string | null;
   readonly cloudRevision: number;
-  readonly localRevision: number;
   readonly pending: boolean;
   readonly updatedAt: string;
 }
@@ -39,7 +38,6 @@ export async function loadLocalSave(): Promise<LocalSaveRecord> {
       data: createFreshSave(),
       cloudOwnerId: null,
       cloudRevision: 0,
-      localRevision: 0,
       pending: true,
       updatedAt: new Date().toISOString(),
     };
@@ -52,13 +50,24 @@ export async function loadLocalSave(): Promise<LocalSaveRecord> {
     );
   }
 
+  const normalized = normalizeSaveProgress(parsed.data);
+  const progressRepaired = normalized !== parsed.data;
   return {
     ...stored,
-    data: parsed.data,
+    data: normalized,
     cloudOwnerId:
       typeof stored.cloudOwnerId === "string" ? stored.cloudOwnerId : null,
-    localRevision:
-      typeof stored.localRevision === "number" ? stored.localRevision : 0,
+    cloudRevision:
+      typeof stored.cloudRevision === "number" &&
+      Number.isInteger(stored.cloudRevision) &&
+      stored.cloudRevision >= 0
+        ? stored.cloudRevision
+        : 0,
+    pending: progressRepaired || stored.pending !== false,
+    updatedAt:
+      typeof stored.updatedAt === "string"
+        ? stored.updatedAt
+        : new Date().toISOString(),
   };
 }
 
@@ -74,8 +83,28 @@ export function markLocalChange(
     data,
     cloudOwnerId: record.cloudOwnerId,
     cloudRevision: record.cloudRevision,
-    localRevision: record.localRevision + 1,
     pending: true,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+export interface LocalSaveWriter {
+  store(record: LocalSaveRecord): Promise<void>;
+  flush(): Promise<void>;
+}
+
+export function createLocalSaveWriter(
+  write: (record: LocalSaveRecord) => Promise<void> = storeLocalSave,
+): LocalSaveWriter {
+  let queue = Promise.resolve();
+  return {
+    store(record) {
+      const current = queue.then(() => write(record));
+      queue = current.catch(() => undefined);
+      return current;
+    },
+    flush() {
+      return queue;
+    },
   };
 }
