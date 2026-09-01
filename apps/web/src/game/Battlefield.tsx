@@ -831,12 +831,7 @@ class BattleScene extends Phaser.Scene {
     graphics.lineStyle(2, 0xff6b5e, 1);
     graphics.strokeCircle(pad.position.x, sellY, 13);
     graphics.lineStyle(3, 0xff6b5e, 1);
-    graphics.lineBetween(
-      pad.position.x - 6,
-      sellY,
-      pad.position.x + 6,
-      sellY,
-    );
+    graphics.lineBetween(pad.position.x - 6, sellY, pad.position.x + 6, sellY);
   }
 
   private drawWheel(
