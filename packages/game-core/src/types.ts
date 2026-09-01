@@ -285,6 +285,8 @@ export type GameEvent =
       readonly towerInstanceId: string;
       readonly targetInstanceId: string;
       readonly affectedInstanceIds: readonly string[];
+      readonly damageDealt: number;
+      readonly defeatedCount: number;
     }
   | {
       readonly type: "enemy-defeated";

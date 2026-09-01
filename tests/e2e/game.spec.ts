@@ -31,9 +31,11 @@ function towerPadName(position: {
   readonly y: number;
 }): string {
   const name = new Map([
+    ["83,74", "bramble seat"],
     ["245,250", "puddle perch"],
     ["285,448", "mushroom box"],
     ["472,249", "crooked stool"],
+    ["520,55", "soggy plinth"],
     ["713,270", "turnip stage"],
     ["782,474", "bucket throne"],
     ["858,300", "gate crate"],
@@ -522,7 +524,7 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   page,
   context,
 }, testInfo) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   test.skip(
     testInfo.project.name !== "desktop-chromium",
     "Full victory flow runs once on desktop.",
@@ -542,47 +544,51 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
     page.getByRole("button", { name: "Change game speed" }),
   ).toHaveText("2×");
 
+  await placeTower(page, /Fork Knight/, { x: 83, y: 74 });
   await placeTower(page, /Discount Wizard/, { x: 245, y: 250 });
-  await placeTower(page, /Fork Knight/, { x: 472, y: 249 });
-  await placeTower(page, /Fork Knight/, { x: 713, y: 270 });
+  await placeTower(page, /Fork Knight/, { x: 285, y: 448 });
+  await placeTower(page, /Fork Knight/, { x: 520, y: 55 });
   await page.getByRole("button", { name: "Start wave 1" }).click();
   await expect(page.getByRole("button", { name: "Start wave 2" })).toBeVisible({
-    timeout: 30_000,
+    timeout: 70_000,
   });
 
-  await upgradeTower(page, { x: 245, y: 250 });
+  await placeTower(page, /Discount Wizard/, { x: 472, y: 249 });
   await page.getByRole("button", { name: "Start wave 2" }).click();
   await expect(page.getByRole("button", { name: "Start wave 3" })).toBeVisible({
-    timeout: 30_000,
+    timeout: 70_000,
+  });
+
+  await placeTower(page, /Discount Wizard/, { x: 713, y: 270 });
+  await placeTower(page, /Fork Knight/, { x: 782, y: 474 });
+  await page.getByRole("button", { name: "Start wave 3" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 4" })).toBeVisible({
+    timeout: 70_000,
   });
 
   await placeTower(page, /Discount Wizard/, { x: 858, y: 300 });
-  await page.getByRole("button", { name: "Start wave 3" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 4" })).toBeVisible({
-    timeout: 30_000,
+  await upgradeTower(page, { x: 83, y: 74 });
+  await upgradeTower(page, { x: 285, y: 448 });
+  await page.getByRole("button", { name: "Start wave 4" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 5" })).toBeVisible({
+    timeout: 70_000,
+  });
+
+  await upgradeTower(page, { x: 83, y: 74 });
+  await upgradeTower(page, { x: 245, y: 250 });
+  await upgradeTower(page, { x: 520, y: 55 });
+  await page.getByRole("button", { name: "Start wave 5" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 6" })).toBeVisible({
+    timeout: 70_000,
   });
 
   await upgradeTower(page, { x: 245, y: 250 });
-  await upgradeTower(page, { x: 858, y: 300 });
-  await page.getByRole("button", { name: "Start wave 4" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 5" })).toBeVisible({
-    timeout: 30_000,
-  });
-
-  await placeTower(page, /Bardbarian/, { x: 782, y: 474 });
-  await upgradeTower(page, { x: 472, y: 249 });
-  await page.getByRole("button", { name: "Start wave 5" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 6" })).toBeVisible({
-    timeout: 30_000,
-  });
-
-  await upgradeTower(page, { x: 858, y: 300 });
-  await placeTower(page, /Discount Wizard/, { x: 285, y: 448 });
+  await upgradeTower(page, { x: 285, y: 448 });
   await page.getByRole("button", { name: "Start wave 6" }).click();
 
   await expect(
     page.getByRole("heading", { name: "The Muddy Moat is defended!" }),
-  ).toBeVisible({ timeout: 45_000 });
+  ).toBeVisible({ timeout: 70_000 });
   await page.evaluate(async () => navigator.serviceWorker.ready);
   await page.getByRole("button", { name: "Continue to campaign" }).click();
 

@@ -296,7 +296,7 @@ describe("mission abandonment", () => {
       expect(screen.getByText(/Press Cast to confirm/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Cast Forkfall" }));
-      expect(screen.getByText(/struck for 176 damage/)).toBeInTheDocument();
+      expect(screen.getByText(/struck for 70 damage/)).toBeInTheDocument();
       expect(screen.getByText("0% charged")).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Arm Forkfall" }),

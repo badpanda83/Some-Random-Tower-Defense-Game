@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   castleHassleLevel,
-  levelDefinitions,
   muddyMoatLevel,
   towerDefinitions,
 } from "./content.js";
+import { referenceStrategies, runReferenceStrategy } from "./balance.js";
+import type { ActOneLevelId } from "./balance.js";
 import { createSimulation } from "./simulation.js";
 import {
   EMERGENCY_TEA_BREAK_SLOW_TICKS,
@@ -15,93 +16,22 @@ import {
 
 function runFirstWave(): ReturnType<typeof createSimulation> {
   const simulation = createSimulation({ seed: 12345 });
-  simulation.dispatch({
-    type: "place-tower",
-    towerId: "fork-knight",
-    padId: "bramble-seat",
-  });
-  simulation.dispatch({
-    type: "place-tower",
-    towerId: "discount-wizard",
-    padId: "puddle-perch",
-  });
+  for (const padId of [
+    "bramble-seat",
+    "puddle-perch",
+    "mushroom-box",
+    "crooked-stool",
+  ]) {
+    simulation.dispatch({
+      type: "place-tower",
+      towerId: "fork-knight",
+      padId,
+    });
+  }
   simulation.dispatch({ type: "start-wave" });
 
   while (simulation.state.phase === "active") {
     simulation.step();
-  }
-  return simulation;
-}
-
-function runActOneReference(levelId: keyof typeof levelDefinitions) {
-  const level = levelDefinitions[levelId];
-  const unlockedRewardIds = ["troll-tollway", "castle-hassle"].includes(levelId)
-    ? ["fork-table-service"]
-    : [];
-  const simulation = createSimulation({
-    levelId,
-    seed: 123,
-    unlockedRewardIds,
-  });
-  let safety = 0;
-
-  while (
-    simulation.state.phase !== "victory" &&
-    simulation.state.phase !== "defeat" &&
-    safety < 200_000
-  ) {
-    safety += 1;
-    if (simulation.state.phase === "preparing") {
-      for (const pad of level.pads) {
-        if (simulation.state.towers.some((tower) => tower.padId === pad.id)) {
-          continue;
-        }
-        const towerId = (
-          ["discount-wizard", "fork-knight", "bardbarian"] as const
-        ).find(
-          (candidate) =>
-            (!pad.allowedTowerIds || pad.allowedTowerIds.includes(candidate)) &&
-            towerDefinitions[candidate].cost <= simulation.state.gold,
-        );
-        if (towerId) {
-          simulation.dispatch({
-            type: "place-tower",
-            towerId,
-            padId: pad.id,
-          });
-        }
-      }
-
-      let upgraded = true;
-      while (upgraded) {
-        upgraded = false;
-        for (const tower of [...simulation.state.towers]) {
-          const definition =
-            towerDefinitions[tower.towerId as keyof typeof towerDefinitions];
-          const upgradeCost =
-            definition.levels[tower.level - 1]?.upgradeCost ?? null;
-          const maxLevel =
-            tower.towerId === "fork-knight" &&
-            unlockedRewardIds.includes("fork-table-service")
-              ? definition.levels.length
-              : definition.baseMaxLevel;
-          if (
-            upgradeCost !== null &&
-            tower.level < maxLevel &&
-            upgradeCost <= simulation.state.gold
-          ) {
-            simulation.dispatch({
-              type: "upgrade-tower",
-              instanceId: tower.id,
-            });
-            upgraded = true;
-          }
-        }
-      }
-      simulation.dispatch({ type: "start-wave" });
-    } else {
-      simulation.step(10);
-    }
   }
   return simulation;
 }
@@ -245,7 +175,7 @@ describe("game simulation", () => {
       }),
     ).toThrow("Not enough gold");
     expect(simulation.state.phase).toBe("active");
-    expect(simulation.state.gold).toBe(19);
+    expect(simulation.state.gold).toBe(59);
     expect(simulation.state.towers).toHaveLength(1);
     expect(simulation.state.towers[0]?.level).toBe(2);
   });
@@ -274,7 +204,7 @@ describe("game simulation", () => {
 
     expect(defeated).toBeGreaterThanOrEqual(3);
     expect(attacks).toBeGreaterThanOrEqual(12);
-    expect(simulation.state.lives).toBeGreaterThanOrEqual(7);
+    expect(simulation.state.phase).toBe("defeat");
     expect(towerDefinitions["fork-knight"].levels[0]).toMatchObject({
       damage: 24,
       range: 126,
@@ -350,16 +280,16 @@ describe("game simulation", () => {
     simulation.dispatch({ type: "start-wave" });
     simulation.step();
     const target = simulation.state.enemies[0];
-    expect(target?.enemyId).toBe("tax-troll");
+    expect(target?.enemyId).toBe("basic-goblin");
 
     const result = simulation.dispatch({ type: "activate-ability" });
 
     expect(result.events).toContainEqual({
       type: "ability-activated",
       targetInstanceId: target?.id,
-      damageDealt: 176,
+      damageDealt: 70,
     });
-    expect(result.state.enemies[0]?.health).toBe(69);
+    expect(result.state.enemies).toHaveLength(0);
     expect(result.state.abilityChargeTicks).toBe(0);
     expect(() => simulation.dispatch({ type: "activate-ability" })).toThrow(
       "still charging",
@@ -403,12 +333,18 @@ describe("game simulation", () => {
   ] as const)(
     "has a deterministic first-clear reference build for %s",
     (levelId) => {
-      const first = runActOneReference(levelId);
-      const repeated = runActOneReference(levelId);
+      const first = runReferenceStrategy(
+        levelId as ActOneLevelId,
+        referenceStrategies["blade-and-magic"],
+      );
+      const repeated = runReferenceStrategy(
+        levelId as ActOneLevelId,
+        referenceStrategies["blade-and-magic"],
+      );
 
-      expect(first.state.phase).toBe("victory");
-      expect(first.state.lives).toBeGreaterThan(0);
-      expect(repeated.stateHash()).toBe(first.stateHash());
+      expect(first.result).toBe("victory");
+      expect(first.lives).toBeGreaterThan(0);
+      expect(repeated).toEqual(first);
     },
   );
 
@@ -496,108 +432,23 @@ describe("game simulation", () => {
     normal.dispatch({ type: "start-wave" });
     rushed.dispatch({ type: "start-wave" });
 
-    normal.step(17);
-    rushed.step(17);
+    normal.step(100);
+    rushed.step(100);
 
-    expect(normal.state.enemies).toHaveLength(1);
-    expect(rushed.state.enemies).toHaveLength(2);
+    expect(rushed.state.nextSpawnIndex).toBeGreaterThan(
+      normal.state.nextSpawnIndex,
+    );
   });
 
   it("supports a complete victory with a varied tactical build", () => {
-    const simulation = createSimulation({ seed: 123 });
-    const plans: Record<number, readonly (() => void)[]> = {
-      0: [
-        () =>
-          simulation.dispatch({
-            type: "place-tower",
-            towerId: "discount-wizard",
-            padId: "puddle-perch",
-          }),
-        () =>
-          simulation.dispatch({
-            type: "place-tower",
-            towerId: "fork-knight",
-            padId: "crooked-stool",
-          }),
-        () =>
-          simulation.dispatch({
-            type: "place-tower",
-            towerId: "fork-knight",
-            padId: "turnip-stage",
-          }),
-      ],
-      1: [
-        () =>
-          simulation.dispatch({
-            type: "upgrade-tower",
-            instanceId: "tower-1",
-          }),
-      ],
-      2: [
-        () =>
-          simulation.dispatch({
-            type: "place-tower",
-            towerId: "discount-wizard",
-            padId: "gate-crate",
-          }),
-      ],
-      3: [
-        () =>
-          simulation.dispatch({
-            type: "upgrade-tower",
-            instanceId: "tower-1",
-          }),
-        () =>
-          simulation.dispatch({
-            type: "upgrade-tower",
-            instanceId: "tower-4",
-          }),
-      ],
-      4: [
-        () =>
-          simulation.dispatch({
-            type: "place-tower",
-            towerId: "bardbarian",
-            padId: "bucket-throne",
-          }),
-        () =>
-          simulation.dispatch({
-            type: "upgrade-tower",
-            instanceId: "tower-2",
-          }),
-      ],
-      5: [
-        () =>
-          simulation.dispatch({
-            type: "upgrade-tower",
-            instanceId: "tower-4",
-          }),
-        () =>
-          simulation.dispatch({
-            type: "place-tower",
-            towerId: "discount-wizard",
-            padId: "mushroom-box",
-          }),
-      ],
-    };
+    const report = runReferenceStrategy(
+      "muddy-moat",
+      referenceStrategies["five-tower-party"],
+    );
 
-    while (
-      simulation.state.phase !== "victory" &&
-      simulation.state.phase !== "defeat"
-    ) {
-      if (simulation.state.phase === "preparing") {
-        for (const action of plans[simulation.state.waveIndex] ?? []) {
-          action();
-        }
-        simulation.dispatch({ type: "start-wave" });
-      } else {
-        simulation.step(10);
-      }
-    }
-
-    expect(simulation.state.phase).toBe("victory");
-    expect(simulation.state.lives).toBeGreaterThan(0);
-    expect(simulation.state.completedMasteryIds).toContain("balanced-party");
+    expect(report.result).toBe("victory");
+    expect(report.lives).toBeGreaterThan(0);
+    expect(report.completedMasteryIds).toContain("balanced-party");
   });
 
   it("resolves wave 6 only after the boss phase and all enemies are defeated", () => {
@@ -1103,12 +954,23 @@ describe("game simulation", () => {
         gold: 500,
         score: 0,
         spawnedEnemies: 0,
-        placements: [],
+        placements: [
+          "bramble-seat",
+          "puddle-perch",
+          "mushroom-box",
+          "crooked-stool",
+        ].map((padId, index) => ({
+          id: `tower-${index + 1}`,
+          towerId: "fork-knight",
+          padId,
+          level: 1,
+        })),
         metrics: {
-          spentGold: 0,
+          spentGold: 228,
           leakedEnemies: 0,
           soldTowers: 0,
-          usedTowerIds: [],
+          usedTowerIds: ["fork-knight"],
+          maxTowersPlaced: 4,
         },
       },
     });

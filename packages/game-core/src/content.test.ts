@@ -124,9 +124,9 @@ describe("content integrity", () => {
 
   it("authors the expected Act I wave counts", () => {
     expect(levelDefinitions["muddy-moat"]?.waves).toHaveLength(6);
-    expect(levelDefinitions["mimic-market"]?.waves).toHaveLength(7);
+    expect(levelDefinitions["mimic-market"]?.waves).toHaveLength(8);
     expect(levelDefinitions["troll-tollway"]?.waves).toHaveLength(8);
-    expect(levelDefinitions["castle-hassle"]?.waves).toHaveLength(8);
+    expect(levelDefinitions["castle-hassle"]?.waves).toHaveLength(9);
   });
 
   it("keeps each mission's authored pad topology and restrictions", () => {
@@ -145,11 +145,11 @@ describe("content integrity", () => {
     expect(levelDefinitions["castle-hassle"].pads).toHaveLength(9);
   });
 
-  it("ends Mimic Market with two elite warded guards", () => {
+  it("ends Mimic Market with an elite warded guard formation", () => {
     const closingWave = levelDefinitions["mimic-market"].waves.at(-1)!;
     expect(
       closingWave.spawns.filter((spawn) => spawn.enemyId === "bog-guard"),
-    ).toHaveLength(2);
+    ).toHaveLength(14);
     expect(enemyDefinitions["bog-guard"].traits).toContainEqual({
       kind: "first-hit-ward",
     });

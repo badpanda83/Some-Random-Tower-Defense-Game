@@ -846,8 +846,18 @@ class GameSimulation implements Simulation {
         .map((id) => state.enemies.find((enemy) => enemy.id === id))
         .filter((enemy): enemy is EnemyState => enemy !== undefined);
 
+      let damageDealt = 0;
+      let defeatedCount = 0;
       for (const enemy of affected) {
+        const healthBefore = enemy.health;
         this.damageEnemy(enemy.id, level.damage, definition.damageType, events);
+        const healthAfter =
+          state.enemies.find((candidate) => candidate.id === enemy.id)
+            ?.health ?? 0;
+        damageDealt += healthBefore - healthAfter;
+        if (healthAfter === 0) {
+          defeatedCount += 1;
+        }
         this.applySlow(enemy.id, definition.slowTicks);
       }
 
@@ -862,6 +872,8 @@ class GameSimulation implements Simulation {
         towerInstanceId: tower.id,
         targetInstanceId: target.id,
         affectedInstanceIds: affected.map((enemy) => enemy.id),
+        damageDealt,
+        defeatedCount,
       });
     }
   }

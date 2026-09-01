@@ -26,6 +26,16 @@ function wave(
   return groups.flat().sort((left, right) => left.atTick - right.atTick);
 }
 
+function pacedWave(
+  timelinePercent: number,
+  ...groups: readonly (readonly SpawnDefinition[])[]
+): readonly SpawnDefinition[] {
+  return wave(...groups).map((spawn) => ({
+    ...spawn,
+    atTick: Math.floor((spawn.atTick * timelinePercent) / 100),
+  }));
+}
+
 export const towerDefinitions = {
   "fork-knight": {
     id: "fork-knight",
@@ -87,9 +97,9 @@ export const towerDefinitions = {
     supportCooldownPercent: 20,
     baseMaxLevel: 3,
     levels: [
-      { damage: 8, range: 136, cooldownTicks: 48, upgradeCost: 66 },
-      { damage: 14, range: 149, cooldownTicks: 43, upgradeCost: 105 },
-      { damage: 23, range: 164, cooldownTicks: 38, upgradeCost: null },
+      { damage: 32, range: 136, cooldownTicks: 40, upgradeCost: 66 },
+      { damage: 48, range: 149, cooldownTicks: 36, upgradeCost: 105 },
+      { damage: 68, range: 164, cooldownTicks: 32, upgradeCost: null },
     ],
   },
 } as const satisfies Record<string, TowerDefinition>;
@@ -103,7 +113,7 @@ export const enemyDefinitions = {
     maxHealth: 70,
     speed: 58,
     armor: 0,
-    reward: 10,
+    reward: 1,
     lifeDamage: 1,
     boss: false,
   },
@@ -115,7 +125,7 @@ export const enemyDefinitions = {
     maxHealth: 95,
     speed: 91,
     armor: 1,
-    reward: 15,
+    reward: 2,
     lifeDamage: 1,
     boss: false,
   },
@@ -127,7 +137,7 @@ export const enemyDefinitions = {
     maxHealth: 245,
     speed: 37,
     armor: 8,
-    reward: 28,
+    reward: 4,
     lifeDamage: 2,
     boss: false,
   },
@@ -140,7 +150,7 @@ export const enemyDefinitions = {
     maxHealth: 1_180,
     speed: 31,
     armor: 6,
-    reward: 160,
+    reward: 50,
     lifeDamage: 5,
     boss: true,
     bossPhase: {
@@ -157,7 +167,7 @@ export const enemyDefinitions = {
     maxHealth: 130,
     speed: 50,
     armor: 2,
-    reward: 18,
+    reward: 2,
     lifeDamage: 1,
     boss: false,
     traits: [{ kind: "first-hit-ward" }],
@@ -171,7 +181,7 @@ export const enemyDefinitions = {
     maxHealth: 85,
     speed: 105,
     armor: 1,
-    reward: 16,
+    reward: 2,
     lifeDamage: 1,
     boss: false,
     traits: [{ kind: "slow-immune" }],
@@ -184,7 +194,7 @@ export const enemyDefinitions = {
     maxHealth: 150,
     speed: 60,
     armor: 3,
-    reward: 20,
+    reward: 3,
     lifeDamage: 2,
     boss: false,
     traits: [{ kind: "first-hit-ward" }],
@@ -198,7 +208,7 @@ export const enemyDefinitions = {
     maxHealth: 1_600,
     speed: 33,
     armor: 7,
-    reward: 220,
+    reward: 70,
     lifeDamage: 6,
     boss: true,
     bossPhase: {
@@ -213,10 +223,9 @@ export const modifierDefinitions = {
   "stingy-king": {
     id: "stingy-king",
     name: "The Stingy King's Budget",
-    description:
-      "Begin with 80 less gold while enemies enjoy a 15% wellness bonus.",
-    startingGoldDelta: -80,
-    enemyHealthPercent: 115,
+    description: "Begin with 40 less gold and make every early fork count.",
+    startingGoldDelta: -40,
+    enemyHealthPercent: 100,
     spawnIntervalPercent: 100,
     padShutdownExtraTicks: 0,
   },
@@ -224,10 +233,10 @@ export const modifierDefinitions = {
     id: "sale-rush",
     name: "Sale Rush",
     description:
-      "Word of a sale spread fast: shoppers arrive 25% sooner, begin with 50 less gold, and enjoy a 10% wellness bonus.",
-    startingGoldDelta: -50,
-    enemyHealthPercent: 110,
-    spawnIntervalPercent: 75,
+      "Word of a sale spread fast: shoppers arrive 15% sooner, begin with 25 less gold, and enjoy a 5% wellness bonus.",
+    startingGoldDelta: -25,
+    enemyHealthPercent: 105,
+    spawnIntervalPercent: 85,
     padShutdownExtraTicks: 0,
   },
   roadworks: {
@@ -268,7 +277,7 @@ export const muddyMoatLevel: LevelDefinition = {
   subtitle: "An aggressively damp tutorial in six regrettable acts.",
   act: 1,
   order: 1,
-  estimatedMinutes: 30,
+  estimatedMinutes: 12,
   threatSummary:
     "Goblin filler, sprinting mimics, armored tax trolls, and a rage-phase dragon intern boss.",
   mechanicSummary:
@@ -305,44 +314,78 @@ export const muddyMoatLevel: LevelDefinition = {
   waves: [
     {
       name: "Orientation Day",
-      preview: "Eight entry-level goblins arrive with forms unsigned.",
-      spawns: wave(group("basic-goblin", 8, 22)),
+      preview:
+        "Three drill companies arrive in sequence: a steady line, a tighter file, then a final crowd.",
+      spawns: wave(
+        group("basic-goblin", 30, 18),
+        group("basic-goblin", 26, 16, 440),
+        group("basic-goblin", 30, 14, 780),
+      ),
     },
     {
       name: "Chest Day",
-      preview: "Goblin paperwork conceals four suspiciously athletic chests.",
+      preview:
+        "Goblin files screen two mimic sprints before a packed closing formation.",
       spawns: wave(
-        group("basic-goblin", 7, 20),
-        group("fast-mimic", 4, 26, 34),
+        group("basic-goblin", 24, 18),
+        group("fast-mimic", 8, 42, 180),
+        group("basic-goblin", 28, 16, 450),
+        group("fast-mimic", 10, 36, 750),
+        group("basic-goblin", 26, 14, 1_050),
       ),
     },
     {
       name: "Fiscal Friction",
-      preview: "Tax trolls audit a stream of underreported goblins.",
-      spawns: wave(group("tax-troll", 3, 62), group("basic-goblin", 9, 16, 18)),
+      preview:
+        "Armored auditors anchor three infantry phases while mimics probe the gaps.",
+      spawns: wave(
+        group("basic-goblin", 28, 18),
+        group("tax-troll", 5, 100, 220),
+        group("basic-goblin", 30, 15, 520),
+        group("tax-troll", 6, 90, 850),
+        group("fast-mimic", 12, 28, 1_100),
+        group("basic-goblin", 20, 14, 1_380),
+      ),
     },
     {
       name: "Prime Delivery",
-      preview: "Mimics sprint. Trolls object to the shipping surcharge.",
-      spawns: wave(group("fast-mimic", 10, 15), group("tax-troll", 3, 58, 22)),
+      preview:
+        "Alternating express parcels and troll roadblocks force repeated target-priority changes.",
+      spawns: wave(
+        group("fast-mimic", 18, 24),
+        group("basic-goblin", 26, 15, 300),
+        group("tax-troll", 6, 90, 620),
+        group("fast-mimic", 20, 22, 900),
+        group("basic-goblin", 28, 13, 1_250),
+        group("tax-troll", 5, 80, 1_500),
+      ),
     },
     {
       name: "Mandatory Fun",
-      preview: "The entire dungeon attends a team-building exercise.",
+      preview:
+        "Five mixed teams rotate from crowds to armor to a final all-departments surge.",
       spawns: wave(
-        group("basic-goblin", 12, 12),
-        group("fast-mimic", 7, 21, 16),
-        group("tax-troll", 4, 52, 28),
+        group("basic-goblin", 32, 14),
+        group("fast-mimic", 14, 28, 250),
+        group("tax-troll", 7, 85, 600),
+        group("basic-goblin", 34, 13, 950),
+        group("fast-mimic", 18, 24, 1_250),
+        group("tax-troll", 7, 75, 1_520),
       ),
     },
     {
       name: "Exit Interview",
-      preview: "A dragon intern and its unhelpful references request passage.",
+      preview:
+        "The intern advances behind references, changes pace at half health, then faces a final mimic rush.",
       spawns: wave(
-        group("basic-goblin", 8, 17),
-        group("tax-troll", 3, 50, 26),
-        group("dragon-intern", 1, 1, 65),
-        group("fast-mimic", 6, 18, 78),
+        group("basic-goblin", 34, 14),
+        group("tax-troll", 8, 80, 300),
+        group("fast-mimic", 18, 24, 700),
+        group("dragon-intern", 1, 1, 1_050),
+        group("basic-goblin", 32, 13, 1_080),
+        group("tax-troll", 7, 75, 1_450),
+        group("fast-mimic", 24, 22, 1_680),
+        group("basic-goblin", 12, 14, 2_150),
       ),
     },
   ],
@@ -376,7 +419,7 @@ export const mimicMarketLevel: LevelDefinition = {
   subtitle: "Retail bites back, and the till is always short.",
   act: 1,
   order: 2,
-  estimatedMinutes: 35,
+  estimatedMinutes: 18,
   threatSummary:
     "Warded coupon squires soak an opening hit; sprinting mimics keep restocking the aisles.",
   mechanicSummary:
@@ -401,7 +444,7 @@ export const mimicMarketLevel: LevelDefinition = {
     { x: 996, y: 190 },
   ],
   pads: [
-    { id: "bargain-bin", position: { x: 90, y: 150 } },
+    { id: "bargain-bin", position: { x: 90, y: 210 } },
     {
       id: "register-desk",
       position: { x: 330, y: 170 },
@@ -421,62 +464,106 @@ export const mimicMarketLevel: LevelDefinition = {
   waves: [
     {
       name: "Doors Open",
-      preview: "Ten shoppers pile through before the sensors even chime.",
-      spawns: wave(group("basic-goblin", 10, 22)),
+      preview:
+        "Four shopper queues build from orderly lines into a full opening-hour crush.",
+      spawns: wave(
+        group("basic-goblin", 30, 17),
+        group("basic-goblin", 30, 16, 430),
+        group("basic-goblin", 30, 15, 850),
+        group("fast-mimic", 14, 30, 1_200),
+      ),
     },
     {
       name: "Blue Light Special",
       preview:
-        "A discount siren draws goblins and a handful of sprinting mimics.",
+        "Two advertised mimic rushes cut through three sustained shopper formations.",
       spawns: wave(
-        group("basic-goblin", 8, 20),
-        group("fast-mimic", 5, 28, 10),
+        group("basic-goblin", 28, 17),
+        group("fast-mimic", 14, 30, 230),
+        group("basic-goblin", 30, 15, 600),
+        group("fast-mimic", 16, 28, 920),
+        group("basic-goblin", 30, 14, 1_250),
       ),
     },
     {
       name: "Coupon Clippers",
       preview:
-        "Squires march in behind expired coupons and unbreakable resolve.",
+        "Warded squires lead each new queue, repeatedly taxing slow single-target defenses.",
       spawns: wave(
-        group("basic-goblin", 8, 18),
-        group("coupon-squire", 6, 34, 8),
+        group("basic-goblin", 28, 16),
+        group("coupon-squire", 12, 45, 180),
+        group("basic-goblin", 30, 14, 620),
+        group("coupon-squire", 14, 42, 850),
+        group("fast-mimic", 16, 27, 1_180),
+        group("coupon-squire", 10, 40, 1_450),
       ),
     },
     {
       name: "Mimic Aisle",
-      preview: "The novelty chest display finally tips over.",
+      preview:
+        "Three chest displays tip over between shielded restocking crews.",
       spawns: wave(
-        group("fast-mimic", 10, 16),
-        group("coupon-squire", 4, 40, 20),
+        group("fast-mimic", 18, 25),
+        group("coupon-squire", 12, 44, 300),
+        group("fast-mimic", 20, 23, 680),
+        group("basic-goblin", 28, 14, 950),
+        group("coupon-squire", 14, 40, 1_250),
+        group("fast-mimic", 18, 22, 1_550),
       ),
     },
     {
       name: "Rush Hour",
-      preview: "Every register queue merges into one very motivated line.",
+      preview:
+        "Every register merges in five escalating phases with wards hiding the fastest shoppers.",
       spawns: wave(
-        group("basic-goblin", 10, 14),
-        group("fast-mimic", 7, 20, 10),
-        group("coupon-squire", 4, 36, 30),
+        group("basic-goblin", 34, 14),
+        group("coupon-squire", 12, 42, 180),
+        group("fast-mimic", 18, 24, 550),
+        group("basic-goblin", 32, 13, 900),
+        group("coupon-squire", 16, 38, 1_180),
+        group("fast-mimic", 20, 22, 1_520),
       ),
     },
     {
       name: "Inventory Audit",
-      preview: "Loss-prevention trolls arrive to reconcile the shrinkage.",
+      preview:
+        "Loss-prevention trolls anchor a long audit while mimics exploit every recount.",
       spawns: wave(
-        group("tax-troll", 3, 60),
-        group("basic-goblin", 9, 16, 10),
-        group("fast-mimic", 5, 24, 40),
+        group("basic-goblin", 30, 14),
+        group("tax-troll", 8, 82, 200),
+        group("fast-mimic", 18, 24, 650),
+        group("coupon-squire", 14, 40, 950),
+        group("tax-troll", 8, 75, 1_250),
+        group("basic-goblin", 32, 13, 1_550),
+        group("fast-mimic", 18, 22, 1_820),
+      ),
+    },
+    {
+      name: "Security Sweep",
+      preview:
+        "Bog Guards lock down the aisles in three warded wedges while crowds keep shopping around them.",
+      spawns: wave(
+        group("basic-goblin", 32, 14),
+        group("bog-guard", 10, 46, 220),
+        group("coupon-squire", 14, 38, 600),
+        group("fast-mimic", 20, 23, 900),
+        group("bog-guard", 12, 42, 1_250),
+        group("tax-troll", 8, 72, 1_500),
+        group("basic-goblin", 34, 12, 1_780),
       ),
     },
     {
       name: "Closing Time",
-      preview: "One last surge before the shutters come down for good.",
+      preview:
+        "The shutters descend through seven continuous formations: crowds, armor, wards, and one final express checkout.",
       spawns: wave(
-        group("basic-goblin", 8, 16),
-        group("fast-mimic", 8, 18, 14),
-        group("coupon-squire", 5, 30, 10),
-        group("tax-troll", 2, 70, 60),
-        group("bog-guard", 2, 65, 72),
+        group("basic-goblin", 36, 13),
+        group("fast-mimic", 20, 24, 220),
+        group("coupon-squire", 16, 38, 600),
+        group("tax-troll", 9, 72, 900),
+        group("bog-guard", 14, 40, 1_200),
+        group("basic-goblin", 36, 12, 1_500),
+        group("fast-mimic", 26, 20, 1_820),
       ),
     },
   ],
@@ -510,7 +597,7 @@ export const trollTollwayLevel: LevelDefinition = {
   subtitle: "Every lane merges into the same armored bottleneck.",
   act: 1,
   order: 3,
-  estimatedMinutes: 40,
+  estimatedMinutes: 19,
   threatSummary:
     "Armored tax trolls form a rolling wall of receipts while queue jumpers refuse to ever slow down.",
   mechanicSummary:
@@ -563,54 +650,107 @@ export const trollTollwayLevel: LevelDefinition = {
   waves: [
     {
       name: "Ticket Booth Line",
-      preview: "Ten goblins queue for a ticket nobody explained how to use.",
-      spawns: wave(group("basic-goblin", 10, 20)),
+      preview:
+        "Four lanes feed one booth in an increasingly impatient opening queue.",
+      spawns: wave(
+        group("basic-goblin", 32, 16),
+        group("basic-goblin", 32, 15, 430),
+        group("fast-mimic", 16, 28, 820),
+        group("basic-goblin", 32, 14, 1_150),
+      ),
     },
     {
       name: "Full Toll",
-      preview: "Tax trolls demand exact change from a very confused crowd.",
-      spawns: wave(group("tax-troll", 4, 55), group("basic-goblin", 8, 16, 10)),
+      preview:
+        "Auditors anchor three traffic columns while commuters stack up behind them.",
+      spawns: wave(
+        group("basic-goblin", 30, 15),
+        group("tax-troll", 9, 80, 220),
+        group("basic-goblin", 32, 14, 620),
+        group("tax-troll", 10, 75, 950),
+        group("fast-mimic", 18, 24, 1_300),
+        group("basic-goblin", 28, 13, 1_580),
+      ),
     },
     {
       name: "Detour",
-      preview: "One booth closes for maintenance. Queue jumpers do not care.",
+      preview:
+        "One booth closes as three slow-proof jumper packs weave through sustained traffic.",
       spawns: wave(
-        group("queue-jumper", 6, 30),
-        group("basic-goblin", 8, 16, 8),
+        group("basic-goblin", 30, 15),
+        group("queue-jumper", 16, 29, 180),
+        group("tax-troll", 8, 80, 620),
+        group("queue-jumper", 18, 27, 850),
+        group("basic-goblin", 32, 13, 1_180),
+        group("queue-jumper", 20, 25, 1_500),
       ),
     },
     {
       name: "Gridlock",
-      preview: "Trolls and jumpers fight for the same single open lane.",
-      spawns: wave(group("tax-troll", 5, 50), group("queue-jumper", 5, 28, 15)),
+      preview:
+        "Troll walls and jumper wedges alternate, punishing defenses committed to only armor or control.",
+      spawns: wave(
+        group("tax-troll", 10, 76),
+        group("queue-jumper", 18, 27, 300),
+        group("basic-goblin", 32, 13, 680),
+        group("tax-troll", 10, 72, 980),
+        group("queue-jumper", 20, 24, 1_300),
+        group("tax-troll", 9, 68, 1_650),
+      ),
     },
     {
       name: "Merge Ahead",
-      preview: "Mimics slip through the cones while trolls hold the line.",
-      spawns: wave(group("fast-mimic", 8, 18), group("tax-troll", 4, 48, 30)),
+      preview:
+        "Express mimics repeatedly merge around armored roadblocks and force late-lane coverage.",
+      spawns: wave(
+        group("basic-goblin", 32, 14),
+        group("fast-mimic", 20, 23, 220),
+        group("tax-troll", 10, 74, 650),
+        group("fast-mimic", 22, 22, 980),
+        group("queue-jumper", 18, 25, 1_300),
+        group("tax-troll", 10, 68, 1_650),
+      ),
     },
     {
       name: "Peak Traffic",
-      preview: "The other booth closes too. Nobody is happy about this.",
+      preview:
+        "The other booth closes during a six-phase rush led by jumpers and backed by heavy auditors.",
       spawns: wave(
-        group("queue-jumper", 8, 22),
-        group("basic-goblin", 10, 14, 10),
-        group("tax-troll", 3, 55, 40),
+        group("basic-goblin", 34, 13),
+        group("queue-jumper", 20, 25, 180),
+        group("tax-troll", 10, 72, 620),
+        group("fast-mimic", 20, 22, 950),
+        group("queue-jumper", 22, 23, 1_280),
+        group("tax-troll", 11, 66, 1_650),
+        group("basic-goblin", 34, 12, 1_900),
       ),
     },
     {
       name: "Overtime",
-      preview: "Management extends the shift. The trolls file a complaint.",
-      spawns: wave(group("tax-troll", 6, 45), group("queue-jumper", 6, 24, 25)),
+      preview:
+        "Management extends the shift through alternating armored convoys and no-slow express lanes.",
+      spawns: wave(
+        group("tax-troll", 11, 70),
+        group("queue-jumper", 20, 24, 280),
+        group("basic-goblin", 34, 12, 650),
+        group("tax-troll", 12, 66, 980),
+        group("fast-mimic", 22, 21, 1_320),
+        group("queue-jumper", 22, 22, 1_650),
+        group("tax-troll", 10, 64, 1_950),
+      ),
     },
     {
       name: "Toll Amnesty",
-      preview: "Every unpaid fine comes due on the same regrettable afternoon.",
+      preview:
+        "Every unpaid fine arrives in linked formations, ending with armor screening two speed threats.",
       spawns: wave(
-        group("basic-goblin", 10, 14),
-        group("queue-jumper", 7, 20, 14),
-        group("tax-troll", 5, 45, 20),
-        group("fast-mimic", 6, 18, 60),
+        group("basic-goblin", 36, 12),
+        group("tax-troll", 12, 68, 220),
+        group("queue-jumper", 22, 23, 620),
+        group("fast-mimic", 22, 21, 950),
+        group("tax-troll", 12, 64, 1_280),
+        group("queue-jumper", 24, 21, 1_620),
+        group("fast-mimic", 24, 20, 1_900),
       ),
     },
   ],
@@ -644,7 +784,7 @@ export const castleHassleLevel: LevelDefinition = {
   subtitle: "The Act I finale. Bring napkins.",
   act: 1,
   order: 4,
-  estimatedMinutes: 50,
+  estimatedMinutes: 19,
   threatSummary:
     "A full-roster finale ending with Baron von Bog, who calls in an escort at half health and speeds up for phase two.",
   mechanicSummary:
@@ -671,16 +811,16 @@ export const castleHassleLevel: LevelDefinition = {
   pads: [
     {
       id: "gatehouse-perch",
-      position: { x: 100, y: 150 },
+      position: { x: 100, y: 190 },
       /** The portcullis winch periodically locks this outer pad down. */
       shutdowns: [
         { waveIndex: 1, fromTick: 20, toTick: 70 },
         { waveIndex: 4, fromTick: 20, toTick: 70 },
       ],
     },
-    { id: "portcullis-ledge", position: { x: 100, y: 390 } },
+    { id: "portcullis-ledge", position: { x: 100, y: 330 } },
     { id: "courtyard-well", position: { x: 380, y: 150 } },
-    { id: "herb-garden", position: { x: 380, y: 400 } },
+    { id: "herb-garden", position: { x: 350, y: 260 } },
     {
       id: "banquet-table",
       position: { x: 610, y: 270 },
@@ -699,65 +839,131 @@ export const castleHassleLevel: LevelDefinition = {
   waves: [
     {
       name: "Gate Crashers",
-      preview: "Ten goblins storm the gatehouse without an invitation.",
-      spawns: wave(group("basic-goblin", 10, 18)),
+      preview:
+        "Four uninvited companies test the outer wall before the castle can finish breakfast.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 32, 15),
+        group("basic-goblin", 32, 14, 420),
+        group("fast-mimic", 8, 27, 800),
+        group("basic-goblin", 34, 13, 1_120),
+      ),
     },
     {
       name: "Second Wave",
       preview:
-        "Mimics slip in through the postern door while the portcullis winch locks down the gatehouse pad.",
-      spawns: wave(
-        group("fast-mimic", 8, 18),
-        group("basic-goblin", 6, 16, 10),
+        "Mimic companies exploit three crowd screens while the portcullis winch locks down the gatehouse pad.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 30, 14),
+        group("fast-mimic", 18, 24, 190),
+        group("basic-goblin", 32, 13, 580),
+        group("fast-mimic", 20, 22, 900),
+        group("basic-goblin", 34, 12, 1_220),
+        group("tax-troll", 8, 72, 1_550),
       ),
     },
     {
       name: "Reinforcements",
       preview:
-        "Trolls and jumpers arrive together, as arranged, while kitchen staff briefly clear the banquet table pad.",
-      spawns: wave(group("tax-troll", 5, 50), group("queue-jumper", 5, 26, 20)),
+        "Trolls and jumpers trade the lead through five columns while kitchen staff clear the banquet table.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 30, 14),
+        group("tax-troll", 10, 72, 180),
+        group("queue-jumper", 18, 26, 620),
+        group("tax-troll", 10, 68, 950),
+        group("basic-goblin", 34, 12, 1_260),
+        group("queue-jumper", 20, 23, 1_580),
+      ),
     },
     {
       name: "The Long Hall",
-      preview: "Jumpers sprint the corridor while mimics case the tapestries.",
-      spawns: wave(
-        group("queue-jumper", 8, 22),
-        group("fast-mimic", 6, 18, 30),
+      preview:
+        "Jumpers and mimics alternate six speed phases while warded guards protect each handoff.",
+      spawns: pacedWave(
+        90,
+        group("queue-jumper", 18, 25),
+        group("fast-mimic", 18, 23, 280),
+        group("bog-guard", 10, 44, 620),
+        group("queue-jumper", 20, 23, 920),
+        group("fast-mimic", 20, 21, 1_250),
+        group("bog-guard", 12, 40, 1_580),
       ),
     },
     {
       name: "Keep Watch",
       preview:
-        "The garrison finally wakes up. About time. The portcullis winch locks the gatehouse pad down again.",
-      spawns: wave(
-        group("tax-troll", 6, 45),
-        group("basic-goblin", 10, 14, 15),
+        "The garrison wakes in layered warded ranks as the gatehouse pad locks down again.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 34, 13),
+        group("bog-guard", 12, 42, 200),
+        group("tax-troll", 11, 68, 620),
+        group("coupon-squire", 16, 36, 950),
+        group("basic-goblin", 36, 12, 1_280),
+        group("bog-guard", 14, 38, 1_620),
       ),
     },
     {
       name: "All Hands",
       preview:
-        "Every remaining guard is called to the courtyard at once, and the banquet table pad closes once more.",
-      spawns: wave(
-        group("fast-mimic", 8, 16),
-        group("tax-troll", 4, 48, 20),
-        group("queue-jumper", 6, 22, 45),
+        "Every guard rotates through the courtyard in mixed formations while the banquet table closes.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 34, 12),
+        group("fast-mimic", 20, 22, 180),
+        group("tax-troll", 11, 66, 600),
+        group("queue-jumper", 20, 23, 920),
+        group("bog-guard", 14, 38, 1_250),
+        group("fast-mimic", 22, 20, 1_580),
+        group("tax-troll", 10, 62, 1_900),
       ),
     },
     {
       name: "The Vanguard",
-      preview: "The Baron's personal guard tests the walls before he arrives.",
-      spawns: wave(group("tax-troll", 6, 40), group("queue-jumper", 7, 20, 30)),
+      preview:
+        "The Baron's warded vanguard advances behind auditors, then releases two late speed wings.",
+      spawns: pacedWave(
+        90,
+        group("bog-guard", 14, 40),
+        group("tax-troll", 12, 66, 250),
+        group("basic-goblin", 36, 12, 680),
+        group("bog-guard", 16, 36, 1_000),
+        group("queue-jumper", 22, 22, 1_340),
+        group("fast-mimic", 22, 20, 1_650),
+        group("tax-troll", 11, 60, 1_950),
+      ),
+    },
+    {
+      name: "Banquet Evacuation",
+      preview:
+        "Guests flee in organized disorder while elite guards repeatedly retake the center lane.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 38, 12),
+        group("coupon-squire", 18, 34, 200),
+        group("bog-guard", 16, 36, 620),
+        group("fast-mimic", 22, 20, 950),
+        group("tax-troll", 12, 62, 1_280),
+        group("queue-jumper", 24, 21, 1_620),
+        group("bog-guard", 14, 34, 1_900),
+      ),
     },
     {
       name: "Baron von Bog",
       preview:
-        "The Baron himself, plus every guest he could not be bothered to dismiss.",
-      spawns: wave(
-        group("baron-von-bog", 1, 1),
-        group("tax-troll", 4, 50, 40),
-        group("queue-jumper", 6, 20, 10),
-        group("fast-mimic", 6, 16, 90),
+        "Escort formations soften the courtyard before the Baron enters, phases, summons guards, and leads the last charge.",
+      spawns: pacedWave(
+        90,
+        group("basic-goblin", 38, 12),
+        group("tax-troll", 12, 64, 220),
+        group("queue-jumper", 22, 22, 620),
+        group("bog-guard", 16, 36, 950),
+        group("fast-mimic", 24, 20, 1_280),
+        group("tax-troll", 12, 60, 1_620),
+        group("baron-von-bog", 1, 1, 1_900),
+        group("bog-guard", 16, 34, 1_920),
       ),
     },
   ],
