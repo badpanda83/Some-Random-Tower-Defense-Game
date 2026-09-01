@@ -170,6 +170,8 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
       `${name} bottom edge`,
     ).toBeLessThanOrEqual(320);
   }
+  const waveBox = await startWave.boundingBox();
+  expect(waveBox?.height).toBeGreaterThanOrEqual(44);
 
   await forkKnight.click();
   await tapBattlefieldPad(
@@ -180,11 +182,18 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   const confirm = page.getByRole("button", { name: "Confirm 57g" });
   await expect(confirm).toBeVisible();
   const confirmBox = await confirm.boundingBox();
+  expect(confirmBox?.height).toBeGreaterThanOrEqual(44);
   expect(
     (confirmBox?.y ?? -1) + (confirmBox?.height ?? 321),
   ).toBeLessThanOrEqual(320);
   await confirm.click();
-  await expect(page.getByRole("button", { name: "Upgrade 52g" })).toBeVisible();
+  const upgrade = page.getByRole("button", { name: "Upgrade 52g" });
+  await expect(upgrade).toBeVisible();
+  const upgradeBox = await upgrade.boundingBox();
+  expect(upgradeBox?.height).toBeGreaterThanOrEqual(44);
+  expect(
+    (upgradeBox?.y ?? -1) + (upgradeBox?.height ?? 321),
+  ).toBeLessThanOrEqual(320);
 });
 
 test("persists a completed victory and unlocks Mimic Market offline", async ({
