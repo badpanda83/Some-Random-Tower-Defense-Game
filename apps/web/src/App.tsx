@@ -31,6 +31,7 @@ import {
   type LocalSaveRecord,
 } from "./storage.js";
 import {
+  unlockedRewardIds,
   withBattleResult,
   withCheckpoint,
   withoutBattleCheckpoint,
@@ -46,8 +47,10 @@ type Screen = "title" | "campaign" | "game";
 type SyncStatus = "local" | "syncing" | "synced" | "offline" | "conflict";
 
 interface BattleSetup {
+  readonly levelId: string;
   readonly seed: number;
   readonly modifierIds: readonly string[];
+  readonly unlockedRewardIds: readonly string[];
   readonly checkpoint: BattleCheckpoint | null;
   readonly key: number;
 }
@@ -228,16 +231,32 @@ export function App() {
   }
 
   function beginBattle(
+    levelId: string,
     modifierIds: readonly string[],
     checkpoint: BattleCheckpoint | null = null,
   ) {
     setBattle({
+      levelId: checkpoint?.levelId ?? levelId,
       seed: checkpoint?.seed ?? randomSeed(),
       modifierIds: checkpoint?.modifierIds ?? modifierIds,
+      unlockedRewardIds: recordRef.current
+        ? unlockedRewardIds(recordRef.current.data)
+        : [],
       checkpoint,
       key: Date.now(),
     });
     setScreen("game");
+  }
+
+  async function startCampaignBattle(
+    levelId: string,
+    modifierIds: readonly string[],
+    discardCheckpoint: boolean,
+  ): Promise<void> {
+    if (discardCheckpoint && recordRef.current?.data.checkpoint) {
+      await commit(withoutBattleCheckpoint(recordRef.current.data));
+    }
+    beginBattle(levelId, modifierIds);
   }
 
   async function chooseLocal() {
@@ -362,8 +381,14 @@ export function App() {
             syncStatus={syncStatus}
             installAvailable={Boolean(installPrompt)}
             onInstall={() => void install()}
-            onStart={(modifiers) => beginBattle(modifiers)}
-            onResume={() => beginBattle([], record.data.checkpoint)}
+            onStart={startCampaignBattle}
+            onResume={() =>
+              beginBattle(
+                record.data.checkpoint?.levelId ?? "muddy-moat",
+                [],
+                record.data.checkpoint,
+              )
+            }
             onSettings={updateSettings}
             onHome={() => setScreen("title")}
           />
@@ -380,8 +405,10 @@ export function App() {
           >
             <GameScreen
               key={battle.key}
+              levelId={battle.levelId}
               seed={battle.seed}
               modifierIds={battle.modifierIds}
+              unlockedRewardIds={battle.unlockedRewardIds}
               checkpoint={battle.checkpoint}
               settings={record.data.settings}
               synchronizationBlocked={Boolean(conflict)}
@@ -401,7 +428,7 @@ export function App() {
                 setScreen("campaign");
                 setBattle(null);
               }}
-              onRetry={() => beginBattle(battle.modifierIds)}
+              onRetry={() => beginBattle(battle.levelId, battle.modifierIds)}
               onAbandon={async () => {
                 await commit(withoutBattleCheckpoint(recordRef.current!.data));
                 setScreen("campaign");

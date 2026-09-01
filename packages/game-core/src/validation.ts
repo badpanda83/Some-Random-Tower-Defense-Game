@@ -32,8 +32,19 @@ export function validateCheckpointContent(
     } else if (placement.level > tower.levels.length) {
       errors.push(`Invalid rank for checkpoint tower: ${placement.towerId}`);
     }
-    if (!level.pads.some((pad) => pad.id === placement.padId)) {
+    const pad = level.pads.find(
+      (candidate) => candidate.id === placement.padId,
+    );
+    if (!pad) {
       errors.push(`Unknown checkpoint pad: ${placement.padId}`);
+    } else if (
+      tower &&
+      pad.allowedTowerIds &&
+      !pad.allowedTowerIds.includes(tower.id)
+    ) {
+      errors.push(
+        `Checkpoint tower ${tower.id} is not allowed on pad: ${placement.padId}`,
+      );
     }
     if (instanceIds.has(placement.id)) {
       errors.push(`Duplicate checkpoint tower id: ${placement.id}`);

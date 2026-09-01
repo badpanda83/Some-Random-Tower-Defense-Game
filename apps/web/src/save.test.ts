@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createFreshSave,
   normalizeSaveProgress,
+  unlockedRewardIds,
   withBattleResult,
   withoutBattleCheckpoint,
 } from "./save.js";
@@ -115,6 +116,57 @@ describe("campaign progress", () => {
       "muddy-moat",
       "mimic-market",
     ]);
+  });
+
+  it("unlocks Act I and its power rewards through victories without grind", () => {
+    let save = createFreshSave();
+    const victory = (levelId: string, minute: number) => {
+      save = withBattleResult(save, {
+        levelId,
+        seed: minute,
+        contentVersion: 2,
+        modifierIds: [],
+        result: "victory",
+        score: 3000,
+        completedMasteryIds: [],
+        completedAt: `2026-08-31T12:${String(minute).padStart(2, "0")}:00.000Z`,
+      });
+    };
+
+    victory("muddy-moat", 1);
+    expect(save.campaign.unlockedNodeIds).toEqual([
+      "muddy-moat",
+      "mimic-market",
+    ]);
+    victory("mimic-market", 2);
+    expect(save.campaign.unlockedNodeIds).toContain("troll-tollway");
+    expect(unlockedRewardIds(save)).toContain("fork-table-service");
+    victory("troll-tollway", 3);
+    expect(save.campaign.unlockedNodeIds).toContain("castle-hassle");
+    victory("castle-hassle", 4);
+    expect(unlockedRewardIds(save)).toEqual(
+      expect.arrayContaining(["fork-table-service", "emergency-tea-break"]),
+    );
+  });
+
+  it("derives rewards from a recovered recent victory", () => {
+    const save = createFreshSave();
+    save.campaign.recentResults = [
+      {
+        levelId: "mimic-market",
+        seed: 8,
+        contentVersion: 2,
+        modifierIds: [],
+        result: "victory",
+        score: 2800,
+        completedMasteryIds: [],
+        completedAt: "2026-08-31T12:08:00.000Z",
+      },
+    ];
+
+    expect(unlockedRewardIds(normalizeSaveProgress(save))).toContain(
+      "fork-table-service",
+    );
   });
 
   it("does not unlock branches or mastery after a defeat", () => {

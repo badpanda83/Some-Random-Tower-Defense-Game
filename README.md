@@ -4,9 +4,9 @@
 
 ## The Dubious Realm
 
-A cool-looking, humorous fantasy-parody tower-defense PWA about defending a damp kingdom with improvised heroes, discount magic, and suspiciously organized dungeon creatures. It combines strategic towers and ridiculous enemies with branching campaign progression, optional challenges, and mastery goals that reward different ways to play.
+A cool-looking, humorous fantasy-parody tower-defense PWA about defending a damp kingdom with improvised heroes, discount magic, and suspiciously organized dungeon creatures. It combines strategic towers and ridiculous enemies with a victory-based campaign, optional challenges, and mastery goals that reward different ways to play.
 
-The first vertical slice includes a branching campaign preview, one complete six-wave encounter, three upgradeable towers that can be placed and upgraded during waves, four enemy types, a boss phase, mastery goals, a challenge modifier, touch-first controls, the charged Royal Forkfall battlefield ability, offline play, guest saves, and optional email-link cloud sync.
+Act I includes four complete authored missions with 29 waves across distinct battlefields: The Muddy Moat, Mimic Market, Troll Tollway, and Castle Hassle. It adds shielded Coupon Squires, slow-proof Queue Jumpers, Baron von Bog, mission-specific pad restrictions and closures, data-driven mastery goals and challenges, the earned Fork Knight rank-IV upgrade, and the earned Emergency Tea Break ability. Story victories unlock the next mission without replay grinding. The touch-first on-canvas controls, charged Royal Forkfall, offline play, guest saves, and optional email-link cloud sync remain intact.
 
 ## Architecture
 
