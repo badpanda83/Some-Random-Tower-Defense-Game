@@ -111,3 +111,7 @@ A Raspberry Pi 3 should use a 64-bit OS. Hosting the app container there is real
 The service worker precaches only versioned application assets. `/api` and `/health` always use the network and are never cached. The game pauses when hidden, supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, touch placement, and an explicit landscape prompt on narrow portrait screens.
 
 All current visual assets and copy are original project material. No third-party game art is required.
+
+## License
+
+Licensed under the [MIT License](LICENSE).
