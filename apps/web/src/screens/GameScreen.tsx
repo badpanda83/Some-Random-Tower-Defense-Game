@@ -168,7 +168,9 @@ export function GameScreen({
     onComplete(result);
   }
 
-  const managementDisabled = state.phase !== "preparing";
+  const combatManagementDisabled =
+    state.phase !== "preparing" && state.phase !== "active";
+  const sellingDisabled = state.phase !== "preparing";
 
   return (
     <main className="game-screen">
@@ -273,7 +275,7 @@ export function GameScreen({
                   setSelectedTower(null);
                   setMessage(`${tower.shortName} selected. Tap an empty pad.`);
                 }}
-                disabled={managementDisabled}
+                disabled={combatManagementDisabled}
               >
                 <span className="tower-portrait" aria-hidden="true">
                   {tower.id === "fork-knight"
@@ -308,7 +310,7 @@ export function GameScreen({
                 <button
                   className="button button-small button-primary"
                   disabled={
-                    managementDisabled ||
+                    combatManagementDisabled ||
                     inspectedLevel.upgradeCost === null ||
                     state.gold < (inspectedLevel.upgradeCost ?? 0)
                   }
@@ -325,7 +327,7 @@ export function GameScreen({
                 </button>
                 <button
                   className="button button-small button-danger"
-                  disabled={managementDisabled}
+                  disabled={sellingDisabled}
                   onClick={() => {
                     battlefield.current?.dispatch({
                       type: "sell-tower",
@@ -370,7 +372,8 @@ export function GameScreen({
             )}
             {state.phase === "active" && (
               <span className="wave-live">
-                <span className="status-dot" /> Wave in progress
+                <span className="status-dot" /> Wave in progress · Build +
+                upgrade
               </span>
             )}
           </div>

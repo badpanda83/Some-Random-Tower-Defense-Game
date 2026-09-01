@@ -1,4 +1,22 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+
+async function tapBattlefieldPad(
+  canvas: Locator,
+  position: { readonly x: number; readonly y: number },
+  touch: boolean,
+): Promise<void> {
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const scaledPosition = {
+    x: ((bounds?.width ?? 960) * position.x) / 960,
+    y: ((bounds?.height ?? 540) * position.y) / 540,
+  };
+  if (touch) {
+    await canvas.tap({ position: scaledPosition });
+  } else {
+    await canvas.click({ position: scaledPosition });
+  }
+}
 
 test("installs as a local-first PWA and opens the campaign", async ({
   page,
@@ -39,7 +57,10 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await context.setOffline(false);
 });
 
-test("places a touch-friendly tower and starts combat", async ({ page }) => {
+test("places and upgrades touch-friendly towers during combat", async ({
+  page,
+}, testInfo) => {
+  const touch = testInfo.project.name === "mobile-chromium";
   await page.goto("/");
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await page.getByRole("button", { name: "Begin defense" }).click();
@@ -48,14 +69,7 @@ test("places a touch-friendly tower and starts combat", async ({ page }) => {
   await expect(canvas).toBeVisible();
   await page.getByRole("button", { name: /Fork Knight/ }).click();
 
-  const bounds = await canvas.boundingBox();
-  expect(bounds).not.toBeNull();
-  await canvas.click({
-    position: {
-      x: ((bounds?.width ?? 960) * 83) / 960,
-      y: ((bounds?.height ?? 540) * 74) / 540,
-    },
-  });
+  await tapBattlefieldPad(canvas, { x: 83, y: 74 }, touch);
 
   await expect(page.getByText(/Hero inspection/)).toBeVisible();
   await expect(page.getByText("210")).toBeVisible();
@@ -64,4 +78,24 @@ test("places a touch-friendly tower and starts combat", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Pause battle" }),
   ).toBeEnabled();
+
+  await page.getByRole("button", { name: /Discount Wizard/ }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "Dismiss message",
+    }),
+  ).toHaveText("Discount Wizard selected. Tap an empty pad.");
+  await tapBattlefieldPad(canvas, { x: 245, y: 250 }, touch);
+  await expect(page.getByText(/Merl-ish · rank 1/)).toBeVisible();
+  await expect(page.getByText("110")).toBeVisible();
+
+  await page.getByRole("button", { name: "Upgrade 80g" }).click();
+  await expect(page.getByText(/Merl-ish · rank 2/)).toBeVisible();
+  await expect(page.getByText("30")).toBeVisible();
+
+  await page.getByRole("button", { name: /Bardbarian/ }).click();
+  await tapBattlefieldPad(canvas, { x: 285, y: 448 }, touch);
+  await expect(page.getByText("Not enough gold")).toBeVisible();
+  await expect(page.getByText("30")).toBeVisible();
+  await expect(page.getByText("Wave in progress")).toBeVisible();
 });

@@ -296,7 +296,7 @@ class GameSimulation implements Simulation {
   }
 
   private placeTower(towerId: string, padId: string): void {
-    this.requirePreparing();
+    this.requireTowerManagement();
     const definition = Object.hasOwn(towerDefinitions, towerId)
       ? towerDefinitions[towerId as keyof typeof towerDefinitions]
       : undefined;
@@ -331,7 +331,7 @@ class GameSimulation implements Simulation {
   }
 
   private upgradeTower(instanceId: string): void {
-    this.requirePreparing();
+    this.requireTowerManagement();
     const index = this.mutableState.towers.findIndex(
       (tower) => tower.id === instanceId,
     );
@@ -388,6 +388,15 @@ class GameSimulation implements Simulation {
   private requirePreparing(): void {
     if (this.mutableState.phase !== "preparing") {
       throw new Error("Towers can only be managed between waves");
+    }
+  }
+
+  private requireTowerManagement(): void {
+    if (
+      this.mutableState.phase !== "preparing" &&
+      this.mutableState.phase !== "active"
+    ) {
+      throw new Error("Towers cannot be managed after the battle");
     }
   }
 

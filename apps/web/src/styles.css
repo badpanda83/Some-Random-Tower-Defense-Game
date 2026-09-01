@@ -163,7 +163,7 @@ h3,
 }
 
 .button-small {
-  min-height: 38px;
+  min-height: 44px;
   padding: 0.52rem 0.8rem;
   border-radius: 10px;
   font-size: 0.82rem;
@@ -958,6 +958,7 @@ h3,
   border: 3px double var(--gold);
   transform: translate(-50%, -50%) rotate(-3deg);
   color: var(--gold-light);
+  pointer-events: none;
   background: rgba(20, 13, 28, 0.86);
   font-family: Georgia, "Times New Roman", serif;
   font-weight: 800;
@@ -985,7 +986,7 @@ h3,
 .battle-controls {
   z-index: 5;
   display: grid;
-  min-height: 178px;
+  height: 178px;
   padding: 0.65rem max(0.8rem, env(safe-area-inset-right))
     max(0.65rem, env(safe-area-inset-bottom))
     max(0.8rem, env(safe-area-inset-left));
@@ -1318,7 +1319,7 @@ h3,
   }
 
   .battle-controls {
-    min-height: 154px;
+    height: 154px;
     grid-template-columns: minmax(0, 1.25fr) minmax(270px, 0.75fr);
   }
 
@@ -1468,7 +1469,7 @@ h3,
   }
 
   .battle-controls {
-    min-height: 112px;
+    height: 112px;
     padding-top: 0.45rem;
     padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
   }
