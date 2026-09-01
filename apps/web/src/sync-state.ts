@@ -17,7 +17,7 @@ export function reconcileCompletedSync(
   latest: LocalSaveRecord | null,
   synchronized: LocalSaveRecord,
 ): ConcurrentSyncResolution {
-  if (!latest || latest.updatedAt === submitted.updatedAt) {
+  if (!latest || latest.localRevision === submitted.localRevision) {
     return { type: "resolved", record: synchronized };
   }
 

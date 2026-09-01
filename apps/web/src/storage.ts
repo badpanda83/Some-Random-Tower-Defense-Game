@@ -7,6 +7,7 @@ export interface LocalSaveRecord {
   readonly data: SaveData;
   readonly cloudOwnerId: string | null;
   readonly cloudRevision: number;
+  readonly localRevision: number;
   readonly pending: boolean;
   readonly updatedAt: string;
 }
@@ -38,6 +39,7 @@ export async function loadLocalSave(): Promise<LocalSaveRecord> {
       data: createFreshSave(),
       cloudOwnerId: null,
       cloudRevision: 0,
+      localRevision: 0,
       pending: true,
       updatedAt: new Date().toISOString(),
     };
@@ -55,6 +57,8 @@ export async function loadLocalSave(): Promise<LocalSaveRecord> {
     data: parsed.data,
     cloudOwnerId:
       typeof stored.cloudOwnerId === "string" ? stored.cloudOwnerId : null,
+    localRevision:
+      typeof stored.localRevision === "number" ? stored.localRevision : 0,
   };
 }
 
@@ -70,6 +74,7 @@ export function markLocalChange(
     data,
     cloudOwnerId: record.cloudOwnerId,
     cloudRevision: record.cloudRevision,
+    localRevision: record.localRevision + 1,
     pending: true,
     updatedAt: new Date().toISOString(),
   };

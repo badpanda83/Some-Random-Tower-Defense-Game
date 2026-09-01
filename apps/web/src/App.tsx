@@ -80,6 +80,12 @@ export function App() {
     updateServiceWorker,
   } = useRegisterSW();
 
+  const queueLocalSave = useCallback((next: LocalSaveRecord) => {
+    const persist = saveQueue.current.then(() => storeLocalSave(next));
+    saveQueue.current = persist.catch(() => undefined);
+    return persist;
+  }, []);
+
   const scheduleSync = useCallback(() => {
     const run = async () => {
       const local = recordRef.current;
@@ -113,7 +119,7 @@ export function App() {
         const resolved = resolution.record;
         recordRef.current = resolved;
         setRecord(resolved);
-        await storeLocalSave(resolved);
+        await queueLocalSave(resolved);
         setSyncStatus(resolved.pending ? "local" : "synced");
       } catch (error) {
         if (error instanceof CloudSaveConflictError) {
@@ -127,7 +133,8 @@ export function App() {
     };
 
     syncQueue.current = syncQueue.current.then(run, run);
-  }, []);
+    return syncQueue.current;
+  }, [queueLocalSave]);
 
   useEffect(() => {
     let active = true;
@@ -138,7 +145,7 @@ export function App() {
         }
         recordRef.current = loaded;
         setRecord(loaded);
-        await storeLocalSave(loaded);
+        await queueLocalSave(loaded);
         scheduleSync();
       })
       .catch((error: unknown) => {
@@ -153,7 +160,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [scheduleSync]);
+  }, [queueLocalSave, scheduleSync]);
 
   useEffect(() => {
     const capture = (event: BeforeInstallPromptEvent) => {
@@ -187,13 +194,12 @@ export function App() {
     recordRef.current = next;
     setRecord(next);
     setSyncStatus(navigator.onLine ? "local" : "offline");
-    const persist = saveQueue.current.then(() => storeLocalSave(next));
-    saveQueue.current = persist.catch(() => undefined);
+    const persist = queueLocalSave(next);
     try {
       await persist;
       scheduleSync();
     } catch (error) {
-      if (recordRef.current?.updatedAt === next.updatedAt) {
+      if (recordRef.current?.localRevision === next.localRevision) {
         recordRef.current = current;
         setRecord(current);
       }
@@ -244,7 +250,7 @@ export function App() {
       );
       const latest = recordRef.current;
       const resolved =
-        latest && latest.updatedAt !== local.updatedAt
+        latest && latest.localRevision !== local.localRevision
           ? {
               ...latest,
               cloudOwnerId: profile.id,
@@ -254,7 +260,7 @@ export function App() {
           : saved;
       recordRef.current = resolved;
       setRecord(resolved);
-      await storeLocalSave(resolved);
+      await queueLocalSave(resolved);
       conflictRef.current = null;
       setConflict(null);
       setSyncStatus(resolved.pending ? "local" : "synced");
@@ -283,7 +289,7 @@ export function App() {
     setResolvingConflict(true);
     try {
       const accepted = acceptCloudSave(conflict, profile.id);
-      await storeLocalSave(accepted);
+      await queueLocalSave(accepted);
       recordRef.current = accepted;
       setRecord(accepted);
       conflictRef.current = null;
@@ -332,6 +338,7 @@ export function App() {
     <>
       <div
         className="app-surface"
+        data-sync-status={syncStatus}
         inert={conflict ? true : undefined}
         aria-hidden={conflict ? true : undefined}
       >

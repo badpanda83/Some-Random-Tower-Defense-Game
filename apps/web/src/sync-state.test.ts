@@ -17,6 +17,7 @@ function record(
     },
     cloudOwnerId: owner,
     cloudRevision: revision,
+    localRevision: revision,
     pending: false,
     updatedAt,
   };
@@ -25,9 +26,13 @@ function record(
 describe("concurrent save synchronization", () => {
   it("does not rebase local edits over unseen remote data", () => {
     const submitted = record("user-1", 1, "2026-08-31T10:00:00.000Z");
-    const latest = record("user-1", 1, "2026-08-31T10:01:00.000Z", true);
+    const latest = {
+      ...record("user-1", 1, "2026-08-31T10:01:00.000Z", true),
+      localRevision: 2,
+    };
     const remote = {
       ...record("user-1", 2, "2026-08-31T10:02:00.000Z"),
+      localRevision: submitted.localRevision,
       data: {
         ...createFreshSave(),
         campaign: {
@@ -44,7 +49,10 @@ describe("concurrent save synchronization", () => {
 
   it("keeps newer local edits after their submitted base was uploaded", () => {
     const submitted = record(null, 0, "2026-08-31T10:00:00.000Z");
-    const latest = record(null, 0, "2026-08-31T10:01:00.000Z", true);
+    const latest = {
+      ...record(null, 0, "2026-08-31T10:00:00.000Z", true),
+      localRevision: 1,
+    };
     const uploaded = {
       ...submitted,
       cloudOwnerId: "user-1",

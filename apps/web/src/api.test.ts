@@ -37,6 +37,7 @@ function localSave(muted: boolean): LocalSaveRecord {
     },
     cloudOwnerId: "guest-user",
     cloudRevision: 1,
+    localRevision: 1,
     pending: false,
     updatedAt: "2026-08-31T11:00:00.000Z",
   };
@@ -63,6 +64,22 @@ afterEach(() => {
 });
 
 describe("cloud identity boundaries", () => {
+  it("does not replace an intentionally changed fresh-looking save", async () => {
+    mockCloud(remoteSave(true));
+    const local: LocalSaveRecord = {
+      data: createFreshSave(),
+      cloudOwnerId: null,
+      cloudRevision: 0,
+      localRevision: 1,
+      pending: true,
+      updatedAt: "2026-08-31T11:00:00.000Z",
+    };
+
+    const result = await synchronizeSave(local);
+
+    expect(result.type).toBe("conflict");
+  });
+
   it("surfaces equal revision numbers as a conflict when owners differ", async () => {
     mockCloud(remoteSave(false));
 

@@ -12,7 +12,14 @@ import {
 } from "@srtg/game-core";
 import type { GameCommand, GameSpeed } from "@srtg/protocol";
 import Phaser from "phaser";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 export interface BattlefieldHandle {
   dispatch(command: GameCommand): boolean;
@@ -29,6 +36,7 @@ export interface PlacementPreview {
 interface BattlefieldProps {
   readonly simulation: Simulation;
   readonly placementPreview: PlacementPreview | null;
+  readonly managementDisabled: boolean;
   readonly gameSpeed: GameSpeed;
   readonly lowEffects: boolean;
   readonly reducedMotion: boolean;
@@ -45,6 +53,7 @@ interface SceneCallbacks {
   readonly onPlacementPreview: BattlefieldProps["onPlacementPreview"];
   readonly onPauseChanged: BattlefieldProps["onPauseChanged"];
   readonly onError: BattlefieldProps["onError"];
+  readonly onControlsChanged: (controls: CanvasControlState) => void;
 }
 
 const DECORATIONS = [
@@ -57,11 +66,97 @@ const DECORATIONS = [
 ] as const;
 
 const MAX_TRANSIENT_EFFECTS = 24;
-const WHEEL_RADIUS = 62;
-const WHEEL_OPTION_HIT_RADIUS = 30;
-const ACTION_ICON_HIT_RADIUS = 15;
-const UPGRADE_ICON_OFFSET_Y = 44;
-const SELL_ICON_OFFSET_Y = 44;
+const WHEEL_BUTTON_SIZE = 52;
+const ACTION_BUTTON_SIZE = 48;
+const CONTROL_GAP = 8;
+const CONTROL_ROW_OFFSET = 58;
+
+interface CanvasControlState {
+  readonly wheelPadId: string | null;
+  readonly selectedTowerInstanceId: string | null;
+}
+
+interface CanvasFrame {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+const EMPTY_CONTROLS: CanvasControlState = {
+  wheelPadId: null,
+  selectedTowerInstanceId: null,
+};
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function controlRowPositions(
+  anchor: Point,
+  frame: CanvasFrame,
+  count: number,
+  size: number,
+): readonly Point[] {
+  const gap = CONTROL_GAP;
+  const width = count * size + (count - 1) * gap;
+  const scaledAnchor = {
+    x: (anchor.x / muddyMoatLevel.width) * frame.width,
+    y: (anchor.y / muddyMoatLevel.height) * frame.height,
+  };
+  const firstCenterX = clamp(
+    scaledAnchor.x - width / 2 + size / 2,
+    size / 2,
+    Math.max(size / 2, frame.width - width + size / 2),
+  );
+  const preferredY =
+    scaledAnchor.y < frame.height / 2
+      ? scaledAnchor.y + CONTROL_ROW_OFFSET
+      : scaledAnchor.y - CONTROL_ROW_OFFSET;
+  const y = clamp(preferredY, size / 2, frame.height - size / 2);
+
+  return Array.from({ length: count }, (_, index) => ({
+    x: firstCenterX + index * (size + gap),
+    y,
+  }));
+}
+
+function controlStyle(frame: CanvasFrame, position: Point): CSSProperties {
+  return {
+    left: frame.left + position.x,
+    top: frame.top + position.y,
+  };
+}
+
+function worldToCanvasPosition(point: Point, frame: CanvasFrame): Point {
+  return {
+    x: (point.x / muddyMoatLevel.width) * frame.width,
+    y: (point.y / muddyMoatLevel.height) * frame.height,
+  };
+}
+
+function contextLabelPosition(
+  anchor: Point,
+  controls: readonly Point[],
+  frame: CanvasFrame,
+): Point {
+  const scaledAnchor = worldToCanvasPosition(anchor, frame);
+  const controlY = controls[0]?.y ?? scaledAnchor.y;
+  return {
+    x:
+      controls.reduce((total, control) => total + control.x, 0) /
+      Math.max(1, controls.length),
+    y: clamp(
+      controlY > scaledAnchor.y ? controlY - 36 : controlY + 36,
+      14,
+      frame.height - 14,
+    ),
+  };
+}
+
+function padName(padId: string): string {
+  return padId.replaceAll("-", " ");
+}
 
 interface EnemySnapshot extends Point {
   readonly color: number;
@@ -90,10 +185,13 @@ class BattleScene extends Phaser.Scene {
   public constructor(
     private readonly simulation: Simulation,
     private readonly callbacks: SceneCallbacks,
-    private readonly lowEffects: boolean,
-    private readonly reducedMotion: boolean,
+    private lowEffects: boolean,
+    private reducedMotion: boolean,
+    private managementDisabled: boolean,
+    initialPlacementPreview: PlacementPreview | null,
   ) {
     super({ key: "battle" });
+    this.placementPreview = initialPlacementPreview;
   }
 
   public create(): void {
@@ -111,6 +209,7 @@ class BattleScene extends Phaser.Scene {
       );
       document.removeEventListener("visibilitychange", this.handleVisibility);
     });
+    this.publishControls();
     this.renderState(this.simulation.state, []);
     this.callbacks.onState(this.simulation.state, []);
   }
@@ -124,6 +223,7 @@ class BattleScene extends Phaser.Scene {
     while (this.accumulator >= TICK_MS) {
       const result = this.simulation.step();
       this.accumulator -= TICK_MS;
+      this.reconcileControls(result.state);
       this.renderState(result.state, result.events);
       this.callbacks.onState(result.state, result.events);
       if (result.state.phase !== "active") {
@@ -136,6 +236,7 @@ class BattleScene extends Phaser.Scene {
   public dispatch(command: GameCommand): boolean {
     try {
       const result = this.simulation.dispatch(command);
+      this.reconcileControls(result.state);
       this.renderState(result.state, result.events);
       this.callbacks.onState(result.state, result.events);
       return true;
@@ -163,6 +264,7 @@ class BattleScene extends Phaser.Scene {
     );
     this.selectedTowerInstanceId = tower?.id ?? null;
     this.callbacks.onTowerSelected(tower ?? null);
+    this.publishControls();
     this.renderState(this.simulation.state, []);
     return true;
   }
@@ -172,6 +274,43 @@ class BattleScene extends Phaser.Scene {
     this.renderState(this.simulation.state, []);
   }
 
+  public setManagementDisabled(disabled: boolean): void {
+    this.managementDisabled = disabled;
+    if (!disabled || (!this.wheelPadId && !this.placementPreview)) {
+      return;
+    }
+    this.wheelPadId = null;
+    this.placementPreview = null;
+    this.callbacks.onPlacementPreview(null);
+    this.publishControls();
+    this.renderState(this.simulation.state, []);
+  }
+
+  public chooseWheelOption(towerId: string): void {
+    if (this.managementDisabled || !this.wheelPadId) {
+      this.callbacks.onError("Tower management is unavailable right now.");
+      return;
+    }
+    if (!Object.hasOwn(towerDefinitions, towerId)) {
+      this.callbacks.onError("That hero is not available.");
+      return;
+    }
+    const padId = this.wheelPadId;
+    this.wheelPadId = null;
+    this.callbacks.onPlacementPreview({ towerId, padId });
+    this.publishControls();
+    this.renderState(this.simulation.state, []);
+  }
+
+  public selectPad(padId: string): void {
+    const pad = muddyMoatLevel.pads.find((candidate) => candidate.id === padId);
+    if (!pad) {
+      this.callbacks.onError("That tower pad is not available.");
+      return;
+    }
+    this.handlePadSelection(pad);
+  }
+
   public setPaused(paused: boolean): void {
     this.pausedByPlayer = paused;
     this.callbacks.onPauseChanged(paused);
@@ -179,6 +318,12 @@ class BattleScene extends Phaser.Scene {
 
   public setSpeed(speed: GameSpeed): void {
     this.speed = speed;
+  }
+
+  public setEffectSettings(lowEffects: boolean, reducedMotion: boolean): void {
+    this.lowEffects = lowEffects;
+    this.reducedMotion = reducedMotion;
+    this.renderState(this.simulation.state, []);
   }
 
   private readonly handleVisibility = (): void => {
@@ -192,108 +337,23 @@ class BattleScene extends Phaser.Scene {
     if (bounds.width <= 0 || bounds.height <= 0) {
       return;
     }
-    this.handleWorldPointer({
-      x: ((event.clientX - bounds.left) * muddyMoatLevel.width) / bounds.width,
-      y: ((event.clientY - bounds.top) * muddyMoatLevel.height) / bounds.height,
-    });
+    const scale = Math.min(
+      bounds.width / muddyMoatLevel.width,
+      bounds.height / muddyMoatLevel.height,
+    );
+    this.handleWorldPointer(
+      {
+        x:
+          ((event.clientX - bounds.left) * muddyMoatLevel.width) / bounds.width,
+        y:
+          ((event.clientY - bounds.top) * muddyMoatLevel.height) /
+          bounds.height,
+      },
+      Math.max(38, 24 / scale),
+    );
   };
 
-  private wheelOptions(): readonly (typeof towerDefinitions)[keyof typeof towerDefinitions][] {
-    return Object.values(towerDefinitions);
-  }
-
-  private wheelOptionPosition(
-    padPosition: Point,
-    index: number,
-    total: number,
-  ): Point {
-    const spread = Math.PI * 0.6;
-    const start = -Math.PI / 2 - spread / 2;
-    const angle =
-      total > 1 ? start + (spread * index) / (total - 1) : -Math.PI / 2;
-    return {
-      x: padPosition.x + Math.cos(angle) * WHEEL_RADIUS,
-      y: padPosition.y + Math.sin(angle) * WHEEL_RADIUS,
-    };
-  }
-
-  private handleWorldPointer(world: Point): void {
-    if (this.wheelPadId) {
-      const wheelPad = muddyMoatLevel.pads.find(
-        (candidate) => candidate.id === this.wheelPadId,
-      );
-      if (wheelPad) {
-        const options = this.wheelOptions();
-        for (let index = 0; index < options.length; index += 1) {
-          const option = options[index];
-          if (!option) {
-            continue;
-          }
-          const optionPosition = this.wheelOptionPosition(
-            wheelPad.position,
-            index,
-            options.length,
-          );
-          if (
-            Phaser.Math.Distance.Squared(
-              world.x,
-              world.y,
-              optionPosition.x,
-              optionPosition.y,
-            ) <=
-            WHEEL_OPTION_HIT_RADIUS * WHEEL_OPTION_HIT_RADIUS
-          ) {
-            this.wheelPadId = null;
-            this.callbacks.onPlacementPreview({
-              towerId: option.id,
-              padId: wheelPad.id,
-            });
-            this.renderState(this.simulation.state, []);
-            return;
-          }
-        }
-      }
-    }
-
-    for (const tower of this.simulation.state.towers) {
-      const towerPad = muddyMoatLevel.pads.find(
-        (candidate) => candidate.id === tower.padId,
-      );
-      if (!towerPad) {
-        continue;
-      }
-      const upgradeY = towerPad.position.y - UPGRADE_ICON_OFFSET_Y;
-      if (
-        Phaser.Math.Distance.Squared(
-          world.x,
-          world.y,
-          towerPad.position.x,
-          upgradeY,
-        ) <=
-        ACTION_ICON_HIT_RADIUS * ACTION_ICON_HIT_RADIUS
-      ) {
-        this.wheelPadId = null;
-        this.dispatch({ type: "upgrade-tower", instanceId: tower.id });
-        return;
-      }
-      const sellY = towerPad.position.y + SELL_ICON_OFFSET_Y;
-      if (
-        Phaser.Math.Distance.Squared(
-          world.x,
-          world.y,
-          towerPad.position.x,
-          sellY,
-        ) <=
-        ACTION_ICON_HIT_RADIUS * ACTION_ICON_HIT_RADIUS
-      ) {
-        this.wheelPadId = null;
-        this.selectedTowerInstanceId = null;
-        this.callbacks.onTowerSelected(null);
-        this.dispatch({ type: "sell-tower", instanceId: tower.id });
-        return;
-      }
-    }
-
+  private handleWorldPointer(world: Point, padHitRadius: number): void {
     const pad = muddyMoatLevel.pads.find(
       (candidate) =>
         Phaser.Math.Distance.Squared(
@@ -302,7 +362,7 @@ class BattleScene extends Phaser.Scene {
           candidate.position.x,
           candidate.position.y,
         ) <=
-        38 * 38,
+        padHitRadius * padHitRadius,
     );
 
     if (!pad) {
@@ -310,10 +370,14 @@ class BattleScene extends Phaser.Scene {
       this.selectedTowerInstanceId = null;
       this.callbacks.onTowerSelected(null);
       this.callbacks.onPlacementPreview(null);
+      this.publishControls();
       this.renderState(this.simulation.state, []);
       return;
     }
+    this.handlePadSelection(pad);
+  }
 
+  private handlePadSelection(pad: (typeof muddyMoatLevel.pads)[number]): void {
     const existing = this.simulation.state.towers.find(
       (tower) => tower.padId === pad.id,
     );
@@ -322,6 +386,16 @@ class BattleScene extends Phaser.Scene {
       this.selectedTowerInstanceId = existing.id;
       this.callbacks.onTowerSelected(existing);
       this.callbacks.onPlacementPreview(null);
+      this.publishControls();
+      this.renderState(this.simulation.state, []);
+      return;
+    }
+
+    if (this.managementDisabled) {
+      this.wheelPadId = null;
+      this.callbacks.onPlacementPreview(null);
+      this.publishControls();
+      this.callbacks.onError("Tower management is unavailable right now.");
       this.renderState(this.simulation.state, []);
       return;
     }
@@ -330,7 +404,38 @@ class BattleScene extends Phaser.Scene {
     this.callbacks.onTowerSelected(null);
     this.callbacks.onPlacementPreview(null);
     this.wheelPadId = this.wheelPadId === pad.id ? null : pad.id;
+    this.publishControls();
     this.renderState(this.simulation.state, []);
+  }
+
+  private reconcileControls(state: GameState): void {
+    let changed = false;
+    if (
+      this.selectedTowerInstanceId &&
+      !state.towers.some((tower) => tower.id === this.selectedTowerInstanceId)
+    ) {
+      this.selectedTowerInstanceId = null;
+      this.callbacks.onTowerSelected(null);
+      changed = true;
+    }
+    if (
+      this.wheelPadId &&
+      state.phase !== "preparing" &&
+      state.phase !== "active"
+    ) {
+      this.wheelPadId = null;
+      changed = true;
+    }
+    if (changed) {
+      this.publishControls();
+    }
+  }
+
+  private publishControls(): void {
+    this.callbacks.onControlsChanged({
+      wheelPadId: this.wheelPadId,
+      selectedTowerInstanceId: this.selectedTowerInstanceId,
+    });
   }
 
   private renderState(state: GameState, events: readonly GameEvent[]): void {
@@ -460,15 +565,6 @@ class BattleScene extends Phaser.Scene {
           false,
           0.58,
         );
-      }
-    }
-
-    if (this.wheelPadId) {
-      const wheelPad = muddyMoatLevel.pads.find(
-        (candidate) => candidate.id === this.wheelPadId,
-      );
-      if (wheelPad) {
-        this.drawWheel(graphics, wheelPad.position, state.tick);
       }
     }
 
@@ -802,80 +898,6 @@ class BattleScene extends Phaser.Scene {
         pad.position.x - 7 + level * 7,
         pad.position.y + 28,
         2,
-      );
-    }
-
-    const canUpgrade = definition.levels[tower.level - 1]?.upgradeCost !== null;
-    const upgradeY = pad.position.y - UPGRADE_ICON_OFFSET_Y;
-    graphics.fillStyle(0x241d08, canUpgrade ? 0.9 : 0.5);
-    graphics.fillCircle(pad.position.x, upgradeY, 13);
-    graphics.lineStyle(2, 0xffd45e, canUpgrade ? 1 : 0.4);
-    graphics.strokeCircle(pad.position.x, upgradeY, 13);
-    graphics.lineStyle(3, 0xffd45e, canUpgrade ? 1 : 0.4);
-    graphics.lineBetween(
-      pad.position.x - 6,
-      upgradeY,
-      pad.position.x + 6,
-      upgradeY,
-    );
-    graphics.lineBetween(
-      pad.position.x,
-      upgradeY - 6,
-      pad.position.x,
-      upgradeY + 6,
-    );
-
-    const sellY = pad.position.y + SELL_ICON_OFFSET_Y;
-    graphics.fillStyle(0x2a0d0d, 0.9);
-    graphics.fillCircle(pad.position.x, sellY, 13);
-    graphics.lineStyle(2, 0xff6b5e, 1);
-    graphics.strokeCircle(pad.position.x, sellY, 13);
-    graphics.lineStyle(3, 0xff6b5e, 1);
-    graphics.lineBetween(
-      pad.position.x - 6,
-      sellY,
-      pad.position.x + 6,
-      sellY,
-    );
-  }
-
-  private drawWheel(
-    graphics: Phaser.GameObjects.Graphics,
-    padPosition: Point,
-    tick: number,
-  ): void {
-    const options = this.wheelOptions();
-    graphics.fillStyle(0x0a1512, 0.55);
-    graphics.fillCircle(padPosition.x, padPosition.y, WHEEL_RADIUS + 34);
-    for (let index = 0; index < options.length; index += 1) {
-      const definition = options[index];
-      if (!definition) {
-        continue;
-      }
-      const optionPosition = this.wheelOptionPosition(
-        padPosition,
-        index,
-        options.length,
-      );
-      graphics.lineStyle(2, definition.color, 0.5);
-      graphics.lineBetween(
-        padPosition.x,
-        padPosition.y,
-        optionPosition.x,
-        optionPosition.y,
-      );
-      graphics.fillStyle(0x121b18, 0.96);
-      graphics.fillCircle(optionPosition.x, optionPosition.y, 30);
-      graphics.lineStyle(3, definition.color, 0.95);
-      graphics.strokeCircle(optionPosition.x, optionPosition.y, 30);
-      this.drawTowerAvatar(
-        graphics,
-        definition.id,
-        optionPosition.x,
-        optionPosition.y - 4,
-        tick,
-        false,
-        1,
       );
     }
   }
@@ -1231,6 +1253,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     {
       simulation,
       placementPreview,
+      managementDisabled,
       gameSpeed,
       lowEffects,
       reducedMotion,
@@ -1244,6 +1267,15 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
   ) {
     const host = useRef<HTMLDivElement>(null);
     const scene = useRef<BattleScene | null>(null);
+    const padButtons = useRef(new Map<string, HTMLButtonElement>());
+    const overlayPrimaryAction = useRef<HTMLButtonElement>(null);
+    const previousControlPadId = useRef<string | null>(null);
+    const [controls, setControls] =
+      useState<CanvasControlState>(EMPTY_CONTROLS);
+    const [canvasFrame, setCanvasFrame] = useState<CanvasFrame | null>(null);
+    const [pendingTowerAction, setPendingTowerAction] = useState<
+      "upgrade" | "sell" | null
+    >(null);
     const callbacks = useRef({
       onState,
       onTowerSelected,
@@ -1283,6 +1315,14 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     }, [placementPreview]);
 
     useEffect(() => {
+      scene.current?.setManagementDisabled(managementDisabled);
+    }, [managementDisabled]);
+
+    useEffect(() => {
+      scene.current?.setEffectSettings(lowEffects, reducedMotion);
+    }, [lowEffects, reducedMotion]);
+
+    useEffect(() => {
       const container = host.current;
       if (!container) {
         return;
@@ -1297,12 +1337,30 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
             callbacks.current.onPlacementPreview(preview),
           onPauseChanged: (paused) => callbacks.current.onPauseChanged(paused),
           onError: (message) => callbacks.current.onError(message),
+          onControlsChanged: setControls,
         },
         lowEffects,
         reducedMotion,
+        managementDisabled,
+        placementPreview,
       );
       battleScene.setSpeed(gameSpeed);
       let game: Phaser.Game | null = null;
+      let canvasObserver: ResizeObserver | null = null;
+      const updateCanvasFrame = () => {
+        const canvas = game?.canvas;
+        if (!canvas) {
+          return;
+        }
+        const containerBounds = container.getBoundingClientRect();
+        const canvasBounds = canvas.getBoundingClientRect();
+        setCanvasFrame({
+          left: canvasBounds.left - containerBounds.left,
+          top: canvasBounds.top - containerBounds.top,
+          width: canvasBounds.width,
+          height: canvasBounds.height,
+        });
+      };
       const startFrame = window.requestAnimationFrame(() => {
         if (!container.isConnected) {
           return;
@@ -1325,22 +1383,379 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
           },
           scene: [battleScene],
         });
+        canvasObserver = new ResizeObserver(updateCanvasFrame);
+        canvasObserver.observe(container);
+        canvasObserver.observe(game.canvas);
+        window.requestAnimationFrame(updateCanvasFrame);
       });
 
       return () => {
         window.cancelAnimationFrame(startFrame);
+        canvasObserver?.disconnect();
         scene.current = null;
         game?.destroy(true);
         container.replaceChildren();
       };
-    }, [lowEffects, reducedMotion, simulation]);
+    }, [simulation]);
+
+    const wheelPad = controls.wheelPadId
+      ? muddyMoatLevel.pads.find((pad) => pad.id === controls.wheelPadId)
+      : null;
+    const selectedTower = controls.selectedTowerInstanceId
+      ? simulation.state.towers.find(
+          (tower) => tower.id === controls.selectedTowerInstanceId,
+        )
+      : null;
+    const selectedPad = selectedTower
+      ? muddyMoatLevel.pads.find((pad) => pad.id === selectedTower.padId)
+      : null;
+    const selectedDefinition = selectedTower
+      ? towerDefinitions[selectedTower.towerId as keyof typeof towerDefinitions]
+      : null;
+    const selectedLevel =
+      selectedTower && selectedDefinition
+        ? selectedDefinition.levels[selectedTower.level - 1]
+        : null;
+    const wheelOptions = Object.values(towerDefinitions);
+    const previewPad = placementPreview
+      ? muddyMoatLevel.pads.find((pad) => pad.id === placementPreview.padId)
+      : null;
+    const previewDefinition = placementPreview
+      ? towerDefinitions[
+          placementPreview.towerId as keyof typeof towerDefinitions
+        ]
+      : null;
+    const wheelPositions =
+      wheelPad && canvasFrame
+        ? controlRowPositions(
+            wheelPad.position,
+            canvasFrame,
+            wheelOptions.length,
+            WHEEL_BUTTON_SIZE,
+          )
+        : [];
+    const actionPositions =
+      selectedPad && canvasFrame
+        ? controlRowPositions(
+            selectedPad.position,
+            canvasFrame,
+            2,
+            ACTION_BUTTON_SIZE,
+          )
+        : [];
+    const placementPositions =
+      previewPad && canvasFrame
+        ? controlRowPositions(
+            previewPad.position,
+            canvasFrame,
+            2,
+            ACTION_BUTTON_SIZE,
+          )
+        : [];
+    const upgradeCost = selectedLevel?.upgradeCost ?? null;
+    const upgradeDisabled =
+      managementDisabled ||
+      upgradeCost === null ||
+      simulation.state.gold < upgradeCost;
+    const sellDisabled =
+      managementDisabled || simulation.state.phase !== "preparing";
+    const sellValue = selectedTower
+      ? Math.floor(selectedTower.investedGold * 0.7)
+      : 0;
+    const towersByPad = new Map(
+      simulation.state.towers.map((tower) => [tower.padId, tower]),
+    );
+    const canvasControlOpen = Boolean(
+      wheelPad || selectedTower || placementPreview,
+    );
+
+    useEffect(() => {
+      setPendingTowerAction(null);
+    }, [
+      controls.selectedTowerInstanceId,
+      managementDisabled,
+      simulation.state.phase,
+    ]);
+
+    useEffect(() => {
+      const activePadId =
+        placementPreview?.padId ?? wheelPad?.id ?? selectedPad?.id ?? null;
+      if (activePadId) {
+        previousControlPadId.current = activePadId;
+        overlayPrimaryAction.current?.focus();
+        return;
+      }
+
+      const padId = previousControlPadId.current;
+      previousControlPadId.current = null;
+      if (padId) {
+        window.requestAnimationFrame(() =>
+          padButtons.current.get(padId)?.focus(),
+        );
+      }
+    }, [
+      controls.selectedTowerInstanceId,
+      controls.wheelPadId,
+      placementPreview?.padId,
+      selectedPad?.id,
+      wheelPad?.id,
+    ]);
 
     return (
-      <div
-        className="battlefield"
-        ref={host}
-        aria-label="The Muddy Moat battlefield"
-      />
+      <div className="battlefield" aria-label="The Muddy Moat battlefield">
+        <div className="battlefield-canvas" ref={host} />
+        {canvasFrame && (
+          <div
+            className="battlefield-control-layer battlefield-pad-layer"
+            role="group"
+            aria-label="Tower pads"
+          >
+            {muddyMoatLevel.pads.map((pad) => {
+              const tower = towersByPad.get(pad.id);
+              const definition = tower
+                ? towerDefinitions[
+                    tower.towerId as keyof typeof towerDefinitions
+                  ]
+                : null;
+              return (
+                <button
+                  key={pad.id}
+                  ref={(button) => {
+                    if (button) {
+                      padButtons.current.set(pad.id, button);
+                    } else {
+                      padButtons.current.delete(pad.id);
+                    }
+                  }}
+                  className="battlefield-pad-button"
+                  style={controlStyle(
+                    canvasFrame,
+                    worldToCanvasPosition(pad.position, canvasFrame),
+                  )}
+                  disabled={!tower && managementDisabled}
+                  tabIndex={canvasControlOpen ? -1 : 0}
+                  aria-pressed={
+                    controls.wheelPadId === pad.id ||
+                    controls.selectedTowerInstanceId === tower?.id
+                  }
+                  aria-label={
+                    tower && definition
+                      ? `Inspect ${definition.shortName} at ${padName(pad.id)}`
+                      : `Open hero wheel at ${padName(pad.id)}`
+                  }
+                  onClick={() => scene.current?.selectPad(pad.id)}
+                />
+              );
+            })}
+          </div>
+        )}
+        {canvasFrame && wheelPad && (
+          <div
+            className="battlefield-control-layer"
+            role="group"
+            aria-label="Hero wheel"
+          >
+            {wheelOptions.map((definition, index) => {
+              const position = wheelPositions[index];
+              return position ? (
+                <button
+                  key={definition.id}
+                  ref={index === 0 ? overlayPrimaryAction : undefined}
+                  className={`tower-wheel-button tower-${definition.id}`}
+                  style={controlStyle(canvasFrame, position)}
+                  aria-label={`Preview ${definition.shortName} for ${definition.cost} gold`}
+                  onClick={() =>
+                    scene.current?.chooseWheelOption(definition.id)
+                  }
+                >
+                  <strong aria-hidden="true">
+                    {definition.shortName
+                      .split(/\s+/)
+                      .map((word) => word[0])
+                      .join("")}
+                  </strong>
+                  <small aria-hidden="true">{definition.cost}g</small>
+                </button>
+              ) : null;
+            })}
+          </div>
+        )}
+        {canvasFrame && placementPreview && previewPad && previewDefinition && (
+          <div
+            className="battlefield-control-layer"
+            role="group"
+            aria-label={`${previewDefinition.shortName} placement`}
+          >
+            <span
+              className="battlefield-context-label"
+              style={controlStyle(
+                canvasFrame,
+                contextLabelPosition(
+                  previewPad.position,
+                  placementPositions,
+                  canvasFrame,
+                ),
+              )}
+            >
+              {previewDefinition.shortName} · {previewDefinition.cost}g
+              {simulation.state.gold < previewDefinition.cost
+                ? ` · need ${previewDefinition.cost - simulation.state.gold}g`
+                : ""}
+            </span>
+            <button
+              ref={overlayPrimaryAction}
+              className="tower-action-button placement-cancel-button"
+              style={controlStyle(canvasFrame, placementPositions[0]!)}
+              aria-label={`Cancel ${previewDefinition.shortName} placement`}
+              onClick={() => callbacks.current.onPlacementPreview(null)}
+            >
+              <strong aria-hidden="true">×</strong>
+            </button>
+            <button
+              className="tower-action-button placement-confirm-button"
+              style={controlStyle(canvasFrame, placementPositions[1]!)}
+              disabled={
+                managementDisabled ||
+                simulation.state.gold < previewDefinition.cost
+              }
+              aria-label={`Confirm ${previewDefinition.shortName} placement for ${previewDefinition.cost} gold`}
+              onClick={() => {
+                if (scene.current?.confirmPlacement(placementPreview)) {
+                  callbacks.current.onPlacementPreview(null);
+                  callbacks.current.onError(
+                    `${previewDefinition.shortName} deployed.`,
+                  );
+                }
+              }}
+            >
+              <strong aria-hidden="true">✓</strong>
+              <small aria-hidden="true">{previewDefinition.cost}g</small>
+            </button>
+          </div>
+        )}
+        {canvasFrame &&
+          selectedTower &&
+          selectedDefinition &&
+          selectedLevel &&
+          selectedPad && (
+            <div
+              className="battlefield-control-layer"
+              role="group"
+              aria-label={`${selectedDefinition.shortName} actions`}
+            >
+              <span
+                className="battlefield-context-label"
+                style={controlStyle(
+                  canvasFrame,
+                  contextLabelPosition(
+                    selectedPad.position,
+                    actionPositions,
+                    canvasFrame,
+                  ),
+                )}
+              >
+                {pendingTowerAction === "upgrade" && upgradeCost !== null
+                  ? `Upgrade to rank ${selectedTower.level + 1} for ${upgradeCost}g?`
+                  : pendingTowerAction === "sell"
+                    ? `Sell ${selectedDefinition.shortName} for ${sellValue}g?`
+                    : `${selectedDefinition.shortName} · rank ${selectedTower.level}`}
+              </span>
+              <button
+                ref={overlayPrimaryAction}
+                className="tower-action-button tower-upgrade-button"
+                style={controlStyle(canvasFrame, actionPositions[0]!)}
+                disabled={
+                  pendingTowerAction === "sell" ? false : upgradeDisabled
+                }
+                aria-label={
+                  pendingTowerAction === "sell"
+                    ? "Cancel tower sale"
+                    : pendingTowerAction === "upgrade" && upgradeCost !== null
+                      ? `Confirm ${selectedDefinition.shortName} upgrade for ${upgradeCost} gold`
+                      : upgradeCost === null
+                        ? `${selectedDefinition.shortName} is at maximum rank`
+                        : `Upgrade ${selectedDefinition.shortName} for ${upgradeCost} gold`
+                }
+                onClick={() => {
+                  if (pendingTowerAction === "sell") {
+                    setPendingTowerAction(null);
+                    return;
+                  }
+                  if (pendingTowerAction !== "upgrade") {
+                    setPendingTowerAction("upgrade");
+                    return;
+                  }
+                  if (
+                    scene.current?.dispatch({
+                      type: "upgrade-tower",
+                      instanceId: selectedTower.id,
+                    })
+                  ) {
+                    setPendingTowerAction(null);
+                  }
+                }}
+              >
+                <strong aria-hidden="true">
+                  {pendingTowerAction === "sell"
+                    ? "×"
+                    : pendingTowerAction === "upgrade"
+                      ? "✓"
+                      : "+"}
+                </strong>
+                <small aria-hidden="true">
+                  {pendingTowerAction === "sell"
+                    ? "NO"
+                    : upgradeCost === null
+                      ? "MAX"
+                      : `${upgradeCost}g`}
+                </small>
+              </button>
+              <button
+                className="tower-action-button tower-sell-button"
+                style={controlStyle(canvasFrame, actionPositions[1]!)}
+                disabled={
+                  pendingTowerAction === "upgrade" ? false : sellDisabled
+                }
+                aria-label={
+                  pendingTowerAction === "upgrade"
+                    ? "Cancel tower upgrade"
+                    : pendingTowerAction === "sell"
+                      ? `Confirm sale of ${selectedDefinition.shortName} for ${sellValue} gold`
+                      : `Sell ${selectedDefinition.shortName} for ${sellValue} gold`
+                }
+                onClick={() => {
+                  if (pendingTowerAction === "upgrade") {
+                    setPendingTowerAction(null);
+                    return;
+                  }
+                  if (pendingTowerAction !== "sell") {
+                    setPendingTowerAction("sell");
+                    return;
+                  }
+                  if (
+                    scene.current?.dispatch({
+                      type: "sell-tower",
+                      instanceId: selectedTower.id,
+                    })
+                  ) {
+                    setPendingTowerAction(null);
+                  }
+                }}
+              >
+                <strong aria-hidden="true">
+                  {pendingTowerAction === "upgrade"
+                    ? "×"
+                    : pendingTowerAction === "sell"
+                      ? "✓"
+                      : "−"}
+                </strong>
+                <small aria-hidden="true">
+                  {pendingTowerAction === "upgrade" ? "NO" : `${sellValue}g`}
+                </small>
+              </button>
+            </div>
+          )}
+      </div>
     );
   },
 );
