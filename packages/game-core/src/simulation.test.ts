@@ -298,4 +298,82 @@ describe("game simulation", () => {
     expect(simulation.state.lives).toBeGreaterThan(0);
     expect(simulation.state.completedMasteryIds).toContain("balanced-party");
   });
+
+  it("resolves wave 6 only after the boss phase and all enemies are defeated", () => {
+    const simulation = createSimulation({
+      checkpoint: {
+        levelId: "muddy-moat",
+        seed: 123,
+        modifierIds: [],
+        tick: 4_027,
+        nextWave: 5,
+        lives: 12,
+        gold: 0,
+        score: 15_000,
+        spawnedEnemies: 67,
+        placements: muddyMoatLevel.pads.map((pad, index) => ({
+          id: `tower-${index + 1}`,
+          towerId:
+            index % 3 === 0
+              ? "discount-wizard"
+              : index % 3 === 1
+                ? "fork-knight"
+                : "bardbarian",
+          padId: pad.id,
+          level: 3,
+        })),
+        metrics: {
+          spentGold: 1_500,
+          leakedEnemies: 0,
+          soldTowers: 0,
+          usedTowerIds: ["bardbarian", "discount-wizard", "fork-knight"],
+        },
+      },
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    let bossId: string | null = null;
+    let sawBossPhase = false;
+    let sawBossDefeat = false;
+    let battleCompleteEvents = 0;
+
+    while (simulation.state.phase === "active") {
+      const result = simulation.step();
+      for (const event of result.events) {
+        if (
+          event.type === "enemy-spawned" &&
+          event.enemyId === "dragon-intern"
+        ) {
+          bossId = event.instanceId;
+        }
+        if (event.type === "boss-phase") {
+          expect(event.instanceId).toBe(bossId);
+          const boss = result.state.enemies.find(
+            (enemy) => enemy.id === event.instanceId,
+          );
+          expect(boss).toMatchObject({ bossPhase: true });
+          expect(boss?.health).toBe(Math.floor((boss?.maxHealth ?? 0) / 2));
+          sawBossPhase = true;
+        }
+        if (event.type === "enemy-defeated" && event.instanceId === bossId) {
+          expect(sawBossPhase).toBe(true);
+          sawBossDefeat = true;
+        }
+        if (event.type === "battle-complete") {
+          expect(event.result).toBe("victory");
+          battleCompleteEvents += 1;
+        }
+      }
+    }
+
+    expect(bossId).not.toBeNull();
+    expect(sawBossPhase).toBe(true);
+    expect(sawBossDefeat).toBe(true);
+    expect(simulation.state).toMatchObject({
+      phase: "victory",
+      waveIndex: muddyMoatLevel.waves.length,
+      enemies: [],
+    });
+    expect(battleCompleteEvents).toBe(1);
+  });
 });

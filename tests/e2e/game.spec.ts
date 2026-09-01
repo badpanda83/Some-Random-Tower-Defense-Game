@@ -57,7 +57,7 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await context.setOffline(false);
 });
 
-test("places and upgrades touch-friendly towers during combat", async ({
+test("previews, confirms, and safely cancels touch-friendly placement", async ({
   page,
 }, testInfo) => {
   const touch = testInfo.project.name === "mobile-chromium";
@@ -66,13 +66,23 @@ test("places and upgrades touch-friendly towers during combat", async ({
   await page.getByRole("button", { name: "Begin defense" }).click();
 
   const canvas = page.locator("canvas");
+  const gold = page.locator(".resource-gold strong");
   await expect(canvas).toBeVisible();
   await page.getByRole("button", { name: /Fork Knight/ }).click();
+  await expect(gold).toHaveText("270");
 
   await tapBattlefieldPad(canvas, { x: 83, y: 74 }, touch);
+  await expect(page.getByText("Placement preview")).toBeVisible();
+  await expect(page.getByText("Deploy for 60 gold")).toBeVisible();
+  await expect(gold).toHaveText("270");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("Placement preview")).not.toBeVisible();
+  await expect(gold).toHaveText("270");
 
+  await tapBattlefieldPad(canvas, { x: 83, y: 74 }, touch);
+  await page.getByRole("button", { name: "Confirm 60g" }).click();
   await expect(page.getByText(/Hero inspection/)).toBeVisible();
-  await expect(page.getByText("210")).toBeVisible();
+  await expect(gold).toHaveText("210");
   await page.getByRole("button", { name: "Start wave 1" }).click();
   await expect(page.getByText("Wave in progress")).toBeVisible();
   await expect(
@@ -86,16 +96,28 @@ test("places and upgrades touch-friendly towers during combat", async ({
     }),
   ).toHaveText("Discount Wizard selected. Tap an empty pad.");
   await tapBattlefieldPad(canvas, { x: 245, y: 250 }, touch);
+  await expect(page.getByText("Deploy for 100 gold")).toBeVisible();
+  await expect(gold).toHaveText("210");
+  await page.getByRole("button", { name: "Confirm 100g" }).click();
   await expect(page.getByText(/Merl-ish · rank 1/)).toBeVisible();
-  await expect(page.getByText("110")).toBeVisible();
+  await expect(gold).toHaveText("110");
 
   await page.getByRole("button", { name: "Upgrade 80g" }).click();
   await expect(page.getByText(/Merl-ish · rank 2/)).toBeVisible();
-  await expect(page.getByText("30")).toBeVisible();
+  await expect(gold).toHaveText("30");
+  await page.getByRole("button", { name: "Pause battle" }).click();
 
   await page.getByRole("button", { name: /Bardbarian/ }).click();
   await tapBattlefieldPad(canvas, { x: 285, y: 448 }, touch);
-  await expect(page.getByText("Not enough gold")).toBeVisible();
-  await expect(page.getByText("30")).toBeVisible();
+  await expect(page.getByText(/need 60 more/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Confirm 90g" }),
+  ).toBeDisabled();
+  await expect(gold).toHaveText("30");
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await tapBattlefieldPad(canvas, { x: 83, y: 74 }, touch);
+  await expect(page.getByText(/Sir Stabs-a-Lot · rank 1/)).toBeVisible();
+  await expect(gold).toHaveText("30");
   await expect(page.getByText("Wave in progress")).toBeVisible();
 });

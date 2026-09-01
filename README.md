@@ -112,7 +112,7 @@ A Raspberry Pi 3 should use a 64-bit OS. Hosting the app container there is real
 
 ## PWA behavior
 
-The service worker precaches only versioned application assets. `/api` and `/health` always use the network and are never cached. The game pauses when hidden, supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, touch placement and upgrades during combat, and an explicit landscape prompt on narrow portrait screens.
+The service worker precaches only versioned application assets. `/api` and `/health` always use the network and are never cached. The game pauses when hidden, supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, confirmed touch or mouse placement and upgrades during combat, and an explicit landscape prompt on narrow portrait screens. To deploy a hero, select its roster card, choose an empty pad, then use **Confirm**; **Cancel**, changing heroes, or leaving placement never spends gold.
 
 All current visual assets and copy are original project material. No third-party game art is required.
 

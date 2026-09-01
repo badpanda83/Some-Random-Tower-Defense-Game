@@ -15,26 +15,35 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export interface BattlefieldHandle {
   dispatch(command: GameCommand): void;
+  confirmPlacement(preview: PlacementPreview): boolean;
   setPaused(paused: boolean): void;
   setSpeed(speed: GameSpeed): void;
 }
 
+export interface PlacementPreview {
+  readonly towerId: string;
+  readonly padId: string;
+}
+
 interface BattlefieldProps {
   readonly simulation: Simulation;
-  readonly selectedTowerId: string;
+  readonly selectedTowerId: string | null;
+  readonly placementPreview: PlacementPreview | null;
   readonly gameSpeed: GameSpeed;
   readonly lowEffects: boolean;
   readonly reducedMotion: boolean;
   readonly onState: (state: GameState, events: readonly GameEvent[]) => void;
   readonly onTowerSelected: (tower: TowerState | null) => void;
+  readonly onPlacementPreview: (preview: PlacementPreview | null) => void;
   readonly onPauseChanged: (paused: boolean) => void;
   readonly onError: (message: string) => void;
 }
 
 interface SceneCallbacks {
-  readonly selectedTowerId: () => string;
+  readonly selectedTowerId: () => string | null;
   readonly onState: BattlefieldProps["onState"];
   readonly onTowerSelected: BattlefieldProps["onTowerSelected"];
+  readonly onPlacementPreview: BattlefieldProps["onPlacementPreview"];
   readonly onPauseChanged: BattlefieldProps["onPauseChanged"];
   readonly onError: BattlefieldProps["onError"];
 }
@@ -69,6 +78,7 @@ class BattleScene extends Phaser.Scene {
   private pausedByPlayer = false;
   private speed: GameSpeed = 1;
   private selectedTowerInstanceId: string | null = null;
+  private placementPreview: PlacementPreview | null = null;
   private enemySnapshots = new Map<string, EnemySnapshot>();
   private transientEffects: TransientEffect[] = [];
 
@@ -118,16 +128,43 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  public dispatch(command: GameCommand): void {
+  public dispatch(command: GameCommand): boolean {
     try {
       const result = this.simulation.dispatch(command);
       this.renderState(result.state, result.events);
       this.callbacks.onState(result.state, result.events);
+      return true;
     } catch (error) {
       this.callbacks.onError(
         error instanceof Error ? error.message : "That heroic act failed.",
       );
+      return false;
     }
+  }
+
+  public confirmPlacement(preview: PlacementPreview): boolean {
+    const placed = this.dispatch({
+      type: "place-tower",
+      towerId: preview.towerId,
+      padId: preview.padId,
+    });
+    if (!placed) {
+      return false;
+    }
+
+    this.placementPreview = null;
+    const tower = this.simulation.state.towers.find(
+      (candidate) => candidate.padId === preview.padId,
+    );
+    this.selectedTowerInstanceId = tower?.id ?? null;
+    this.callbacks.onTowerSelected(tower ?? null);
+    this.renderState(this.simulation.state, []);
+    return true;
+  }
+
+  public setPlacementPreview(preview: PlacementPreview | null): void {
+    this.placementPreview = preview;
+    this.renderState(this.simulation.state, []);
   }
 
   public setPaused(paused: boolean): void {
@@ -171,6 +208,7 @@ class BattleScene extends Phaser.Scene {
     if (!pad) {
       this.selectedTowerInstanceId = null;
       this.callbacks.onTowerSelected(null);
+      this.callbacks.onPlacementPreview(null);
       this.renderState(this.simulation.state, []);
       return;
     }
@@ -181,25 +219,20 @@ class BattleScene extends Phaser.Scene {
     if (existing) {
       this.selectedTowerInstanceId = existing.id;
       this.callbacks.onTowerSelected(existing);
+      this.callbacks.onPlacementPreview(null);
       this.renderState(this.simulation.state, []);
       return;
     }
 
     this.selectedTowerInstanceId = null;
     this.callbacks.onTowerSelected(null);
-    this.dispatch({
-      type: "place-tower",
-      towerId: this.callbacks.selectedTowerId(),
-      padId: pad.id,
-    });
-    const placed = this.simulation.state.towers.find(
-      (tower) => tower.padId === pad.id,
-    );
-    if (placed) {
-      this.selectedTowerInstanceId = placed.id;
-      this.callbacks.onTowerSelected(placed);
-      this.renderState(this.simulation.state, []);
+    const towerId = this.callbacks.selectedTowerId();
+    if (!towerId) {
+      this.callbacks.onPlacementPreview(null);
+      this.callbacks.onError("Choose a hero before selecting an empty pad.");
+      return;
     }
+    this.callbacks.onPlacementPreview({ towerId, padId: pad.id });
   }
 
   private renderState(state: GameState, events: readonly GameEvent[]): void {
@@ -268,6 +301,18 @@ class BattleScene extends Phaser.Scene {
           );
         }
       }
+      if (this.placementPreview?.padId === pad.id) {
+        const definition =
+          towerDefinitions[
+            this.placementPreview.towerId as keyof typeof towerDefinitions
+          ];
+        graphics.fillStyle(definition.color, 0.18);
+        graphics.fillCircle(pad.position.x, pad.position.y, 31);
+        graphics.lineStyle(4, definition.color, 0.95);
+        graphics.strokeCircle(pad.position.x, pad.position.y, 34);
+        graphics.lineStyle(2, 0xffffff, 0.72);
+        graphics.strokeCircle(pad.position.x, pad.position.y, 25);
+      }
     }
 
     const attackingTowerIds = new Set(
@@ -287,6 +332,22 @@ class BattleScene extends Phaser.Scene {
         state.tick,
         attackingTowerIds.has(tower.id),
       );
+    }
+    if (this.placementPreview) {
+      const pad = muddyMoatLevel.pads.find(
+        (candidate) => candidate.id === this.placementPreview?.padId,
+      );
+      if (pad) {
+        this.drawTowerAvatar(
+          graphics,
+          this.placementPreview.towerId,
+          pad.position.x,
+          pad.position.y,
+          state.tick,
+          false,
+          0.58,
+        );
+      }
     }
 
     const currentSnapshots = new Map<string, EnemySnapshot>();
@@ -539,11 +600,20 @@ class BattleScene extends Phaser.Scene {
         : 36;
     graphics.fillStyle(0x1a1118, 0.95);
     graphics.fillRoundedRect(x - barWidth / 2, y - radius - 12, barWidth, 6, 3);
+    const phaseMaxHealth =
+      definition.boss && enemy.bossPhase
+        ? Math.max(1, Math.floor(enemy.maxHealth / 2))
+        : enemy.maxHealth;
     graphics.fillStyle(enemy.bossPhase ? 0xffb454 : 0x7ee081);
     graphics.fillRoundedRect(
       x - barWidth / 2,
       y - radius - 12,
-      Math.max(2, Math.round((barWidth * enemy.health) / enemy.maxHealth)),
+      Math.max(
+        2,
+        Math.round(
+          (barWidth * Math.min(enemy.health, phaseMaxHealth)) / phaseMaxHealth,
+        ),
+      ),
       6,
       3,
     );
@@ -580,88 +650,29 @@ class BattleScene extends Phaser.Scene {
       graphics.strokeCircle(pad.position.x, pad.position.y, range);
     }
 
-    graphics.fillStyle(0x11141d, 0.7);
-    graphics.fillEllipse(x + 3, pad.position.y + 20, 48, 11);
-    graphics.fillStyle(definition.color);
-    graphics.fillCircle(x, y, reactiveAttack ? 19 : 21);
-    graphics.lineStyle(selected ? 5 : 3, selected ? 0xffffff : 0x202131);
-    graphics.strokeCircle(x, y, reactiveAttack ? 19 : 21);
-
-    if (tower.towerId === "fork-knight") {
-      graphics.fillStyle(0xc4d1d3);
-      graphics.fillRoundedRect(x - 10, y - 14, 20, 17, 5);
-      graphics.fillStyle(0x27303b);
-      graphics.fillRect(x - 10, y - 4, 20, 4);
-      graphics.fillStyle(0xffefbd);
-      graphics.fillCircle(x + 4, y - 7, 2);
-      graphics.fillStyle(0x7d4861);
-      graphics.fillCircle(x - 8, y + 9, 7);
-      graphics.lineStyle(3, 0xf8e6ad);
-      graphics.lineBetween(
-        x + 11,
-        y + 13,
-        x + 13 + (reactiveAttack ? 8 : 0),
-        y - 14,
+    if (selected) {
+      const pulse = animated ? Math.sin(tick * 0.35) * 2 : 0;
+      graphics.lineStyle(3, 0xffffff, 0.78);
+      graphics.strokeCircle(x, pad.position.y, 31 + pulse);
+      graphics.fillStyle(0xffffff, 0.85);
+      graphics.fillTriangle(
+        x,
+        pad.position.y - 37,
+        x - 5,
+        pad.position.y - 29,
+        x + 5,
+        pad.position.y - 29,
       );
-      graphics.lineBetween(
-        x + 8 + (reactiveAttack ? 8 : 0),
-        y - 14,
-        x + 8 + (reactiveAttack ? 8 : 0),
-        y - 7,
-      );
-      graphics.lineBetween(
-        x + 13 + (reactiveAttack ? 8 : 0),
-        y - 15,
-        x + 13 + (reactiveAttack ? 8 : 0),
-        y - 7,
-      );
-      graphics.lineBetween(
-        x + 18 + (reactiveAttack ? 8 : 0),
-        y - 14,
-        x + 18 + (reactiveAttack ? 8 : 0),
-        y - 7,
-      );
-    } else if (tower.towerId === "discount-wizard") {
-      graphics.fillStyle(0x342349);
-      graphics.fillTriangle(x, y - 22, x - 15, y + 4, x + 15, y + 4);
-      graphics.fillStyle(0xf0c2a7);
-      graphics.fillCircle(x, y + 2, 8);
-      graphics.fillStyle(0x342349);
-      graphics.fillEllipse(x, y + 13, 27, 18);
-      graphics.fillStyle(0xffe989);
-      graphics.fillCircle(x + 3, y, 2);
-      graphics.lineStyle(3, 0x8b603d);
-      graphics.lineBetween(
-        x + 9,
-        y + 12,
-        x + 18,
-        y - 9 - (reactiveAttack ? 7 : 0),
-      );
-      graphics.fillStyle(reactiveAttack ? 0xffffff : 0xffe989);
-      graphics.fillCircle(
-        x + 18,
-        y - 9 - (reactiveAttack ? 7 : 0),
-        reactiveAttack ? 6 : 4,
-      );
-    } else {
-      graphics.fillStyle(0xefb88f);
-      graphics.fillCircle(x, y - 9, 8);
-      graphics.fillStyle(0x325f56);
-      graphics.fillEllipse(x, y + 9, 29, 22);
-      graphics.fillStyle(0xf1dc93);
-      graphics.fillCircle(x + 2, y - 10, 2);
-      graphics.lineStyle(4, 0x6f432f);
-      graphics.strokeCircle(x + 8, y + 8, 10);
-      graphics.lineBetween(
-        x + 1,
-        y + 15,
-        x + 15 + (reactiveAttack ? 6 : 0),
-        y + 1 - (reactiveAttack ? 5 : 0),
-      );
-      graphics.lineStyle(2, 0xf4dfaa);
-      graphics.lineBetween(x + 4, y + 5, x + 12, y + 12);
-      graphics.lineBetween(x + 5, y + 13, x + 12, y + 5);
     }
+    this.drawTowerAvatar(
+      graphics,
+      tower.towerId,
+      x,
+      y,
+      tick,
+      reactiveAttack,
+      1,
+    );
 
     for (let level = 0; level < tower.level; level += 1) {
       graphics.fillStyle(0xffffff);
@@ -670,6 +681,112 @@ class BattleScene extends Phaser.Scene {
         pad.position.y + 28,
         2,
       );
+    }
+  }
+
+  private drawTowerAvatar(
+    graphics: Phaser.GameObjects.Graphics,
+    towerId: string,
+    x: number,
+    y: number,
+    tick: number,
+    attacking: boolean,
+    alpha: number,
+  ): void {
+    const definition =
+      towerDefinitions[towerId as keyof typeof towerDefinitions];
+    const animated = !this.lowEffects && !this.reducedMotion;
+    const action = attacking && !this.reducedMotion ? 1 : 0;
+    const breathe = animated ? Math.sin(tick * 0.22) : 0;
+
+    graphics.fillStyle(0x0b1017, 0.55 * alpha);
+    graphics.fillEllipse(x + 2, y + 21, 48, 10);
+
+    if (towerId === "fork-knight") {
+      const thrust = action * 10;
+      graphics.fillStyle(0x6d3852, alpha);
+      graphics.fillTriangle(x - 13, y - 2, x - 17, y + 21, x + 8, y + 18);
+      graphics.fillStyle(0x657783, alpha);
+      graphics.fillRoundedRect(x - 12, y - 6, 24, 24, 7);
+      graphics.lineStyle(3, 0x252d38, alpha);
+      graphics.strokeRoundedRect(x - 12, y - 6, 24, 24, 7);
+      graphics.fillStyle(0xcbd6d8, alpha);
+      graphics.fillRoundedRect(x - 11, y - 22, 22, 20, 7);
+      graphics.fillTriangle(x - 8, y - 20, x, y - 31, x + 8, y - 20);
+      graphics.lineStyle(3, 0x303943, alpha);
+      graphics.strokeRoundedRect(x - 11, y - 22, 22, 20, 7);
+      graphics.fillRect(x - 10, y - 12, 20, 4);
+      graphics.fillStyle(0xffefbd, alpha);
+      graphics.fillCircle(x + 5, y - 10, 2);
+      graphics.fillStyle(0x8f4d62, alpha);
+      graphics.fillCircle(x - 13, y + 7, 9);
+      graphics.lineStyle(2, 0xf3d58a, alpha);
+      graphics.strokeCircle(x - 13, y + 7, 9);
+      graphics.lineStyle(4, 0xe9d7a4, alpha);
+      graphics.lineBetween(x + 8, y + 14, x + 18 + thrust, y - 18);
+      graphics.lineStyle(2, 0xe9d7a4, alpha);
+      for (let tine = -5; tine <= 5; tine += 5) {
+        graphics.lineBetween(
+          x + 18 + thrust + tine,
+          y - 18,
+          x + 18 + thrust + tine,
+          y - 27,
+        );
+      }
+      graphics.lineBetween(x + 13 + thrust, y - 18, x + 23 + thrust, y - 18);
+    } else if (towerId === "discount-wizard") {
+      const cast = action * 8;
+      graphics.fillStyle(0x4d3271, alpha);
+      graphics.fillTriangle(x, y - 29, x - 20, y + 20, x + 20, y + 20);
+      graphics.fillStyle(0x764ca0, alpha);
+      graphics.fillTriangle(x - 17, y - 17, x + 1, y - 36, x + 17, y - 15);
+      graphics.fillStyle(0xf0c2a7, alpha);
+      graphics.fillCircle(x, y - 8, 9);
+      graphics.fillStyle(0xe6e1d5, alpha);
+      graphics.fillTriangle(x - 7, y - 2, x + 8, y - 2, x + 2, y + 12);
+      graphics.fillStyle(0xffe989, alpha);
+      graphics.fillCircle(x - 3, y - 10, 2);
+      graphics.fillCircle(x + 4, y - 10, 2);
+      graphics.lineStyle(4, 0x8b603d, alpha);
+      graphics.lineBetween(x + 10, y + 15, x + 21 + cast, y - 17 - cast);
+      graphics.fillStyle(action ? 0xffffff : definition.color, alpha);
+      graphics.fillCircle(x + 21 + cast, y - 17 - cast, action ? 8 : 5);
+      graphics.lineStyle(2, 0xffef9c, 0.8 * alpha);
+      graphics.strokeCircle(x + 21 + cast, y - 17 - cast, action ? 12 : 7);
+    } else {
+      const strum = action * 7;
+      graphics.fillStyle(0x325f56, alpha);
+      graphics.fillRoundedRect(x - 15, y - 2, 30, 23, 8);
+      graphics.fillStyle(0xefb88f, alpha);
+      graphics.fillCircle(x, y - 13, 10);
+      graphics.fillStyle(0x203b38, alpha);
+      graphics.fillTriangle(
+        x - 9,
+        y - 20,
+        x,
+        y - 31 - breathe * 2,
+        x + 9,
+        y - 20,
+      );
+      graphics.fillStyle(0xf1dc93, alpha);
+      graphics.fillCircle(x - 3, y - 14, 2);
+      graphics.fillCircle(x + 4, y - 14, 2);
+      graphics.lineStyle(5, 0xefb88f, alpha);
+      graphics.lineBetween(x - 13, y + 3, x - 21, y + 13);
+      graphics.lineBetween(x + 12, y + 3, x + 20 + strum, y - 1);
+      graphics.fillStyle(0x8b5533, alpha);
+      graphics.fillEllipse(x + 8, y + 9, 22, 25);
+      graphics.lineStyle(2, 0xf4dfaa, alpha);
+      graphics.strokeEllipse(x + 8, y + 9, 22, 25);
+      graphics.fillStyle(0x2c1c19, alpha);
+      graphics.fillCircle(x + 8, y + 9, 4);
+      graphics.lineStyle(3, 0xe6c778, alpha);
+      graphics.lineBetween(x + 1, y + 16, x + 18, y - 7);
+      if (action) {
+        graphics.lineStyle(2, definition.color, 0.7 * alpha);
+        graphics.strokeCircle(x, y, 29);
+        graphics.strokeCircle(x, y, 35);
+      }
     }
   }
 
@@ -875,11 +992,13 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     {
       simulation,
       selectedTowerId,
+      placementPreview,
       gameSpeed,
       lowEffects,
       reducedMotion,
       onState,
       onTowerSelected,
+      onPlacementPreview,
       onPauseChanged,
       onError,
     },
@@ -891,6 +1010,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       selectedTowerId,
       onState,
       onTowerSelected,
+      onPlacementPreview,
       onPauseChanged,
       onError,
     });
@@ -898,6 +1018,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       selectedTowerId,
       onState,
       onTowerSelected,
+      onPlacementPreview,
       onPauseChanged,
       onError,
     };
@@ -905,6 +1026,9 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     useImperativeHandle(ref, () => ({
       dispatch(command) {
         scene.current?.dispatch(command);
+      },
+      confirmPlacement(preview) {
+        return scene.current?.confirmPlacement(preview) ?? false;
       },
       setPaused(paused) {
         scene.current?.setPaused(paused);
@@ -919,6 +1043,10 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     }, [gameSpeed]);
 
     useEffect(() => {
+      scene.current?.setPlacementPreview(placementPreview);
+    }, [placementPreview]);
+
+    useEffect(() => {
       if (!host.current) {
         return;
       }
@@ -929,6 +1057,8 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
           selectedTowerId: () => callbacks.current.selectedTowerId,
           onState: (state, events) => callbacks.current.onState(state, events),
           onTowerSelected: (tower) => callbacks.current.onTowerSelected(tower),
+          onPlacementPreview: (preview) =>
+            callbacks.current.onPlacementPreview(preview),
           onPauseChanged: (paused) => callbacks.current.onPauseChanged(paused),
           onError: (message) => callbacks.current.onError(message),
         },
