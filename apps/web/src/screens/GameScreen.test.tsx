@@ -287,7 +287,9 @@ describe("mission abandonment", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(battlefieldTest.setPaused).toHaveBeenLastCalledWith(false);
-    expect(screen.getByText(/Wave in progress/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Dismiss message" }),
+    ).toHaveTextContent("Wave 1 underway");
     expect(callbacks.onAbandon).not.toHaveBeenCalled();
   });
 

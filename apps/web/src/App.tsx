@@ -134,6 +134,7 @@ export function App() {
     };
 
     syncQueue.current = syncQueue.current.then(run, run);
+    return syncQueue.current;
   }, []);
 
   useEffect(() => {
