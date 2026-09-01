@@ -1047,7 +1047,8 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     }, [placementPreview]);
 
     useEffect(() => {
-      if (!host.current) {
+      const container = host.current;
+      if (!container) {
         return;
       }
 
@@ -1066,28 +1067,36 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
         reducedMotion,
       );
       battleScene.setSpeed(gameSpeed);
-      scene.current = battleScene;
-      const game = new Phaser.Game({
-        type: Phaser.AUTO,
-        parent: host.current,
-        width: muddyMoatLevel.width,
-        height: muddyMoatLevel.height,
-        backgroundColor: "#172c2a",
-        render: {
-          antialias: true,
-          powerPreference: "high-performance",
-        },
-        scale: {
-          mode: Phaser.Scale.FIT,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
-        },
-        scene: [battleScene],
+      let game: Phaser.Game | null = null;
+      const startFrame = window.requestAnimationFrame(() => {
+        if (!container.isConnected) {
+          return;
+        }
+        container.replaceChildren();
+        scene.current = battleScene;
+        game = new Phaser.Game({
+          type: Phaser.AUTO,
+          parent: container,
+          width: muddyMoatLevel.width,
+          height: muddyMoatLevel.height,
+          backgroundColor: "#172c2a",
+          render: {
+            antialias: true,
+            powerPreference: "high-performance",
+          },
+          scale: {
+            mode: Phaser.Scale.FIT,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+          },
+          scene: [battleScene],
+        });
       });
 
       return () => {
+        window.cancelAnimationFrame(startFrame);
         scene.current = null;
-        game.destroy(true);
-        host.current?.replaceChildren();
+        game?.destroy(true);
+        container.replaceChildren();
       };
     }, [lowEffects, reducedMotion, simulation]);
 
