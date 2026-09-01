@@ -1087,6 +1087,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       return () => {
         scene.current = null;
         game.destroy(true);
+        host.current?.replaceChildren();
       };
     }, [lowEffects, reducedMotion, simulation]);
 

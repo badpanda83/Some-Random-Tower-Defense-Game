@@ -88,6 +88,7 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
   await expect(
     page.getByRole("button", { name: "Pause battle" }),
   ).toBeEnabled();
+  await page.getByRole("button", { name: "Pause battle" }).click();
 
   await page.getByRole("button", { name: /Discount Wizard/ }).click();
   await expect(
@@ -105,7 +106,6 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
   await page.getByRole("button", { name: "Upgrade 80g" }).click();
   await expect(page.getByText(/Merl-ish · rank 2/)).toBeVisible();
   await expect(gold).toHaveText("30");
-  await page.getByRole("button", { name: "Pause battle" }).click();
 
   await page.getByRole("button", { name: /Bardbarian/ }).click();
   await tapBattlefieldPad(canvas, { x: 285, y: 448 }, touch);
