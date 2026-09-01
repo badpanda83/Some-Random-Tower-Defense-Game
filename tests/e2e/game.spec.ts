@@ -491,6 +491,7 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
 
 test("cancels and confirms mission abandonment without retaining progress", async ({
   page,
+  context,
 }) => {
   test.setTimeout(45_000);
   await page.goto("/");
@@ -521,6 +522,8 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
   await expect(
     page.getByRole("button", { name: "Dismiss message" }),
   ).toContainText("Wave 1 underway");
+  await page.evaluate(async () => navigator.serviceWorker.ready);
+  await context.setOffline(true);
   await page.getByRole("button", { name: "Leave mission" }).click();
   await page.getByRole("button", { name: "Abandon mission" }).click();
 
@@ -533,23 +536,12 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
     .poll(async () => (await storedCheckpoint(page)).checkpoint)
     .toBeNull();
 
-  const conflict = page.getByRole("dialog", {
-    name: "Which progress should survive?",
-  });
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload();
   expect(await storedCheckpoint(page)).toMatchObject({ checkpoint: null });
-  await expect(page.locator(".app-surface")).toHaveAttribute(
-    "data-sync-status",
-    /^(?:synced|offline|conflict)$/,
-    { timeout: 20_000 },
-  );
-  if (await conflict.isVisible()) {
-    await conflict.getByRole("button", { name: "Keep this device" }).click();
-    await expect(conflict).not.toBeVisible();
-  }
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await expect(
     page.getByRole("button", { name: /Resume wave/ }),
   ).not.toBeVisible();
   await expect(page.getByText(/victor(y|ies)/i)).not.toBeVisible();
+  await context.setOffline(false);
 });

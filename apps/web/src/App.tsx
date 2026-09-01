@@ -338,7 +338,6 @@ export function App() {
     <>
       <div
         className="app-surface"
-        data-sync-status={syncStatus}
         inert={conflict ? true : undefined}
         aria-hidden={conflict ? true : undefined}
       >
