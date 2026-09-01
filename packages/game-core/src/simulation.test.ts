@@ -52,6 +52,94 @@ describe("game simulation", () => {
     expect(simulation.state.metrics.spentGold).toBe(60);
   });
 
+  it("places and upgrades towers during an active wave", () => {
+    const simulation = createSimulation({ seed: 2026 });
+    simulation.dispatch({
+      type: "place-tower",
+      towerId: "fork-knight",
+      padId: "bramble-seat",
+    });
+    simulation.dispatch({ type: "start-wave" });
+    simulation.step(3);
+    const tickBeforeManagement = simulation.state.tick;
+
+    simulation.dispatch({
+      type: "place-tower",
+      towerId: "discount-wizard",
+      padId: "puddle-perch",
+    });
+    simulation.dispatch({
+      type: "upgrade-tower",
+      instanceId: "tower-1",
+    });
+
+    expect(simulation.state.phase).toBe("active");
+    expect(simulation.state.tick).toBe(tickBeforeManagement);
+    expect(simulation.state.towers).toEqual([
+      expect.objectContaining({
+        id: "tower-1",
+        towerId: "fork-knight",
+        level: 2,
+      }),
+      expect.objectContaining({
+        id: "tower-2",
+        towerId: "discount-wizard",
+        level: 1,
+      }),
+    ]);
+    expect(simulation.state.gold).toBe(55);
+    expect(simulation.state.metrics.spentGold).toBe(215);
+  });
+
+  it("rejects illegal and unaffordable tower actions during an active wave", () => {
+    const simulation = createSimulation({
+      seed: 2026,
+      modifierIds: ["stingy-king"],
+    });
+    simulation.dispatch({
+      type: "place-tower",
+      towerId: "discount-wizard",
+      padId: "puddle-perch",
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    expect(() =>
+      simulation.dispatch({
+        type: "place-tower",
+        towerId: "fork-knight",
+        padId: "puddle-perch",
+      }),
+    ).toThrow("occupied");
+    expect(() =>
+      simulation.dispatch({
+        type: "place-tower",
+        towerId: "discount-wizard",
+        padId: "bramble-seat",
+      }),
+    ).toThrow("Not enough gold");
+    expect(() =>
+      simulation.dispatch({
+        type: "upgrade-tower",
+        instanceId: "missing-tower",
+      }),
+    ).toThrow("Unknown tower instance");
+
+    simulation.dispatch({
+      type: "upgrade-tower",
+      instanceId: "tower-1",
+    });
+    expect(() =>
+      simulation.dispatch({
+        type: "upgrade-tower",
+        instanceId: "tower-1",
+      }),
+    ).toThrow("Not enough gold");
+    expect(simulation.state.phase).toBe("active");
+    expect(simulation.state.gold).toBe(10);
+    expect(simulation.state.towers).toHaveLength(1);
+    expect(simulation.state.towers[0]?.level).toBe(2);
+  });
+
   it("creates and restores a between-wave checkpoint", () => {
     const original = runFirstWave();
     const checkpoint = original.createCheckpoint();
