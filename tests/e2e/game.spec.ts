@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function tapBattlefieldPad(
   canvas: Locator,
@@ -16,6 +16,28 @@ async function tapBattlefieldPad(
   } else {
     await canvas.click({ position: scaledPosition });
   }
+}
+
+async function placeTower(
+  page: Page,
+  canvas: Locator,
+  towerName: RegExp,
+  position: { readonly x: number; readonly y: number },
+): Promise<void> {
+  await page
+    .getByRole("button", { name: towerName })
+    .click({ timeout: 10_000 });
+  await tapBattlefieldPad(canvas, position, false);
+  await page.getByRole("button", { name: /Confirm \d+g/ }).click();
+}
+
+async function upgradeTower(
+  page: Page,
+  canvas: Locator,
+  position: { readonly x: number; readonly y: number },
+): Promise<void> {
+  await tapBattlefieldPad(canvas, position, false);
+  await page.getByRole("button", { name: /Upgrade \d+g/ }).click();
 }
 
 test("installs as a local-first PWA and opens the campaign", async ({
@@ -200,6 +222,7 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   page,
   context,
 }, testInfo) => {
+  test.setTimeout(300_000);
   test.skip(
     testInfo.project.name !== "desktop-chromium",
     "Full victory flow runs once on desktop.",
@@ -208,107 +231,78 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   await expect(
     page.getByRole("button", { name: "Enter the realm" }),
   ).toBeVisible();
-  await page.evaluate(async () => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("dubious-realm", 1);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains("saves")) {
-          request.result.createObjectStore("saves");
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const transaction = database.transaction("saves", "readwrite");
-    transaction.objectStore("saves").put(
-      {
-        data: {
-          contentVersion: 1,
-          campaign: {
-            unlockedNodeIds: ["muddy-moat"],
-            levels: {},
-            recentResults: [],
-          },
-          settings: {
-            muted: true,
-            reducedMotion: true,
-            lowEffects: true,
-            gameSpeed: 2,
-          },
-          checkpoint: {
-            levelId: "muddy-moat",
-            seed: 123,
-            modifierIds: [],
-            tick: 4_027,
-            nextWave: 5,
-            lives: 12,
-            gold: 0,
-            score: 15_000,
-            spawnedEnemies: 67,
-            abilityChargeTicks: 240,
-            placements: [
-              "bramble-seat",
-              "puddle-perch",
-              "mushroom-box",
-              "crooked-stool",
-              "soggy-plinth",
-              "turnip-stage",
-              "bucket-throne",
-              "gate-crate",
-            ].map((padId, index) => ({
-              id: `tower-${index + 1}`,
-              towerId:
-                index % 3 === 0
-                  ? "discount-wizard"
-                  : index % 3 === 1
-                    ? "fork-knight"
-                    : "bardbarian",
-              padId,
-              level: 3,
-            })),
-            metrics: {
-              spentGold: 1_500,
-              leakedEnemies: 0,
-              soldTowers: 0,
-              usedTowerIds: ["bardbarian", "discount-wizard", "fork-knight"],
-            },
-          },
-        },
-        cloudOwnerId: null,
-        cloudRevision: 0,
-        pending: true,
-        updatedAt: new Date().toISOString(),
-      },
-      "campaign",
-    );
-    await new Promise<void>((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
-    });
-    database.close();
-  });
-  await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
-  await page.getByRole("button", { name: "Resume wave 6" }).click();
+  await expect(page.locator(".sync-pill")).toContainText("synced");
+  await page.getByRole("button", { name: "Begin defense" }).click();
+
+  const canvas = page.locator(".battlefield canvas");
+  await expect(canvas).toBeVisible();
+  await page.getByRole("button", { name: "Change game speed" }).click();
+  await expect(
+    page.getByRole("button", { name: "Change game speed" }),
+  ).toHaveText("2×");
+
+  await placeTower(page, canvas, /Discount Wizard/, { x: 245, y: 250 });
+  await placeTower(page, canvas, /Fork Knight/, { x: 472, y: 249 });
+  await placeTower(page, canvas, /Fork Knight/, { x: 713, y: 270 });
+  await page.getByRole("button", { name: "Start wave 1" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 2" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await upgradeTower(page, canvas, { x: 245, y: 250 });
+  await page.getByRole("button", { name: "Start wave 2" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 3" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await placeTower(page, canvas, /Discount Wizard/, { x: 858, y: 300 });
+  await page.getByRole("button", { name: "Start wave 3" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 4" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await upgradeTower(page, canvas, { x: 245, y: 250 });
+  await upgradeTower(page, canvas, { x: 858, y: 300 });
+  await page.getByRole("button", { name: "Start wave 4" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 5" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await placeTower(page, canvas, /Bardbarian/, { x: 782, y: 474 });
+  await upgradeTower(page, canvas, { x: 472, y: 249 });
+  await page.getByRole("button", { name: "Start wave 5" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 6" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await upgradeTower(page, canvas, { x: 858, y: 300 });
+  await placeTower(page, canvas, /Discount Wizard/, { x: 285, y: 448 });
   await page.getByRole("button", { name: "Start wave 6" }).click();
 
   await expect(
     page.getByRole("heading", { name: "The moat is defended!" }),
-  ).toBeVisible({ timeout: 60_000 });
+  ).toBeVisible({ timeout: 45_000 });
   await page.evaluate(async () => navigator.serviceWorker.ready);
-  await context.setOffline(true);
   await page.getByRole("button", { name: "Continue to campaign" }).click();
 
   const mimicMarket = page.getByRole("button", {
     name: /Mimic Market/,
   });
-  await expect(mimicMarket).toContainText("Route charted");
+  await expect(mimicMarket).toHaveAccessibleName(/Mimic Market\. Unlocked\./);
+  await expect(mimicMarket).toContainText("Unlocked · preview coming later");
   await expect(page.getByText("1 victory")).toBeVisible();
+  await expect(page.locator(".sync-pill")).toContainText("synced");
 
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
-  await expect(mimicMarket).toContainText("Route charted");
+  await expect(mimicMarket).toContainText("Unlocked · preview coming later");
+  await expect(page.getByText("1 victory")).toBeVisible();
+
+  await context.setOffline(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await expect(mimicMarket).toContainText("Unlocked · preview coming later");
   await expect(page.getByText("1 victory")).toBeVisible();
   await context.setOffline(false);
 });

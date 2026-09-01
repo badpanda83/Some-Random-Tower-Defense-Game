@@ -1,5 +1,6 @@
 import { DEFAULT_SAVE_SLOT, type CloudSave } from "@srtg/protocol";
 
+import { saveDataEqual } from "./save.js";
 import type { LocalSaveRecord } from "./storage.js";
 
 export type ConcurrentSyncResolution =
@@ -17,12 +18,11 @@ export function reconcileCompletedSync(
   latest: LocalSaveRecord | null,
   synchronized: LocalSaveRecord,
 ): ConcurrentSyncResolution {
-  if (!latest || latest.updatedAt === submitted.updatedAt) {
+  if (!latest || latest === submitted) {
     return { type: "resolved", record: synchronized };
   }
 
-  const unseenRemoteChange =
-    JSON.stringify(synchronized.data) !== JSON.stringify(submitted.data);
+  const unseenRemoteChange = !saveDataEqual(synchronized.data, submitted.data);
   if (unseenRemoteChange) {
     return {
       type: "conflict",

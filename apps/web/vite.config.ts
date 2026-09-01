@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "prompt",
+      registerType: "autoUpdate",
       includeAssets: ["crest.svg", "icon-192.png", "icon-512.png"],
       manifest: {
         name: "The Dubious Realm",
@@ -40,7 +40,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        clientsClaim: true,
         cleanupOutdatedCaches: true,
+        skipWaiting: true,
         globPatterns: ["**/*.{css,html,js,png,svg,woff2}"],
         navigateFallbackDenylist: [/^\/api\//, /^\/health\//],
         runtimeCaching: [
