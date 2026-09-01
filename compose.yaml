@@ -1,0 +1,67 @@
+name: dubious-realm
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tower_defense
+      POSTGRES_USER: tower_defense
+      POSTGRES_PASSWORD: tower_defense
+    ports:
+      - "5432:5432"
+    volumes:
+      - dubious-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tower_defense -d tower_defense"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  migrate:
+    build: .
+    environment: &app-environment
+      NODE_ENV: production
+      PUBLIC_URL: http://localhost:3001
+      DATABASE_URL: postgresql://tower_defense:tower_defense@postgres:5432/tower_defense
+      BETTER_AUTH_SECRET: local-compose-secret-change-before-public-use
+      TRUST_PROXY: "false"
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      EMAIL_FROM: The Dubious Realm <noreply@example.test>
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "dist/database/migrate.js"]
+    restart: "no"
+
+  app:
+    build: .
+    environment: *app-environment
+    ports:
+      - "3001:3001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health/ready').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dubious-postgres:
