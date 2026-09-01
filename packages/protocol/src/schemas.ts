@@ -35,6 +35,7 @@ export const battleCheckpointSchema = z.object({
   gold: z.number().int().min(0).max(999_999),
   score: z.number().int().min(0).max(10_000_000),
   spawnedEnemies: z.number().int().min(0).max(100_000),
+  abilityChargeTicks: z.number().int().min(0).max(10_000).optional(),
   placements: z.array(towerPlacementSchema).max(40),
   metrics: z.object({
     spentGold: z.number().int().min(0).max(999_999),
@@ -124,11 +125,16 @@ export const startWaveCommandSchema = z.object({
   type: z.literal("start-wave"),
 });
 
+export const activateAbilityCommandSchema = z.object({
+  type: z.literal("activate-ability"),
+});
+
 export const gameCommandSchema = z.discriminatedUnion("type", [
   placeTowerCommandSchema,
   upgradeTowerCommandSchema,
   sellTowerCommandSchema,
   startWaveCommandSchema,
+  activateAbilityCommandSchema,
 ]);
 
 export type ApiError = z.infer<typeof apiErrorSchema>;

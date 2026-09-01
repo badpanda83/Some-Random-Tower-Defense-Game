@@ -1,6 +1,7 @@
 import {
   enemyDefinitions,
   muddyMoatLevel,
+  TICK_MS,
   towerDefinitions,
   type EnemyState,
   type GameEvent,
@@ -14,7 +15,7 @@ import Phaser from "phaser";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export interface BattlefieldHandle {
-  dispatch(command: GameCommand): void;
+  dispatch(command: GameCommand): boolean;
   confirmPlacement(preview: PlacementPreview): boolean;
   setPaused(paused: boolean): void;
   setSpeed(speed: GameSpeed): void;
@@ -65,7 +66,7 @@ interface EnemySnapshot extends Point {
 }
 
 interface TransientEffect extends Point {
-  readonly kind: "spawn" | "defeat" | "leak" | "boss-phase";
+  readonly kind: "spawn" | "defeat" | "leak" | "boss-phase" | "ability";
   readonly color: number;
   readonly startedAtTick: number;
   readonly variant: number;
@@ -116,9 +117,9 @@ class BattleScene extends Phaser.Scene {
     }
 
     this.accumulator += Math.min(delta, 250) * this.speed;
-    while (this.accumulator >= 50) {
+    while (this.accumulator >= TICK_MS) {
       const result = this.simulation.step();
-      this.accumulator -= 50;
+      this.accumulator -= TICK_MS;
       this.renderState(result.state, result.events);
       this.callbacks.onState(result.state, result.events);
       if (result.state.phase !== "active") {
@@ -883,6 +884,23 @@ class BattleScene extends Phaser.Scene {
             variant: 0,
           };
         }
+      } else if (event.type === "ability-activated") {
+        const target = state.enemies.find(
+          (enemy) => enemy.id === event.targetInstanceId,
+        );
+        const position = target
+          ? this.simulation.getEnemyPosition(target)
+          : this.enemySnapshots.get(event.targetInstanceId);
+        if (position) {
+          effect = {
+            x: position.x,
+            y: position.y,
+            kind: "ability",
+            color: 0xffe89b,
+            startedAtTick: state.tick,
+            variant: 0,
+          };
+        }
       }
       if (effect) {
         this.transientEffects.push(effect);
@@ -894,8 +912,11 @@ class BattleScene extends Phaser.Scene {
       );
     }
 
-    const bossPhase = events.some((event) => event.type === "boss-phase");
-    if (bossPhase && !this.lowEffects && !this.reducedMotion) {
+    const impact = events.some(
+      (event) =>
+        event.type === "boss-phase" || event.type === "ability-activated",
+    );
+    if (impact && !this.lowEffects && !this.reducedMotion) {
       this.cameras.main.shake(220, 0.008);
     }
 
@@ -942,6 +963,29 @@ class BattleScene extends Phaser.Scene {
           effect.x,
           effect.y,
           18 + progress * 48,
+        );
+      } else if (effect.kind === "ability") {
+        this.effectsGraphics.lineStyle(8 - progress * 4, 0xfff1af, alpha);
+        this.effectsGraphics.lineBetween(
+          effect.x - 24,
+          effect.y - 100 + progress * 42,
+          effect.x + 5,
+          effect.y + 8,
+        );
+        this.effectsGraphics.lineStyle(3, 0x8b603d, alpha);
+        for (let tine = -12; tine <= 12; tine += 12) {
+          this.effectsGraphics.lineBetween(
+            effect.x - 7 + tine,
+            effect.y - 103 + progress * 42,
+            effect.x - 2 + tine,
+            effect.y - 83 + progress * 42,
+          );
+        }
+        this.effectsGraphics.lineStyle(5, 0xffd45e, alpha);
+        this.effectsGraphics.strokeCircle(
+          effect.x,
+          effect.y,
+          18 + progress * 58,
         );
       } else {
         const pieces = this.lowEffects || this.reducedMotion ? 3 : 7;
@@ -1025,7 +1069,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
 
     useImperativeHandle(ref, () => ({
       dispatch(command) {
-        scene.current?.dispatch(command);
+        return scene.current?.dispatch(command) ?? false;
       },
       confirmPlacement(preview) {
         return scene.current?.confirmPlacement(preview) ?? false;

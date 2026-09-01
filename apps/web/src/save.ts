@@ -30,10 +30,24 @@ export function withCheckpoint(
   return { ...save, checkpoint };
 }
 
+export function withoutBattleCheckpoint(save: SaveData): SaveData {
+  return { ...save, checkpoint: null };
+}
+
 export function withBattleResult(
   save: SaveData,
   result: BattleResult,
 ): SaveData {
+  const alreadyRecorded = save.campaign.recentResults.some(
+    (recorded) =>
+      recorded.levelId === result.levelId &&
+      recorded.seed === result.seed &&
+      recorded.completedAt === result.completedAt &&
+      recorded.result === result.result,
+  );
+  if (alreadyRecorded) {
+    return { ...save, checkpoint: null };
+  }
   const previous = save.campaign.levels[result.levelId];
   const mastery = Array.from(
     new Set([

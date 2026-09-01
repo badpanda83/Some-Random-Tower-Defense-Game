@@ -1,6 +1,8 @@
 import {
   createSimulation,
   muddyMoatLevel,
+  ROYAL_FORKFALL_CHARGE_TICKS,
+  TICK_RATE,
   towerDefinitions,
   type GameEvent,
   type GameState,
@@ -14,6 +16,7 @@ import {
   type Settings,
 } from "@srtg/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   Battlefield,
@@ -29,9 +32,9 @@ interface GameScreenProps {
   readonly settings: Settings;
   readonly synchronizationBlocked: boolean;
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
-  readonly onComplete: (result: BattleResult) => void;
+  readonly onComplete: (result: BattleResult) => Promise<void>;
   readonly onRetry: () => void;
-  readonly onExit: () => void;
+  readonly onAbandon: () => Promise<void>;
   readonly onSettings: (settings: Settings) => void;
 }
 
@@ -117,7 +120,7 @@ export function GameScreen({
   onCheckpoint,
   onComplete,
   onRetry,
-  onExit,
+  onAbandon,
   onSettings,
 }: GameScreenProps) {
   const simulation = useMemo(
@@ -135,10 +138,24 @@ export function GameScreen({
     useState<PlacementPreview | null>(null);
   const [selectedTower, setSelectedTower] = useState<TowerState | null>(null);
   const [paused, setPaused] = useState(false);
+  const [abilityArmed, setAbilityArmed] = useState(false);
+  const [portraitBlocked, setPortraitBlocked] = useState(false);
+  const [quitOpen, setQuitOpen] = useState(false);
+  const [quitSaving, setQuitSaving] = useState(false);
+  const [quitError, setQuitError] = useState<string | null>(null);
+  const [resultSaving, setResultSaving] = useState(false);
+  const [resultError, setResultError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(
     checkpoint ? "Recovered your between-wave camp." : null,
   );
   const battlefield = useRef<BattlefieldHandle>(null);
+  const quitDialog = useRef<HTMLElement>(null);
+  const cancelQuitButton = useRef<HTMLButtonElement>(null);
+  const quitTrigger = useRef<HTMLButtonElement>(null);
+  const quitPause = useRef<{ wasPaused: boolean } | null>(null);
+  const quitSavingRef = useRef(false);
+  const resultSavingRef = useRef(false);
+  const orientationPause = useRef<{ wasPaused: boolean } | null>(null);
   const checkpointSignature = useRef(
     checkpoint ? JSON.stringify(checkpoint) : "",
   );
@@ -160,6 +177,72 @@ export function GameScreen({
   }, [settings.muted]);
 
   useEffect(() => {
+    if (!window.matchMedia) {
+      return;
+    }
+    const portrait = window.matchMedia(
+      "(orientation: portrait) and (max-width: 700px)",
+    );
+    const updateOrientation = () => {
+      setPortraitBlocked(portrait.matches);
+      if (
+        portrait.matches &&
+        state.phase === "active" &&
+        !orientationPause.current
+      ) {
+        orientationPause.current = { wasPaused: paused };
+        setAbilityArmed(false);
+        battlefield.current?.setPaused(true);
+      } else if (!portrait.matches && orientationPause.current) {
+        const restorePaused = orientationPause.current.wasPaused;
+        orientationPause.current = null;
+        battlefield.current?.setPaused(
+          quitOpen || synchronizationBlocked ? true : restorePaused,
+        );
+      }
+    };
+    updateOrientation();
+    portrait.addEventListener("change", updateOrientation);
+    return () => portrait.removeEventListener("change", updateOrientation);
+  }, [paused, quitOpen, state.phase, synchronizationBlocked]);
+
+  useEffect(() => {
+    if (!quitOpen) {
+      return;
+    }
+    cancelQuitButton.current?.focus();
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelQuit();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const buttons = Array.from(
+        quitDialog.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not(:disabled)",
+        ) ?? [],
+      );
+      const first = buttons[0];
+      const last = buttons.at(-1);
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", cancelWithEscape);
+    return () => window.removeEventListener("keydown", cancelWithEscape);
+  }, [quitOpen]);
+
+  useEffect(() => {
     if (
       synchronizationBlocked &&
       state.phase === "active" &&
@@ -167,7 +250,7 @@ export function GameScreen({
     ) {
       synchronizationPause.current = {
         applied: true,
-        wasPaused: paused,
+        wasPaused: quitPause.current?.wasPaused ?? paused,
       };
       battlefield.current?.setPaused(true);
     } else if (
@@ -182,9 +265,9 @@ export function GameScreen({
     ) {
       const restorePaused = synchronizationPause.current.wasPaused;
       synchronizationPause.current.applied = false;
-      battlefield.current?.setPaused(restorePaused);
+      battlefield.current?.setPaused(quitOpen ? true : restorePaused);
     }
-  }, [paused, state.phase, synchronizationBlocked]);
+  }, [paused, quitOpen, state.phase, synchronizationBlocked]);
 
   const inspected = selectedTower
     ? (state.towers.find((tower) => tower.id === selectedTower.id) ?? null)
@@ -220,6 +303,15 @@ export function GameScreen({
     if (next.phase === "victory" || next.phase === "defeat") {
       setPlacementPreview(null);
       setSelectedTowerId(null);
+      setAbilityArmed(false);
+    }
+    const abilityEvent = events.find(
+      (event) => event.type === "ability-activated",
+    );
+    if (abilityEvent?.type === "ability-activated") {
+      setMessage(
+        `Royal Forkfall struck for ${abilityEvent.damageDealt} damage!`,
+      );
     }
   }
 
@@ -233,11 +325,62 @@ export function GameScreen({
       return;
     }
     const next = !paused;
+    if (next) {
+      setAbilityArmed(false);
+    }
     battlefield.current?.setPaused(next);
     setPaused(next);
   }
 
-  function finish() {
+  function requestQuit() {
+    setAbilityArmed(false);
+    quitPause.current = { wasPaused: paused };
+    battlefield.current?.setPaused(true);
+    setQuitOpen(true);
+  }
+
+  function cancelQuit() {
+    const restorePaused = quitPause.current?.wasPaused ?? paused;
+    quitPause.current = null;
+    setQuitOpen(false);
+    battlefield.current?.setPaused(
+      synchronizationBlocked ? true : restorePaused,
+    );
+    requestAnimationFrame(() => quitTrigger.current?.focus());
+  }
+
+  async function confirmQuit() {
+    if (quitSavingRef.current) {
+      return;
+    }
+    quitSavingRef.current = true;
+    setQuitSaving(true);
+    setQuitError(null);
+    setPlacementPreview(null);
+    setSelectedTowerId(null);
+    setSelectedTower(null);
+    setMessage(null);
+    quitPause.current = null;
+    try {
+      await onAbandon();
+    } catch (error) {
+      setQuitError(
+        error instanceof Error
+          ? error.message
+          : "Mission progress could not be cleared locally.",
+      );
+      quitSavingRef.current = false;
+      setQuitSaving(false);
+    }
+  }
+
+  async function finish() {
+    if (resultSavingRef.current) {
+      return;
+    }
+    resultSavingRef.current = true;
+    setResultSaving(true);
+    setResultError(null);
     const result: BattleResult = {
       levelId: state.levelId,
       seed: state.seed,
@@ -248,7 +391,17 @@ export function GameScreen({
       completedMasteryIds: [...state.completedMasteryIds],
       completedAt: new Date().toISOString(),
     };
-    onComplete(result);
+    try {
+      await onComplete(result);
+    } catch (error) {
+      setResultError(
+        error instanceof Error
+          ? error.message
+          : "The result could not be stored locally.",
+      );
+      resultSavingRef.current = false;
+      setResultSaving(false);
+    }
   }
 
   const combatManagementDisabled =
@@ -263,6 +416,10 @@ export function GameScreen({
     state.phase === "active" && wave
       ? state.enemies.length + wave.spawns.length - state.nextSpawnIndex
       : 0;
+  const abilityReady = state.abilityChargeTicks >= ROYAL_FORKFALL_CHARGE_TICKS;
+  const abilityPercent = Math.round(
+    (state.abilityChargeTicks / ROYAL_FORKFALL_CHARGE_TICKS) * 100,
+  );
 
   function cancelPlacement() {
     setPlacementPreview(null);
@@ -285,11 +442,23 @@ export function GameScreen({
   }
 
   return (
-    <main className="game-screen">
-      <div className="rotate-prompt">
+    <main
+      className="game-screen"
+      inert={quitOpen ? true : undefined}
+      aria-hidden={quitOpen ? true : undefined}
+    >
+      <div
+        className="rotate-prompt"
+        role="status"
+        aria-live="polite"
+        aria-hidden={!portraitBlocked}
+      >
         <img src="/crest.svg" alt="" />
-        <strong>Rotate the royal viewing rectangle</strong>
-        <span>The moat needs a little more elbow room.</span>
+        <strong>Turn your phone sideways to defend the moat</strong>
+        <span>
+          Rotate to landscape. Battle resumes automatically when your phone is
+          sideways.
+        </span>
       </div>
 
       <header className="game-hud">
@@ -315,6 +484,14 @@ export function GameScreen({
           </span>
         </div>
         <div className="hud-actions">
+          <button
+            ref={quitTrigger}
+            className="quit-mission-button"
+            onClick={requestQuit}
+            disabled={synchronizationBlocked}
+          >
+            Leave mission
+          </button>
           <button
             className="icon-button"
             onClick={() => {
@@ -376,6 +553,48 @@ export function GameScreen({
           onPauseChanged={setPaused}
           onError={setMessage}
         />
+        <div
+          className={`ability-control ${abilityReady ? "is-ready" : ""} ${
+            abilityArmed ? "is-armed" : ""
+          }`}
+        >
+          <div className="ability-copy">
+            <span>
+              <strong>Royal Forkfall</strong>
+              <small>
+                {abilityReady ? "READY" : `${abilityPercent}% charged`}
+              </small>
+            </span>
+            <progress
+              value={state.abilityChargeTicks}
+              max={ROYAL_FORKFALL_CHARGE_TICKS}
+              aria-label="Royal Forkfall charge"
+            />
+          </div>
+          <button
+            className="ability-button"
+            disabled={
+              !abilityReady ||
+              state.phase !== "active" ||
+              state.enemies.length === 0 ||
+              paused ||
+              synchronizationBlocked
+            }
+            aria-pressed={abilityArmed}
+            onClick={() => {
+              if (!abilityArmed) {
+                setAbilityArmed(true);
+                setMessage("Forkfall armed. Press Cast to confirm.");
+                return;
+              }
+              if (battlefield.current?.dispatch({ type: "activate-ability" })) {
+                setAbilityArmed(false);
+              }
+            }}
+          >
+            {abilityArmed ? "Cast Forkfall" : "Arm Forkfall"}
+          </button>
+        </div>
         {paused && state.phase === "active" && (
           <div className="pause-stamp">TACTICAL THINKING BREAK</div>
         )}
@@ -466,6 +685,11 @@ export function GameScreen({
                 </strong>
                 <small>
                   {inspectedLevel.damage} damage · {inspectedLevel.range} range
+                  {inspectedDefinition.slowTicks > 0
+                    ? ` · ${inspectedDefinition.slowPercent}% slow for ${
+                        inspectedDefinition.slowTicks / TICK_RATE
+                      }s (non-refreshing)`
+                    : ""}
                 </small>
               </div>
               <div className="inspection-actions">
@@ -519,28 +743,16 @@ export function GameScreen({
           {!placementPreview && (
             <div className="wave-actions">
               {state.phase === "preparing" && (
-                <>
-                  <button
-                    className="button button-ghost"
-                    onClick={() => {
-                      cancelPlacement();
-                      setSelectedTowerId(null);
-                      onExit();
-                    }}
-                  >
-                    Map
-                  </button>
-                  <button
-                    className="button button-primary"
-                    onClick={() => {
-                      cancelPlacement();
-                      setSelectedTowerId(null);
-                      battlefield.current?.dispatch({ type: "start-wave" });
-                    }}
-                  >
-                    Start wave {state.waveIndex + 1}
-                  </button>
-                </>
+                <button
+                  className="button button-primary"
+                  onClick={() => {
+                    cancelPlacement();
+                    setSelectedTowerId(null);
+                    battlefield.current?.dispatch({ type: "start-wave" });
+                  }}
+                >
+                  Start wave {state.waveIndex + 1}
+                </button>
               )}
               {state.phase === "active" && (
                 <span className="wave-live">
@@ -565,7 +777,7 @@ export function GameScreen({
             </span>
             <h1>
               {state.phase === "victory"
-                ? "The moat remains dubious!"
+                ? "The moat is defended!"
                 : "The gate filed for leave."}
             </h1>
             <p>
@@ -590,17 +802,74 @@ export function GameScreen({
                 ))}
               </div>
             )}
+            {resultError && (
+              <p className="result-save-error" role="alert">
+                Could not save your result: {resultError} Your victory is still
+                here; try again.
+              </p>
+            )}
             <div className="result-actions">
-              <button className="button button-ghost" onClick={onRetry}>
+              <button
+                className="button button-ghost"
+                onClick={onRetry}
+                disabled={resultSaving}
+              >
                 Retry
               </button>
-              <button className="button button-primary" onClick={finish}>
-                Record result
+              <button
+                className="button button-primary"
+                onClick={() => void finish()}
+                disabled={resultSaving}
+              >
+                {resultSaving ? "Saving result…" : "Continue to campaign"}
               </button>
             </div>
           </section>
         </div>
       )}
+      {quitOpen &&
+        createPortal(
+          <div className="modal-backdrop">
+            <section
+              ref={quitDialog}
+              className="quit-dialog card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="quit-dialog-title"
+              aria-describedby="quit-dialog-description"
+            >
+              <span className="eyebrow">Retreat with dignity-ish</span>
+              <h2 id="quit-dialog-title">Leave this mission?</h2>
+              <p id="quit-dialog-description">
+                Your current mission progress will be lost. Earlier campaign
+                progress, settings, and account data will stay safe.
+              </p>
+              {quitError && (
+                <p className="result-save-error" role="alert">
+                  Could not leave safely: {quitError} Try again.
+                </p>
+              )}
+              <div className="quit-dialog-actions">
+                <button
+                  ref={cancelQuitButton}
+                  className="button button-ghost"
+                  onClick={cancelQuit}
+                  disabled={quitSaving}
+                >
+                  Continue mission
+                </button>
+                <button
+                  className="button button-danger"
+                  onClick={() => void confirmQuit()}
+                  disabled={quitSaving}
+                >
+                  {quitSaving ? "Leaving safely…" : "Abandon mission"}
+                </button>
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
     </main>
   );
 }

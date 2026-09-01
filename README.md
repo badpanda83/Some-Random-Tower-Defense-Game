@@ -6,7 +6,7 @@
 
 A cool-looking, humorous fantasy-parody tower-defense PWA about defending a damp kingdom with improvised heroes, discount magic, and suspiciously organized dungeon creatures. It combines strategic towers and ridiculous enemies with branching campaign progression, optional challenges, and mastery goals that reward different ways to play.
 
-The first vertical slice includes a branching campaign preview, one complete six-wave encounter, three upgradeable towers that can be placed and upgraded during waves, four enemy types, a boss phase, mastery goals, a challenge modifier, touch-first controls, offline play, guest saves, and optional email-link cloud sync.
+The first vertical slice includes a branching campaign preview, one complete six-wave encounter, three upgradeable towers that can be placed and upgraded during waves, four enemy types, a boss phase, mastery goals, a challenge modifier, touch-first controls, the charged Royal Forkfall battlefield ability, offline play, guest saves, and optional email-link cloud sync.
 
 ## Architecture
 
@@ -112,7 +112,9 @@ A Raspberry Pi 3 should use a 64-bit OS. Hosting the app container there is real
 
 ## PWA behavior
 
-The service worker precaches only versioned application assets. `/api` and `/health` always use the network and are never cached. The game pauses when hidden, supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, confirmed touch or mouse placement and upgrades during combat, and an explicit landscape prompt on narrow portrait screens. To deploy a hero, select its roster card, choose an empty pad, then use **Confirm**; **Cancel**, changing heroes, or leaving placement never spends gold.
+The service worker precaches only versioned application assets. `/api` and `/health` always use the network and are never cached. The game pauses when hidden, supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, confirmed touch or mouse placement and upgrades during combat, and a battle-only landscape prompt that automatically clears when a narrow phone rotates sideways; menus and campaign remain portrait-friendly. To deploy a hero, select its roster card, choose an empty pad, then use **Confirm**; **Cancel** or changing heroes never spends gold. Royal Forkfall charges for 12 active-combat seconds, automatically targets the leading enemy for 180 arcane damage, and requires separate **Arm** and **Cast** presses. **Leave mission** is available throughout a battle and requires confirmation before discarding the current attempt and its checkpoint.
+
+Current tower purchase/upgrade costs are Fork Knight **57/52/85**, Discount Wizard **95/76/119**, and Bardbarian **85/66/105** gold. The Bardbarian slow lasts 3 seconds at 35% and cannot refresh while already active, preserving deterministic control gaps. Fork Knight ranks deal **24/38/58** damage at **16/14/12-tick** cadence and **126/138/152** range.
 
 All current visual assets and copy are original project material. No third-party game art is required.
 

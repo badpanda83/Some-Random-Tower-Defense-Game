@@ -27,6 +27,12 @@ describe("protocol schemas", () => {
     expect(() => gameCommandSchema.parse({ type: "summon-lawyer" })).toThrow();
   });
 
+  it("accepts the manual battlefield ability command", () => {
+    expect(gameCommandSchema.parse({ type: "activate-ability" })).toEqual({
+      type: "activate-ability",
+    });
+  });
+
   it("rejects saves from an unknown content version", () => {
     expect(() =>
       saveDataSchema.parse({

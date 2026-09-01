@@ -42,4 +42,26 @@ describe("content integrity", () => {
       campaignNodes.length,
     );
   });
+
+  it("keeps the intended tower economy and status tuning", () => {
+    expect(
+      Object.fromEntries(
+        Object.values(towerDefinitions).map((tower) => [
+          tower.id,
+          {
+            cost: tower.cost,
+            upgrades: tower.levels
+              .map((level) => level.upgradeCost)
+              .filter((cost) => cost !== null),
+          },
+        ]),
+      ),
+    ).toEqual({
+      "fork-knight": { cost: 57, upgrades: [52, 85] },
+      "discount-wizard": { cost: 95, upgrades: [76, 119] },
+      bardbarian: { cost: 85, upgrades: [66, 105] },
+    });
+    expect(towerDefinitions.bardbarian.slowPercent).toBe(35);
+    expect(towerDefinitions.bardbarian.slowTicks).toBe(60);
+  });
 });

@@ -30,7 +30,11 @@ import {
   storeLocalSave,
   type LocalSaveRecord,
 } from "./storage.js";
-import { withBattleResult, withCheckpoint } from "./save.js";
+import {
+  withBattleResult,
+  withCheckpoint,
+  withoutBattleCheckpoint,
+} from "./save.js";
 import { reconcileCompletedSync } from "./sync-state.js";
 
 const GameScreen = lazy(async () => {
@@ -68,6 +72,7 @@ export function App() {
   const recordRef = useRef<LocalSaveRecord | null>(null);
   const conflictRef = useRef<CloudSave | null>(null);
   const conflictResolutionRef = useRef(false);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const syncQueue = useRef<Promise<void>>(Promise.resolve());
 
   const {
@@ -173,21 +178,40 @@ export function App() {
     setInstallPrompt(null);
   }
 
-  function commit(data: SaveData) {
+  async function commit(data: SaveData): Promise<void> {
     const current = recordRef.current;
     if (!current) {
-      return;
+      throw new Error("The local save is not ready.");
     }
     const next = markLocalChange(current, data);
     recordRef.current = next;
     setRecord(next);
     setSyncStatus(navigator.onLine ? "local" : "offline");
-    void storeLocalSave(next).then(scheduleSync);
+    const persist = saveQueue.current.then(() => storeLocalSave(next));
+    saveQueue.current = persist.catch(() => undefined);
+    try {
+      await persist;
+      scheduleSync();
+    } catch (error) {
+      if (recordRef.current?.updatedAt === next.updatedAt) {
+        recordRef.current = current;
+        setRecord(current);
+      }
+      throw error;
+    }
   }
 
   function updateSettings(settings: Settings) {
     if (recordRef.current) {
-      commit({ ...recordRef.current.data, settings });
+      void commit({ ...recordRef.current.data, settings }).catch(
+        (error: unknown) => {
+          setFatalError(
+            error instanceof Error
+              ? error.message
+              : "The settings could not be stored locally.",
+          );
+        },
+      );
     }
   }
 
@@ -349,16 +373,25 @@ export function App() {
               checkpoint={battle.checkpoint}
               settings={record.data.settings}
               synchronizationBlocked={Boolean(conflict)}
-              onCheckpoint={(checkpoint) =>
-                commit(withCheckpoint(recordRef.current!.data, checkpoint))
-              }
-              onComplete={(result: BattleResult) => {
-                commit(withBattleResult(recordRef.current!.data, result));
+              onCheckpoint={(checkpoint) => {
+                void commit(
+                  withCheckpoint(recordRef.current!.data, checkpoint),
+                ).catch((error: unknown) => {
+                  setFatalError(
+                    error instanceof Error
+                      ? error.message
+                      : "The battle checkpoint could not be stored locally.",
+                  );
+                });
+              }}
+              onComplete={async (result: BattleResult) => {
+                await commit(withBattleResult(recordRef.current!.data, result));
                 setScreen("campaign");
                 setBattle(null);
               }}
               onRetry={() => beginBattle(battle.modifierIds)}
-              onExit={() => {
+              onAbandon={async () => {
+                await commit(withoutBattleCheckpoint(recordRef.current!.data));
                 setScreen("campaign");
                 setBattle(null);
               }}
