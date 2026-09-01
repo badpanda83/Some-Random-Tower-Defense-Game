@@ -133,7 +133,6 @@ export function GameScreen({
     [checkpoint, modifierIds, seed],
   );
   const [state, setState] = useState<GameState>(simulation.state);
-  const [selectedTowerId, setSelectedTowerId] = useState<string | null>(null);
   const [placementPreview, setPlacementPreview] =
     useState<PlacementPreview | null>(null);
   const [selectedTower, setSelectedTower] = useState<TowerState | null>(null);
@@ -302,7 +301,6 @@ export function GameScreen({
     }
     if (next.phase === "victory" || next.phase === "defeat") {
       setPlacementPreview(null);
-      setSelectedTowerId(null);
       setAbilityArmed(false);
     }
     const abilityEvent = events.find(
@@ -357,7 +355,6 @@ export function GameScreen({
     setQuitSaving(true);
     setQuitError(null);
     setPlacementPreview(null);
-    setSelectedTowerId(null);
     setSelectedTower(null);
     setMessage(null);
     quitPause.current = null;
@@ -436,7 +433,6 @@ export function GameScreen({
     }
     if (battlefield.current?.confirmPlacement(placementPreview)) {
       setPlacementPreview(null);
-      setSelectedTowerId(null);
       setMessage(`${previewDefinition.shortName} deployed.`);
     }
   }
@@ -526,7 +522,6 @@ export function GameScreen({
         <Battlefield
           ref={battlefield}
           simulation={simulation}
-          selectedTowerId={selectedTowerId}
           placementPreview={placementPreview}
           gameSpeed={settings.gameSpeed}
           lowEffects={settings.lowEffects}
@@ -610,37 +605,6 @@ export function GameScreen({
       </section>
 
       <section className="battle-controls">
-        <div className="tower-shop" aria-label="Hero roster">
-          {Object.values(towerDefinitions).map((tower) => {
-            const selected = selectedTowerId === tower.id;
-            return (
-              <button
-                key={tower.id}
-                className={`tower-card tower-${tower.id} ${
-                  selected ? "is-selected" : ""
-                }`}
-                onClick={() => {
-                  setSelectedTowerId(tower.id);
-                  setSelectedTower(null);
-                  setPlacementPreview(null);
-                  setMessage(`${tower.shortName} selected. Tap an empty pad.`);
-                }}
-                disabled={combatManagementDisabled}
-                aria-pressed={selected}
-              >
-                <span className="tower-portrait" aria-hidden="true">
-                  <TowerPortrait towerId={tower.id} />
-                </span>
-                <span>
-                  <strong>{tower.shortName}</strong>
-                  <small>{tower.description}</small>
-                </span>
-                <b>{tower.cost}g</b>
-              </button>
-            );
-          })}
-        </div>
-
         <div className="wave-panel">
           {placementPreview && previewDefinition ? (
             <div className="placement-panel" aria-live="polite">
@@ -693,37 +657,16 @@ export function GameScreen({
                 </small>
               </div>
               <div className="inspection-actions">
-                <button
-                  className="button button-small button-primary"
-                  disabled={
-                    combatManagementDisabled ||
-                    inspectedLevel.upgradeCost === null ||
-                    state.gold < (inspectedLevel.upgradeCost ?? 0)
-                  }
-                  onClick={() =>
-                    battlefield.current?.dispatch({
-                      type: "upgrade-tower",
-                      instanceId: inspected.id,
-                    })
-                  }
-                >
+                <small className="inspection-hint">
                   {inspectedLevel.upgradeCost === null
-                    ? "Max rank"
-                    : `Upgrade ${inspectedLevel.upgradeCost}g`}
-                </button>
-                <button
-                  className="button button-small button-danger"
-                  disabled={sellingDisabled}
-                  onClick={() => {
-                    battlefield.current?.dispatch({
-                      type: "sell-tower",
-                      instanceId: inspected.id,
-                    });
-                    setSelectedTower(null);
-                  }}
-                >
-                  Sell {Math.floor(inspected.investedGold * 0.7)}g
-                </button>
+                    ? "Max rank reached"
+                    : `Tap the gold + to upgrade for ${inspectedLevel.upgradeCost}g`}
+                  {sellingDisabled
+                    ? ""
+                    : ` · Tap the red − to sell for ${Math.floor(
+                        inspected.investedGold * 0.7,
+                      )}g`}
+                </small>
               </div>
             </div>
           ) : (
@@ -747,7 +690,6 @@ export function GameScreen({
                   className="button button-primary"
                   onClick={() => {
                     cancelPlacement();
-                    setSelectedTowerId(null);
                     battlefield.current?.dispatch({ type: "start-wave" });
                   }}
                 >

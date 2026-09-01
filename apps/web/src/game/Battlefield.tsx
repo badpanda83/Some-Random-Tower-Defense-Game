@@ -28,7 +28,6 @@ export interface PlacementPreview {
 
 interface BattlefieldProps {
   readonly simulation: Simulation;
-  readonly selectedTowerId: string | null;
   readonly placementPreview: PlacementPreview | null;
   readonly gameSpeed: GameSpeed;
   readonly lowEffects: boolean;
@@ -41,7 +40,6 @@ interface BattlefieldProps {
 }
 
 interface SceneCallbacks {
-  readonly selectedTowerId: () => string | null;
   readonly onState: BattlefieldProps["onState"];
   readonly onTowerSelected: BattlefieldProps["onTowerSelected"];
   readonly onPlacementPreview: BattlefieldProps["onPlacementPreview"];
@@ -59,6 +57,11 @@ const DECORATIONS = [
 ] as const;
 
 const MAX_TRANSIENT_EFFECTS = 24;
+const WHEEL_RADIUS = 62;
+const WHEEL_OPTION_HIT_RADIUS = 30;
+const ACTION_ICON_HIT_RADIUS = 15;
+const UPGRADE_ICON_OFFSET_Y = 44;
+const SELL_ICON_OFFSET_Y = 44;
 
 interface EnemySnapshot extends Point {
   readonly color: number;
@@ -80,6 +83,7 @@ class BattleScene extends Phaser.Scene {
   private speed: GameSpeed = 1;
   private selectedTowerInstanceId: string | null = null;
   private placementPreview: PlacementPreview | null = null;
+  private wheelPadId: string | null = null;
   private enemySnapshots = new Map<string, EnemySnapshot>();
   private transientEffects: TransientEffect[] = [];
 
@@ -194,7 +198,102 @@ class BattleScene extends Phaser.Scene {
     });
   };
 
+  private wheelOptions(): readonly (typeof towerDefinitions)[keyof typeof towerDefinitions][] {
+    return Object.values(towerDefinitions);
+  }
+
+  private wheelOptionPosition(
+    padPosition: Point,
+    index: number,
+    total: number,
+  ): Point {
+    const spread = Math.PI * 0.6;
+    const start = -Math.PI / 2 - spread / 2;
+    const angle =
+      total > 1 ? start + (spread * index) / (total - 1) : -Math.PI / 2;
+    return {
+      x: padPosition.x + Math.cos(angle) * WHEEL_RADIUS,
+      y: padPosition.y + Math.sin(angle) * WHEEL_RADIUS,
+    };
+  }
+
   private handleWorldPointer(world: Point): void {
+    if (this.wheelPadId) {
+      const wheelPad = muddyMoatLevel.pads.find(
+        (candidate) => candidate.id === this.wheelPadId,
+      );
+      if (wheelPad) {
+        const options = this.wheelOptions();
+        for (let index = 0; index < options.length; index += 1) {
+          const option = options[index];
+          if (!option) {
+            continue;
+          }
+          const optionPosition = this.wheelOptionPosition(
+            wheelPad.position,
+            index,
+            options.length,
+          );
+          if (
+            Phaser.Math.Distance.Squared(
+              world.x,
+              world.y,
+              optionPosition.x,
+              optionPosition.y,
+            ) <=
+            WHEEL_OPTION_HIT_RADIUS * WHEEL_OPTION_HIT_RADIUS
+          ) {
+            this.wheelPadId = null;
+            this.callbacks.onPlacementPreview({
+              towerId: option.id,
+              padId: wheelPad.id,
+            });
+            this.renderState(this.simulation.state, []);
+            return;
+          }
+        }
+      }
+    }
+
+    for (const tower of this.simulation.state.towers) {
+      const towerPad = muddyMoatLevel.pads.find(
+        (candidate) => candidate.id === tower.padId,
+      );
+      if (!towerPad) {
+        continue;
+      }
+      const upgradeY = towerPad.position.y - UPGRADE_ICON_OFFSET_Y;
+      if (
+        Phaser.Math.Distance.Squared(
+          world.x,
+          world.y,
+          towerPad.position.x,
+          upgradeY,
+        ) <=
+        ACTION_ICON_HIT_RADIUS * ACTION_ICON_HIT_RADIUS
+      ) {
+        this.wheelPadId = null;
+        this.dispatch({ type: "upgrade-tower", instanceId: tower.id });
+        return;
+      }
+      const sellY = towerPad.position.y + SELL_ICON_OFFSET_Y;
+      if (
+        Phaser.Math.Distance.Squared(
+          world.x,
+          world.y,
+          towerPad.position.x,
+          sellY,
+        ) <=
+        ACTION_ICON_HIT_RADIUS * ACTION_ICON_HIT_RADIUS
+      ) {
+        this.wheelPadId = null;
+        this.selectedTowerInstanceId = null;
+        this.callbacks.onTowerSelected(null);
+        this.dispatch({ type: "sell-tower", instanceId: tower.id });
+        return;
+      }
+    }
+
     const pad = muddyMoatLevel.pads.find(
       (candidate) =>
         Phaser.Math.Distance.Squared(
@@ -207,6 +306,7 @@ class BattleScene extends Phaser.Scene {
     );
 
     if (!pad) {
+      this.wheelPadId = null;
       this.selectedTowerInstanceId = null;
       this.callbacks.onTowerSelected(null);
       this.callbacks.onPlacementPreview(null);
@@ -218,6 +318,7 @@ class BattleScene extends Phaser.Scene {
       (tower) => tower.padId === pad.id,
     );
     if (existing) {
+      this.wheelPadId = null;
       this.selectedTowerInstanceId = existing.id;
       this.callbacks.onTowerSelected(existing);
       this.callbacks.onPlacementPreview(null);
@@ -227,13 +328,9 @@ class BattleScene extends Phaser.Scene {
 
     this.selectedTowerInstanceId = null;
     this.callbacks.onTowerSelected(null);
-    const towerId = this.callbacks.selectedTowerId();
-    if (!towerId) {
-      this.callbacks.onPlacementPreview(null);
-      this.callbacks.onError("Choose a hero before selecting an empty pad.");
-      return;
-    }
-    this.callbacks.onPlacementPreview({ towerId, padId: pad.id });
+    this.callbacks.onPlacementPreview(null);
+    this.wheelPadId = this.wheelPadId === pad.id ? null : pad.id;
+    this.renderState(this.simulation.state, []);
   }
 
   private renderState(state: GameState, events: readonly GameEvent[]): void {
@@ -301,6 +398,21 @@ class BattleScene extends Phaser.Scene {
             33 + ((state.tick + pad.position.x) % 12) / 3,
           );
         }
+        if (this.wheelPadId !== pad.id) {
+          graphics.lineStyle(4, 0xeaffce, 0.9);
+          graphics.lineBetween(
+            pad.position.x - 10,
+            pad.position.y,
+            pad.position.x + 10,
+            pad.position.y,
+          );
+          graphics.lineBetween(
+            pad.position.x,
+            pad.position.y - 10,
+            pad.position.x,
+            pad.position.y + 10,
+          );
+        }
       }
       if (this.placementPreview?.padId === pad.id) {
         const definition =
@@ -348,6 +460,15 @@ class BattleScene extends Phaser.Scene {
           false,
           0.58,
         );
+      }
+    }
+
+    if (this.wheelPadId) {
+      const wheelPad = muddyMoatLevel.pads.find(
+        (candidate) => candidate.id === this.wheelPadId,
+      );
+      if (wheelPad) {
+        this.drawWheel(graphics, wheelPad.position, state.tick);
       }
     }
 
@@ -681,6 +802,80 @@ class BattleScene extends Phaser.Scene {
         pad.position.x - 7 + level * 7,
         pad.position.y + 28,
         2,
+      );
+    }
+
+    const canUpgrade = definition.levels[tower.level - 1]?.upgradeCost !== null;
+    const upgradeY = pad.position.y - UPGRADE_ICON_OFFSET_Y;
+    graphics.fillStyle(0x241d08, canUpgrade ? 0.9 : 0.5);
+    graphics.fillCircle(pad.position.x, upgradeY, 13);
+    graphics.lineStyle(2, 0xffd45e, canUpgrade ? 1 : 0.4);
+    graphics.strokeCircle(pad.position.x, upgradeY, 13);
+    graphics.lineStyle(3, 0xffd45e, canUpgrade ? 1 : 0.4);
+    graphics.lineBetween(
+      pad.position.x - 6,
+      upgradeY,
+      pad.position.x + 6,
+      upgradeY,
+    );
+    graphics.lineBetween(
+      pad.position.x,
+      upgradeY - 6,
+      pad.position.x,
+      upgradeY + 6,
+    );
+
+    const sellY = pad.position.y + SELL_ICON_OFFSET_Y;
+    graphics.fillStyle(0x2a0d0d, 0.9);
+    graphics.fillCircle(pad.position.x, sellY, 13);
+    graphics.lineStyle(2, 0xff6b5e, 1);
+    graphics.strokeCircle(pad.position.x, sellY, 13);
+    graphics.lineStyle(3, 0xff6b5e, 1);
+    graphics.lineBetween(
+      pad.position.x - 6,
+      sellY,
+      pad.position.x + 6,
+      sellY,
+    );
+  }
+
+  private drawWheel(
+    graphics: Phaser.GameObjects.Graphics,
+    padPosition: Point,
+    tick: number,
+  ): void {
+    const options = this.wheelOptions();
+    graphics.fillStyle(0x0a1512, 0.55);
+    graphics.fillCircle(padPosition.x, padPosition.y, WHEEL_RADIUS + 34);
+    for (let index = 0; index < options.length; index += 1) {
+      const definition = options[index];
+      if (!definition) {
+        continue;
+      }
+      const optionPosition = this.wheelOptionPosition(
+        padPosition,
+        index,
+        options.length,
+      );
+      graphics.lineStyle(2, definition.color, 0.5);
+      graphics.lineBetween(
+        padPosition.x,
+        padPosition.y,
+        optionPosition.x,
+        optionPosition.y,
+      );
+      graphics.fillStyle(0x121b18, 0.96);
+      graphics.fillCircle(optionPosition.x, optionPosition.y, 30);
+      graphics.lineStyle(3, definition.color, 0.95);
+      graphics.strokeCircle(optionPosition.x, optionPosition.y, 30);
+      this.drawTowerAvatar(
+        graphics,
+        definition.id,
+        optionPosition.x,
+        optionPosition.y - 4,
+        tick,
+        false,
+        1,
       );
     }
   }
@@ -1035,7 +1230,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
   function Battlefield(
     {
       simulation,
-      selectedTowerId,
       placementPreview,
       gameSpeed,
       lowEffects,
@@ -1051,7 +1245,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     const host = useRef<HTMLDivElement>(null);
     const scene = useRef<BattleScene | null>(null);
     const callbacks = useRef({
-      selectedTowerId,
       onState,
       onTowerSelected,
       onPlacementPreview,
@@ -1059,7 +1252,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       onError,
     });
     callbacks.current = {
-      selectedTowerId,
       onState,
       onTowerSelected,
       onPlacementPreview,
@@ -1099,7 +1291,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       const battleScene = new BattleScene(
         simulation,
         {
-          selectedTowerId: () => callbacks.current.selectedTowerId,
           onState: (state, events) => callbacks.current.onState(state, events),
           onTowerSelected: (tower) => callbacks.current.onTowerSelected(tower),
           onPlacementPreview: (preview) =>
