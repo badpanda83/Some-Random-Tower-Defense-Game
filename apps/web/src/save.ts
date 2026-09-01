@@ -30,6 +30,10 @@ export function withCheckpoint(
   return { ...save, checkpoint };
 }
 
+export function withoutBattleCheckpoint(save: SaveData): SaveData {
+  return { ...save, checkpoint: null };
+}
+
 export function withBattleResult(
   save: SaveData,
   result: BattleResult,

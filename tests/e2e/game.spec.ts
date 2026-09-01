@@ -121,3 +121,45 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
   await expect(gold).toHaveText("30");
   await expect(page.getByText("Wave in progress")).toBeVisible();
 });
+
+test("cancels and confirms mission abandonment without retaining progress", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByRole("button", { name: "Begin defense" }).click();
+
+  await page.getByRole("button", { name: /Fork Knight/ }).click();
+  await page.getByRole("button", { name: "Leave mission" }).click();
+  const dialog = page.getByRole("dialog", { name: "Leave this mission?" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByText(/current mission progress will be lost/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Continue mission" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Fork Knight/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: "Start wave 1" }).click();
+  await expect(page.getByText("Wave in progress")).toBeVisible();
+  await page.getByRole("button", { name: "Leave mission" }).click();
+  await page.getByRole("button", { name: "Abandon mission" }).click();
+
+  await expect(page.getByText("The Muddy Moat").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Resume wave/ }),
+  ).not.toBeVisible();
+  await expect(page.getByText(/victor(y|ies)/i)).not.toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await expect(
+    page.getByRole("button", { name: /Resume wave/ }),
+  ).not.toBeVisible();
+  await expect(page.getByText(/victor(y|ies)/i)).not.toBeVisible();
+});

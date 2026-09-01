@@ -14,6 +14,7 @@ import {
   type Settings,
 } from "@srtg/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   Battlefield,
@@ -31,7 +32,7 @@ interface GameScreenProps {
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
   readonly onComplete: (result: BattleResult) => void;
   readonly onRetry: () => void;
-  readonly onExit: () => void;
+  readonly onAbandon: () => void;
   readonly onSettings: (settings: Settings) => void;
 }
 
@@ -117,7 +118,7 @@ export function GameScreen({
   onCheckpoint,
   onComplete,
   onRetry,
-  onExit,
+  onAbandon,
   onSettings,
 }: GameScreenProps) {
   const simulation = useMemo(
@@ -135,10 +136,15 @@ export function GameScreen({
     useState<PlacementPreview | null>(null);
   const [selectedTower, setSelectedTower] = useState<TowerState | null>(null);
   const [paused, setPaused] = useState(false);
+  const [quitOpen, setQuitOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(
     checkpoint ? "Recovered your between-wave camp." : null,
   );
   const battlefield = useRef<BattlefieldHandle>(null);
+  const quitDialog = useRef<HTMLElement>(null);
+  const cancelQuitButton = useRef<HTMLButtonElement>(null);
+  const quitTrigger = useRef<HTMLButtonElement>(null);
+  const quitPause = useRef<{ wasPaused: boolean } | null>(null);
   const checkpointSignature = useRef(
     checkpoint ? JSON.stringify(checkpoint) : "",
   );
@@ -160,6 +166,42 @@ export function GameScreen({
   }, [settings.muted]);
 
   useEffect(() => {
+    if (!quitOpen) {
+      return;
+    }
+    cancelQuitButton.current?.focus();
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelQuit();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const buttons = Array.from(
+        quitDialog.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not(:disabled)",
+        ) ?? [],
+      );
+      const first = buttons[0];
+      const last = buttons.at(-1);
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", cancelWithEscape);
+    return () => window.removeEventListener("keydown", cancelWithEscape);
+  }, [quitOpen]);
+
+  useEffect(() => {
     if (
       synchronizationBlocked &&
       state.phase === "active" &&
@@ -167,7 +209,7 @@ export function GameScreen({
     ) {
       synchronizationPause.current = {
         applied: true,
-        wasPaused: paused,
+        wasPaused: quitPause.current?.wasPaused ?? paused,
       };
       battlefield.current?.setPaused(true);
     } else if (
@@ -182,9 +224,9 @@ export function GameScreen({
     ) {
       const restorePaused = synchronizationPause.current.wasPaused;
       synchronizationPause.current.applied = false;
-      battlefield.current?.setPaused(restorePaused);
+      battlefield.current?.setPaused(quitOpen ? true : restorePaused);
     }
-  }, [paused, state.phase, synchronizationBlocked]);
+  }, [paused, quitOpen, state.phase, synchronizationBlocked]);
 
   const inspected = selectedTower
     ? (state.towers.find((tower) => tower.id === selectedTower.id) ?? null)
@@ -237,6 +279,31 @@ export function GameScreen({
     setPaused(next);
   }
 
+  function requestQuit() {
+    quitPause.current = { wasPaused: paused };
+    battlefield.current?.setPaused(true);
+    setQuitOpen(true);
+  }
+
+  function cancelQuit() {
+    const restorePaused = quitPause.current?.wasPaused ?? paused;
+    quitPause.current = null;
+    setQuitOpen(false);
+    battlefield.current?.setPaused(
+      synchronizationBlocked ? true : restorePaused,
+    );
+    requestAnimationFrame(() => quitTrigger.current?.focus());
+  }
+
+  function confirmQuit() {
+    setPlacementPreview(null);
+    setSelectedTowerId(null);
+    setSelectedTower(null);
+    setMessage(null);
+    quitPause.current = null;
+    onAbandon();
+  }
+
   function finish() {
     const result: BattleResult = {
       levelId: state.levelId,
@@ -285,7 +352,11 @@ export function GameScreen({
   }
 
   return (
-    <main className="game-screen">
+    <main
+      className="game-screen"
+      inert={quitOpen ? true : undefined}
+      aria-hidden={quitOpen ? true : undefined}
+    >
       <div className="rotate-prompt">
         <img src="/crest.svg" alt="" />
         <strong>Rotate the royal viewing rectangle</strong>
@@ -315,6 +386,14 @@ export function GameScreen({
           </span>
         </div>
         <div className="hud-actions">
+          <button
+            ref={quitTrigger}
+            className="quit-mission-button"
+            onClick={requestQuit}
+            disabled={synchronizationBlocked}
+          >
+            Leave mission
+          </button>
           <button
             className="icon-button"
             onClick={() => {
@@ -519,28 +598,16 @@ export function GameScreen({
           {!placementPreview && (
             <div className="wave-actions">
               {state.phase === "preparing" && (
-                <>
-                  <button
-                    className="button button-ghost"
-                    onClick={() => {
-                      cancelPlacement();
-                      setSelectedTowerId(null);
-                      onExit();
-                    }}
-                  >
-                    Map
-                  </button>
-                  <button
-                    className="button button-primary"
-                    onClick={() => {
-                      cancelPlacement();
-                      setSelectedTowerId(null);
-                      battlefield.current?.dispatch({ type: "start-wave" });
-                    }}
-                  >
-                    Start wave {state.waveIndex + 1}
-                  </button>
-                </>
+                <button
+                  className="button button-primary"
+                  onClick={() => {
+                    cancelPlacement();
+                    setSelectedTowerId(null);
+                    battlefield.current?.dispatch({ type: "start-wave" });
+                  }}
+                >
+                  Start wave {state.waveIndex + 1}
+                </button>
               )}
               {state.phase === "active" && (
                 <span className="wave-live">
@@ -601,6 +668,39 @@ export function GameScreen({
           </section>
         </div>
       )}
+      {quitOpen &&
+        createPortal(
+          <div className="modal-backdrop">
+            <section
+              ref={quitDialog}
+              className="quit-dialog card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="quit-dialog-title"
+              aria-describedby="quit-dialog-description"
+            >
+              <span className="eyebrow">Retreat with dignity-ish</span>
+              <h2 id="quit-dialog-title">Leave this mission?</h2>
+              <p id="quit-dialog-description">
+                Your current mission progress will be lost. Earlier campaign
+                progress, settings, and account data will stay safe.
+              </p>
+              <div className="quit-dialog-actions">
+                <button
+                  ref={cancelQuitButton}
+                  className="button button-ghost"
+                  onClick={cancelQuit}
+                >
+                  Continue mission
+                </button>
+                <button className="button button-danger" onClick={confirmQuit}>
+                  Abandon mission
+                </button>
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
     </main>
   );
 }

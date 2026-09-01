@@ -162,6 +162,11 @@ h3,
   background: rgba(146, 49, 49, 0.32);
 }
 
+.button-danger:not(:disabled):hover {
+  border-color: rgba(255, 154, 143, 0.62);
+  background: rgba(165, 52, 52, 0.48);
+}
+
 .button-small {
   min-height: 44px;
   padding: 0.52rem 0.8rem;
@@ -912,6 +917,23 @@ h3,
   gap: 0.45rem;
 }
 
+.quit-mission-button {
+  min-height: 43px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(237, 118, 106, 0.32);
+  border-radius: 11px;
+  color: #ffd9d4;
+  cursor: pointer;
+  background: rgba(146, 49, 49, 0.2);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.quit-mission-button:not(:disabled):hover {
+  border-color: rgba(255, 154, 143, 0.55);
+  background: rgba(146, 49, 49, 0.34);
+}
+
 .icon-button {
   display: grid;
   width: 43px;
@@ -1313,6 +1335,29 @@ h3,
   line-height: 1.55;
 }
 
+.quit-dialog {
+  width: min(480px, 100%);
+  padding: 2rem;
+  border-color: rgba(237, 118, 106, 0.24);
+}
+
+.quit-dialog h2 {
+  margin: 0.4rem 0 0.6rem;
+  font-size: 2rem;
+}
+
+.quit-dialog p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.quit-dialog-actions {
+  display: flex;
+  margin-top: 1.3rem;
+  justify-content: flex-end;
+  gap: 0.7rem;
+}
+
 @keyframes crest-bob {
   0%,
   100% {
@@ -1522,6 +1567,11 @@ h3,
   .icon-button {
     width: 38px;
     height: 38px;
+  }
+
+  .quit-mission-button {
+    min-height: 38px;
+    padding: 0.4rem 0.6rem;
   }
 
   .battle-controls {

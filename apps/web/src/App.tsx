@@ -30,7 +30,11 @@ import {
   storeLocalSave,
   type LocalSaveRecord,
 } from "./storage.js";
-import { withBattleResult, withCheckpoint } from "./save.js";
+import {
+  withBattleResult,
+  withCheckpoint,
+  withoutBattleCheckpoint,
+} from "./save.js";
 import { reconcileCompletedSync } from "./sync-state.js";
 
 const GameScreen = lazy(async () => {
@@ -358,7 +362,8 @@ export function App() {
                 setBattle(null);
               }}
               onRetry={() => beginBattle(battle.modifierIds)}
-              onExit={() => {
+              onAbandon={() => {
+                commit(withoutBattleCheckpoint(recordRef.current!.data));
                 setScreen("campaign");
                 setBattle(null);
               }}
