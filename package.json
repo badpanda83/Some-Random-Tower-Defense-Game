@@ -1,0 +1,35 @@
+{
+  "name": "some-random-tower-defense-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "corepack pnpm -r --if-present build",
+    "dev": "corepack pnpm --parallel --filter @srtg/server --filter @srtg/web dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "corepack pnpm --filter @srtg/protocol build && corepack pnpm --filter @srtg/game-core build && corepack pnpm -r --if-present test",
+    "test:integration": "corepack pnpm --filter @srtg/server test:integration",
+    "test:unit": "corepack pnpm --filter @srtg/protocol --filter @srtg/game-core --filter @srtg/server test",
+    "test:e2e": "playwright test",
+    "typecheck": "corepack pnpm --filter @srtg/protocol build && corepack pnpm --filter @srtg/game-core build && corepack pnpm -r --if-present typecheck",
+    "db:generate": "corepack pnpm --filter @srtg/server db:generate",
+    "db:migrate": "corepack pnpm --filter @srtg/server db:migrate",
+    "start": "corepack pnpm --filter @srtg/server start"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.3.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0"
+  }
+}

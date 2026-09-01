@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+.pnpm-store
+coverage
+dist
+node_modules
+playwright-report
+test-results
+*.log
