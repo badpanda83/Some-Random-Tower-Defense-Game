@@ -1,8 +1,21 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type {
+  BattleCheckpoint,
+  BattleResult,
+  GameCommand,
+} from "@srtg/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const battlefieldTest = vi.hoisted(() => ({
   setPaused: vi.fn<(paused: boolean) => void>(),
+  advance: null as null | ((ticks: number) => void),
 }));
 
 vi.mock("../game/audio.js", () => ({
@@ -19,7 +32,11 @@ vi.mock("../game/Battlefield.js", async () => {
     Battlefield: React.forwardRef(function MockBattlefield(
       props: {
         simulation: {
-          dispatch: (command: { type: "start-wave" }) => {
+          dispatch: (command: GameCommand) => {
+            state: unknown;
+            events: readonly unknown[];
+          };
+          step: (ticks: number) => {
             state: unknown;
             events: readonly unknown[];
           };
@@ -29,10 +46,15 @@ vi.mock("../game/Battlefield.js", async () => {
       },
       ref: React.ForwardedRef<unknown>,
     ) {
+      battlefieldTest.advance = (ticks) => {
+        const result = props.simulation.step(ticks);
+        props.onState(result.state, result.events);
+      };
       React.useImperativeHandle(ref, () => ({
-        dispatch(command: { type: "start-wave" }) {
+        dispatch(command: GameCommand) {
           const result = props.simulation.dispatch(command);
           props.onState(result.state, result.events);
+          return true;
         },
         confirmPlacement() {
           return false;
@@ -57,19 +79,27 @@ const settings = {
   gameSpeed: 1 as const,
 };
 
-function renderGame() {
+function renderGame(
+  checkpoint: BattleCheckpoint | null = null,
+  overrides: Partial<{
+    onComplete: (result: BattleResult) => Promise<void>;
+    onRetry: () => void;
+    onAbandon: () => Promise<void>;
+  }> = {},
+) {
   const callbacks = {
     onCheckpoint: vi.fn(),
-    onComplete: vi.fn(),
+    onComplete: vi.fn().mockResolvedValue(undefined),
     onRetry: vi.fn(),
-    onAbandon: vi.fn(),
+    onAbandon: vi.fn().mockResolvedValue(undefined),
     onSettings: vi.fn(),
+    ...overrides,
   };
   render(
     <GameScreen
       seed={7}
       modifierIds={[]}
-      checkpoint={null}
+      checkpoint={checkpoint}
       settings={settings}
       synchronizationBlocked={false}
       {...callbacks}
@@ -81,6 +111,153 @@ function renderGame() {
 describe("mission abandonment", () => {
   beforeEach(() => {
     battlefieldTest.setPaused.mockClear();
+  });
+
+  describe("Royal Forkfall controls", () => {
+    afterEach(cleanup);
+
+    it("shows deterministic charge and rejects not-ready UI activation", () => {
+      renderGame();
+      const button = screen.getByRole("button", { name: "Arm Forkfall" });
+
+      expect(button).toBeDisabled();
+      expect(screen.getByText("0% charged")).toBeInTheDocument();
+      expect(screen.getByLabelText("Royal Forkfall charge")).toHaveValue(0);
+    });
+
+    describe("result progression", () => {
+      afterEach(cleanup);
+
+      function finalWaveCheckpoint(): BattleCheckpoint {
+        const pads = [
+          "bramble-seat",
+          "puddle-perch",
+          "mushroom-box",
+          "crooked-stool",
+          "soggy-plinth",
+          "turnip-stage",
+          "bucket-throne",
+          "gate-crate",
+        ];
+        return {
+          levelId: "muddy-moat",
+          seed: 123,
+          modifierIds: [],
+          tick: 4_027,
+          nextWave: 5,
+          lives: 12,
+          gold: 0,
+          score: 15_000,
+          spawnedEnemies: 67,
+          abilityChargeTicks: 240,
+          placements: pads.map((padId, index) => ({
+            id: `tower-${index + 1}`,
+            towerId:
+              index % 3 === 0
+                ? "discount-wizard"
+                : index % 3 === 1
+                  ? "fork-knight"
+                  : "bardbarian",
+            padId,
+            level: 3,
+          })),
+          metrics: {
+            spentGold: 1_500,
+            leakedEnemies: 0,
+            soldTowers: 0,
+            usedTowerIds: ["bardbarian", "discount-wizard", "fork-knight"],
+          },
+        };
+      }
+
+      function reachVictory(overrides: Parameters<typeof renderGame>[1] = {}) {
+        const callbacks = renderGame(finalWaveCheckpoint(), overrides);
+        fireEvent.click(screen.getByRole("button", { name: "Start wave 6" }));
+        act(() => battlefieldTest.advance?.(10_000));
+        expect(
+          screen.getByRole("heading", { name: "The moat is defended!" }),
+        ).toBeInTheDocument();
+        return callbacks;
+      }
+
+      it("does not record progress when Retry is chosen", () => {
+        const callbacks = reachVictory();
+
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+        expect(callbacks.onRetry).toHaveBeenCalledOnce();
+        expect(callbacks.onComplete).not.toHaveBeenCalled();
+      });
+
+      it("prevents duplicate submission and surfaces a retryable save failure", async () => {
+        let rejectSave: (error: Error) => void = () => undefined;
+        const pendingSave = new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        });
+        const onComplete = vi
+          .fn<() => Promise<void>>()
+          .mockReturnValueOnce(pendingSave)
+          .mockRejectedValueOnce(new Error("disk full"));
+        reachVictory({ onComplete });
+
+        const continueButton = screen.getByRole("button", {
+          name: "Continue to campaign",
+        });
+        fireEvent.click(continueButton);
+        fireEvent.click(continueButton);
+        expect(onComplete).toHaveBeenCalledOnce();
+        expect(
+          screen.getByRole("button", { name: "Saving result…" }),
+        ).toBeDisabled();
+
+        await act(async () => rejectSave(new Error("disk full")));
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+          /Could not save your result: disk full/,
+        );
+
+        fireEvent.click(
+          screen.getByRole("button", { name: "Continue to campaign" }),
+        );
+        await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(2));
+      });
+    });
+
+    it("requires an explicit arm step before casting and resets the meter", () => {
+      renderGame({
+        levelId: "muddy-moat",
+        seed: 31,
+        modifierIds: [],
+        tick: 800,
+        nextWave: 2,
+        lives: 12,
+        gold: 100,
+        score: 0,
+        spawnedEnemies: 19,
+        abilityChargeTicks: 240,
+        placements: [],
+        metrics: {
+          spentGold: 0,
+          leakedEnemies: 0,
+          soldTowers: 0,
+          usedTowerIds: [],
+        },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Start wave 3" }));
+      act(() => battlefieldTest.advance?.(1));
+
+      fireEvent.click(screen.getByRole("button", { name: "Arm Forkfall" }));
+      expect(
+        screen.getByRole("button", { name: "Cast Forkfall" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Press Cast to confirm/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Cast Forkfall" }));
+      expect(screen.getByText(/struck for 176 damage/)).toBeInTheDocument();
+      expect(screen.getByText("0% charged")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Arm Forkfall" }),
+      ).toBeDisabled();
+    });
   });
 
   afterEach(cleanup);

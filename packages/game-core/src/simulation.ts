@@ -13,6 +13,8 @@ import {
 import { pointAlongPath, preparePath } from "./path.js";
 import { SeededRandom } from "./rng.js";
 import {
+  ROYAL_FORKFALL_CHARGE_TICKS,
+  ROYAL_FORKFALL_DAMAGE,
   TICK_MS,
   type EnemyState,
   type GameEvent,
@@ -44,6 +46,7 @@ interface MutableState {
   lives: number;
   gold: number;
   score: number;
+  abilityChargeTicks: number;
   towers: TowerState[];
   enemies: EnemyState[];
   metrics: MutableMetrics;
@@ -158,6 +161,10 @@ class GameSimulation implements Simulation {
       lives: checkpoint?.lives ?? level.startingLives,
       gold: checkpoint?.gold ?? Math.max(0, level.startingGold + goldDelta),
       score: checkpoint?.score ?? 0,
+      abilityChargeTicks: Math.min(
+        checkpoint?.abilityChargeTicks ?? 0,
+        ROYAL_FORKFALL_CHARGE_TICKS,
+      ),
       towers:
         checkpoint?.placements.map((placement) => ({
           id: placement.id,
@@ -211,6 +218,9 @@ class GameSimulation implements Simulation {
       case "start-wave":
         this.startWave();
         break;
+      case "activate-ability":
+        this.activateAbility(events);
+        break;
       default:
         assertNever(command);
     }
@@ -258,6 +268,7 @@ class GameSimulation implements Simulation {
       lives: state.lives,
       gold: state.gold,
       score: state.score,
+      abilityChargeTicks: state.abilityChargeTicks,
       spawnedEnemies: this.enemyCounter,
       placements: state.towers.map((tower) => ({
         id: tower.id,
@@ -287,6 +298,7 @@ class GameSimulation implements Simulation {
         lives: state.lives,
         gold: state.gold,
         score: state.score,
+        abilityChargeTicks: state.abilityChargeTicks,
         towers: state.towers,
         enemies: state.enemies,
         metrics: state.metrics,
@@ -385,6 +397,35 @@ class GameSimulation implements Simulation {
     this.mutableState.nextSpawnIndex = 0;
   }
 
+  private activateAbility(events: GameEvent[]): void {
+    const state = this.mutableState;
+    if (state.phase !== "active") {
+      throw new Error("Royal Forkfall can only be used during a wave");
+    }
+    if (state.abilityChargeTicks < ROYAL_FORKFALL_CHARGE_TICKS) {
+      throw new Error("Royal Forkfall is still charging");
+    }
+    const target = [...state.enemies].sort(
+      (left, right) =>
+        right.pathDistanceMilli - left.pathDistanceMilli ||
+        left.id.localeCompare(right.id),
+    )[0];
+    if (!target) {
+      throw new Error("Royal Forkfall needs an enemy target");
+    }
+
+    const healthBefore = target.health;
+    this.damageEnemy(target.id, ROYAL_FORKFALL_DAMAGE, "arcane", events);
+    const healthAfter =
+      state.enemies.find((enemy) => enemy.id === target.id)?.health ?? 0;
+    state.abilityChargeTicks = 0;
+    events.push({
+      type: "ability-activated",
+      targetInstanceId: target.id,
+      damageDealt: healthBefore - healthAfter,
+    });
+  }
+
   private requirePreparing(): void {
     if (this.mutableState.phase !== "preparing") {
       throw new Error("Towers can only be managed between waves");
@@ -403,6 +444,10 @@ class GameSimulation implements Simulation {
   private tick(events: GameEvent[]): void {
     const state = this.mutableState;
     state.tick += 1;
+    state.abilityChargeTicks = Math.min(
+      ROYAL_FORKFALL_CHARGE_TICKS,
+      state.abilityChargeTicks + 1,
+    );
     this.spawnEnemies(events);
     this.attackWithTowers(events);
     this.moveEnemies(events);
@@ -560,7 +605,11 @@ class GameSimulation implements Simulation {
         const current = state.enemies.find(
           (candidate) => candidate.id === enemy.id,
         );
-        if (current && definition.slowTicks > 0) {
+        if (
+          current &&
+          definition.slowTicks > 0 &&
+          current.slowUntilTick <= state.tick
+        ) {
           const slowed: EnemyState = {
             ...current,
             slowUntilTick: Math.max(

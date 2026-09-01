@@ -7,7 +7,7 @@ import {
 } from "./save.js";
 
 describe("campaign progress", () => {
-  it("unlocks branches without duplicating mastery", () => {
+  it("unlocks branches without recording the same result twice", () => {
     const result = {
       levelId: "muddy-moat",
       seed: 5,
@@ -29,7 +29,8 @@ describe("campaign progress", () => {
     expect(twice.campaign.levels["muddy-moat"]?.completedMasteryIds).toEqual([
       "dry-socks",
     ]);
-    expect(twice.campaign.levels["muddy-moat"]?.victories).toBe(2);
+    expect(twice.campaign.levels["muddy-moat"]?.victories).toBe(1);
+    expect(twice.campaign.recentResults).toHaveLength(1);
   });
 
   it("abandons only the in-attempt checkpoint without awarding progress", () => {

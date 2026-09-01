@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const port = process.env.E2E_PORT ?? "3001";
+const baseURL = `http://127.0.0.1:${port}`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
@@ -7,7 +10,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://127.0.0.1:3001",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [
@@ -27,8 +30,12 @@ export default defineConfig({
   ],
   webServer: {
     command: "corepack pnpm start",
-    url: "http://127.0.0.1:3001/health/live",
-    reuseExistingServer: !process.env.CI,
+    url: `${baseURL}/health/live`,
+    env: {
+      PORT: port,
+      PUBLIC_URL: baseURL,
+    },
+    reuseExistingServer: !process.env.CI && !process.env.E2E_PORT,
     timeout: 120_000,
   },
 });

@@ -33,6 +33,9 @@ export class GameAudio {
         case "boss-phase":
           this.tone(74, 0.3, 0.1);
           break;
+        case "ability-activated":
+          this.tone(880, 0.32, 0.09);
+          break;
         case "wave-complete":
           this.tone(620, 0.14, 0.04);
           break;

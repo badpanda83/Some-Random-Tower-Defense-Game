@@ -2,6 +2,8 @@ import type { BattleCheckpoint, GameCommand } from "@srtg/protocol";
 
 export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
+export const ROYAL_FORKFALL_CHARGE_TICKS = 240;
+export const ROYAL_FORKFALL_DAMAGE = 180;
 
 export interface Point {
   readonly x: number;
@@ -139,6 +141,7 @@ export interface GameState {
   readonly lives: number;
   readonly gold: number;
   readonly score: number;
+  readonly abilityChargeTicks: number;
   readonly towers: readonly TowerState[];
   readonly enemies: readonly EnemyState[];
   readonly metrics: BattleMetrics;
@@ -171,6 +174,11 @@ export type GameEvent =
   | {
       readonly type: "boss-phase";
       readonly instanceId: string;
+    }
+  | {
+      readonly type: "ability-activated";
+      readonly targetInstanceId: string;
+      readonly damageDealt: number;
     }
   | {
       readonly type: "wave-complete";
