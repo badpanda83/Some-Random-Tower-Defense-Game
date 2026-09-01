@@ -67,6 +67,7 @@ export const campaignProgressSchema = z.object({
   unlockedNodeIds: z.array(idSchema).min(1).max(200),
   levels: z.record(idSchema, levelProgressSchema),
   recentResults: z.array(battleResultSchema).max(20),
+  recordedAttemptIds: z.array(z.string().min(1).max(256)).max(2000).default([]),
 });
 
 export const saveDataSchema = z.object({

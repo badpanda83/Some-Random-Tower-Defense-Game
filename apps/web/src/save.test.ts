@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   createFreshSave,
+  normalizeSaveProgress,
   withBattleResult,
   withoutBattleCheckpoint,
 } from "./save.js";
 
 describe("campaign progress", () => {
-  it("unlocks branches without recording the same result twice", () => {
+  it("unlocks branches without recording the same attempt twice", () => {
     const result = {
       levelId: "muddy-moat",
       seed: 5,
@@ -31,6 +32,109 @@ describe("campaign progress", () => {
     ]);
     expect(twice.campaign.levels["muddy-moat"]?.victories).toBe(1);
     expect(twice.campaign.recentResults).toHaveLength(1);
+  });
+
+  it("records distinct battles when a random seed repeats", () => {
+    const first = {
+      levelId: "muddy-moat",
+      seed: 5,
+      contentVersion: 1 as const,
+      modifierIds: [],
+      result: "victory" as const,
+      score: 4000,
+      completedMasteryIds: [],
+      completedAt: "2026-08-31T12:00:00.000Z",
+    };
+    const twice = withBattleResult(withBattleResult(createFreshSave(), first), {
+      ...first,
+      completedAt: "2026-09-01T12:00:00.000Z",
+    });
+
+    expect(twice.campaign.levels["muddy-moat"]?.victories).toBe(2);
+    expect(twice.campaign.recordedAttemptIds).toHaveLength(2);
+  });
+
+  it("keeps attempt idempotency after results leave the recent display list", () => {
+    const firstResult = {
+      levelId: "muddy-moat",
+      seed: 1,
+      contentVersion: 1 as const,
+      modifierIds: [],
+      result: "victory" as const,
+      score: 1000,
+      completedMasteryIds: [],
+      completedAt: "2026-08-31T12:00:00.000Z",
+    };
+    let save = withBattleResult(createFreshSave(), firstResult);
+    for (let seed = 2; seed <= 22; seed += 1) {
+      save = withBattleResult(save, {
+        ...firstResult,
+        seed,
+        completedAt: `2026-08-31T12:00:${String(seed).padStart(2, "0")}.000Z`,
+      });
+    }
+
+    const repeated = withBattleResult(save, firstResult);
+
+    expect(repeated.campaign.recentResults).toHaveLength(20);
+    expect(repeated.campaign.levels["muddy-moat"]?.victories).toBe(22);
+    expect(repeated.campaign.recordedAttemptIds).toHaveLength(22);
+  });
+
+  it("fails visibly instead of growing attempt history past the save limit", () => {
+    const save = createFreshSave();
+    save.campaign.recordedAttemptIds = Array.from(
+      { length: 2000 },
+      (_, index) => `1:muddy-moat:${index + 1}:`,
+    );
+
+    expect(() =>
+      withBattleResult(save, {
+        levelId: "muddy-moat",
+        seed: 4000,
+        contentVersion: 1,
+        modifierIds: [],
+        result: "victory",
+        score: 1000,
+        completedMasteryIds: [],
+        completedAt: "2026-08-31T12:00:00.000Z",
+      }),
+    ).toThrow(/result history is full/i);
+  });
+
+  it("repairs a missing derived unlock in an older victory save", () => {
+    const olderSave = createFreshSave();
+    olderSave.campaign.levels["muddy-moat"] = {
+      bestScore: 3000,
+      victories: 1,
+      completedMasteryIds: [],
+      completedModifierIds: [],
+    };
+
+    expect(normalizeSaveProgress(olderSave).campaign.unlockedNodeIds).toEqual([
+      "muddy-moat",
+      "mimic-market",
+    ]);
+  });
+
+  it("does not unlock branches or mastery after a defeat", () => {
+    const defeated = withBattleResult(createFreshSave(), {
+      levelId: "muddy-moat",
+      seed: 9,
+      contentVersion: 1,
+      modifierIds: ["stingy-king"],
+      result: "defeat",
+      score: 800,
+      completedMasteryIds: ["dry-socks"],
+      completedAt: "2026-08-31T12:00:00.000Z",
+    });
+
+    expect(defeated.campaign.unlockedNodeIds).toEqual(["muddy-moat"]);
+    expect(defeated.campaign.levels["muddy-moat"]).toMatchObject({
+      victories: 0,
+      completedMasteryIds: [],
+      completedModifierIds: [],
+    });
   });
 
   it("abandons only the in-attempt checkpoint without awarding progress", () => {

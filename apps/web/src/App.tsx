@@ -25,9 +25,9 @@ import {
 import { CampaignScreen } from "./screens/CampaignScreen.js";
 import { TitleScreen } from "./screens/TitleScreen.js";
 import {
+  createLocalSaveWriter,
   loadLocalSave,
   markLocalChange,
-  storeLocalSave,
   type LocalSaveRecord,
 } from "./storage.js";
 import {
@@ -69,19 +69,22 @@ export function App() {
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [battle, setBattle] = useState<BattleSetup | null>(null);
+  const [updateReady, setUpdateReady] = useState(false);
   const recordRef = useRef<LocalSaveRecord | null>(null);
   const conflictRef = useRef<CloudSave | null>(null);
   const conflictResolutionRef = useRef(false);
-  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveWriter = useRef(createLocalSaveWriter());
   const syncQueue = useRef<Promise<void>>(Promise.resolve());
+  const submittedSaveData = useRef<SaveData[]>([]);
 
-  const {
-    needRefresh: [needRefresh],
-    updateServiceWorker,
-  } = useRegisterSW();
+  useRegisterSW({
+    onNeedReload: () => setUpdateReady(true),
+  });
 
   const scheduleSync = useCallback(() => {
     const run = async () => {
+      await saveWriter.current.flush();
+      await Promise.resolve();
       const local = recordRef.current;
       if (!local || conflictRef.current) {
         return;
@@ -89,7 +92,11 @@ export function App() {
 
       setSyncStatus("syncing");
       try {
-        const result = await synchronizeSave(local);
+        submittedSaveData.current = [
+          ...submittedSaveData.current,
+          local.data,
+        ].slice(-20);
+        const result = await synchronizeSave(local, submittedSaveData.current);
         if (result.type === "conflict") {
           setProfile(result.profile);
           conflictRef.current = result.remote;
@@ -113,7 +120,7 @@ export function App() {
         const resolved = resolution.record;
         recordRef.current = resolved;
         setRecord(resolved);
-        await storeLocalSave(resolved);
+        await saveWriter.current.store(resolved);
         setSyncStatus(resolved.pending ? "local" : "synced");
       } catch (error) {
         if (error instanceof CloudSaveConflictError) {
@@ -138,7 +145,7 @@ export function App() {
         }
         recordRef.current = loaded;
         setRecord(loaded);
-        await storeLocalSave(loaded);
+        await saveWriter.current.store(loaded);
         scheduleSync();
       })
       .catch((error: unknown) => {
@@ -154,6 +161,12 @@ export function App() {
       active = false;
     };
   }, [scheduleSync]);
+
+  useEffect(() => {
+    if (updateReady && screen !== "game") {
+      location.reload();
+    }
+  }, [screen, updateReady]);
 
   useEffect(() => {
     const capture = (event: BeforeInstallPromptEvent) => {
@@ -187,13 +200,11 @@ export function App() {
     recordRef.current = next;
     setRecord(next);
     setSyncStatus(navigator.onLine ? "local" : "offline");
-    const persist = saveQueue.current.then(() => storeLocalSave(next));
-    saveQueue.current = persist.catch(() => undefined);
     try {
-      await persist;
+      await saveWriter.current.store(next);
       scheduleSync();
     } catch (error) {
-      if (recordRef.current?.updatedAt === next.updatedAt) {
+      if (recordRef.current === next) {
         recordRef.current = current;
         setRecord(current);
       }
@@ -244,7 +255,7 @@ export function App() {
       );
       const latest = recordRef.current;
       const resolved =
-        latest && latest.updatedAt !== local.updatedAt
+        latest && latest !== local
           ? {
               ...latest,
               cloudOwnerId: profile.id,
@@ -254,7 +265,7 @@ export function App() {
           : saved;
       recordRef.current = resolved;
       setRecord(resolved);
-      await storeLocalSave(resolved);
+      await saveWriter.current.store(resolved);
       conflictRef.current = null;
       setConflict(null);
       setSyncStatus(resolved.pending ? "local" : "synced");
@@ -283,7 +294,7 @@ export function App() {
     setResolvingConflict(true);
     try {
       const accepted = acceptCloudSave(conflict, profile.id);
-      await storeLocalSave(accepted);
+      await saveWriter.current.store(accepted);
       recordRef.current = accepted;
       setRecord(accepted);
       conflictRef.current = null;
@@ -398,18 +409,6 @@ export function App() {
               onSettings={updateSettings}
             />
           </Suspense>
-        )}
-
-        {needRefresh && (
-          <div className="update-banner">
-            <span>A less dubious build has arrived.</span>
-            <button
-              className="button button-small button-primary"
-              onClick={() => void updateServiceWorker(true)}
-            >
-              Update
-            </button>
-          </div>
         )}
       </div>
 

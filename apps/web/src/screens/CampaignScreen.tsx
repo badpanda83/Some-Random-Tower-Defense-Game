@@ -102,10 +102,12 @@ export function CampaignScreen({
                 }}
                 disabled={!playable}
                 onClick={() => playable && onStart([])}
-                aria-label={`${node.name}. ${node.description}`}
+                aria-label={`${node.name}. ${
+                  isUnlocked ? "Unlocked." : "Locked."
+                } ${node.description}`}
               >
                 <span className="node-medallion">
-                  {playable ? "I" : isUnlocked ? "?" : "×"}
+                  {playable ? "I" : isUnlocked ? "✓" : "×"}
                 </span>
                 <span className="node-label">
                   <strong>{node.name}</strong>
@@ -117,8 +119,8 @@ export function CampaignScreen({
                           }`
                         : "Playable"
                       : isUnlocked
-                        ? "Route charted · coming later"
-                        : "Uncharted"}
+                        ? "Unlocked · preview coming later"
+                        : "Locked · uncharted"}
                   </small>
                 </span>
               </button>

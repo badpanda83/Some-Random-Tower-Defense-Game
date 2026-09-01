@@ -195,7 +195,7 @@ describe("mission abandonment", () => {
           rejectSave = reject;
         });
         const onComplete = vi
-          .fn<() => Promise<void>>()
+          .fn<(result: BattleResult) => Promise<void>>()
           .mockReturnValueOnce(pendingSave)
           .mockRejectedValueOnce(new Error("disk full"));
         reachVictory({ onComplete });
@@ -219,6 +219,9 @@ describe("mission abandonment", () => {
           screen.getByRole("button", { name: "Continue to campaign" }),
         );
         await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(2));
+        expect(onComplete.mock.calls[1]?.[0]).toEqual(
+          onComplete.mock.calls[0]?.[0],
+        );
       });
     });
 
