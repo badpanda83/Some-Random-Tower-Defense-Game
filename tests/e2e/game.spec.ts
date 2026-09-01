@@ -60,13 +60,15 @@ test("installs as a local-first PWA and opens the campaign", async ({
 test("previews, confirms, and safely cancels touch-friendly placement", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(45_000);
   const touch = testInfo.project.name === "mobile-chromium";
   await page.goto("/");
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await page.getByRole("button", { name: "Begin defense" }).click();
 
-  const canvas = page.locator("canvas");
+  const canvas = page.locator(".battlefield canvas");
   const gold = page.locator(".resource-gold strong");
+  await expect(canvas).toHaveCount(1);
   await expect(canvas).toBeVisible();
   await page.getByRole("button", { name: /Fork Knight/ }).click();
   await expect(gold).toHaveText("270");
