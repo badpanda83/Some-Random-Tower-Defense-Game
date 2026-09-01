@@ -97,15 +97,17 @@ export function normalizeSaveProgress(save: SaveData): SaveData {
   }
 
   for (const node of campaignNodes) {
-    if (
-      node.unlock === "start" ||
-      (node.unlock === "victory" &&
-        node.unlockSourceId !== null &&
-        victoriousLevels.has(node.unlockSourceId)) ||
-      (node.unlock === "modifier" &&
-        node.unlockSourceId !== null &&
-        completedModifiers.has(node.unlockSourceId))
-    ) {
+    const conditionMet = node.unlockConditions.some((condition) => {
+      switch (condition.kind) {
+        case "start":
+          return true;
+        case "victory":
+          return victoriousLevels.has(condition.levelId);
+        case "legacy-modifier":
+          return completedModifiers.has(condition.modifierId);
+      }
+    });
+    if (conditionMet) {
       unlocked.add(node.id);
     }
   }
@@ -131,6 +133,26 @@ export function normalizeSaveProgress(save: SaveData): SaveData {
       recordedAttemptIds,
     },
   };
+}
+
+export function unlockedRewardIds(save: SaveData): readonly string[] {
+  const victoriousLevels = new Set(
+    Object.entries(save.campaign.levels)
+      .filter(([, progress]) => progress.victories > 0)
+      .map(([levelId]) => levelId),
+  );
+  for (const result of save.campaign.recentResults) {
+    if (result.result === "victory") {
+      victoriousLevels.add(result.levelId);
+    }
+  }
+  const rewards = campaignNodes.flatMap((node) => {
+    if (!node.levelId) {
+      return [];
+    }
+    return victoriousLevels.has(node.levelId) ? node.rewardIds : [];
+  });
+  return Array.from(new Set(rewards));
 }
 
 export function withBattleResult(

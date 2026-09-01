@@ -36,6 +36,9 @@ export class GameAudio {
         case "ability-activated":
           this.tone(880, 0.32, 0.09);
           break;
+        case "tea-break-activated":
+          this.tone(440, 0.28, 0.07);
+          break;
         case "wave-complete":
           this.tone(620, 0.14, 0.04);
           break;

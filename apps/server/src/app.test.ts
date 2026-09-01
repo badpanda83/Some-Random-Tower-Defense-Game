@@ -65,8 +65,10 @@ function fakeAuth(): AuthServices {
   };
 }
 
-function memoryRepository(): GameRepository {
-  let save: StoredSave | null = null;
+function memoryRepository(
+  initialSave: StoredSave | null = null,
+): GameRepository {
+  let save: StoredSave | null = initialSave;
   return {
     async ready() {},
     async ensureProfile(userId, displayName) {
@@ -136,6 +138,7 @@ describe("API", () => {
       url: "/api/saves/campaign",
       payload: { expectedRevision: 0, data: freshSave },
     });
+
     const conflict = await app.inject({
       method: "PUT",
       url: "/api/saves/campaign",
@@ -148,6 +151,72 @@ describe("API", () => {
     expect(conflict.json()).toMatchObject({
       code: "SAVE_CONFLICT",
       remote: { revision: 1 },
+    });
+  });
+
+  it("accepts a supported legacy client upload and stores current data", async () => {
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/saves/campaign",
+      payload: {
+        expectedRevision: 0,
+        data: {
+          ...freshSave,
+          contentVersion: 1,
+          campaign: {
+            ...freshSave.campaign,
+            unlockedNodeIds: ["muddy-moat", "mimic-market"],
+          },
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      revision: 1,
+      data: {
+        contentVersion: CONTENT_VERSION,
+        campaign: { unlockedNodeIds: ["muddy-moat", "mimic-market"] },
+      },
+    });
+  });
+
+  it("serves legacy stored saves as current data without losing access", async () => {
+    await app.close();
+    app = await buildApp({
+      config,
+      auth: fakeAuth(),
+      repository: memoryRepository({
+        slot: "campaign",
+        revision: 4,
+        updatedAt: new Date("2026-08-31T12:00:00.000Z"),
+        data: {
+          ...freshSave,
+          contentVersion: 1,
+          campaign: {
+            ...freshSave.campaign,
+            unlockedNodeIds: ["muddy-moat", "mimic-market"],
+          },
+        } as unknown as SaveData,
+      }),
+      logger: false,
+      staticDirectory: null,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/saves/campaign",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      revision: 4,
+      data: {
+        contentVersion: CONTENT_VERSION,
+        campaign: {
+          unlockedNodeIds: ["muddy-moat", "mimic-market"],
+        },
+      },
     });
   });
 

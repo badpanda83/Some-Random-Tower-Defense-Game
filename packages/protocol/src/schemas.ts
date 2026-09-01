@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const CONTENT_VERSION = 1 as const;
+export const CONTENT_VERSION = 2 as const;
+export const LEGACY_CONTENT_VERSION = 1 as const;
 export const DEFAULT_SAVE_SLOT = "campaign" as const;
 
 const idSchema = z
@@ -22,7 +23,7 @@ export const towerPlacementSchema = z.object({
   id: idSchema,
   towerId: idSchema,
   padId: idSchema,
-  level: z.number().int().min(1).max(3),
+  level: z.number().int().min(1).max(4),
 });
 
 export const battleCheckpointSchema = z.object({
@@ -36,19 +37,36 @@ export const battleCheckpointSchema = z.object({
   score: z.number().int().min(0).max(10_000_000),
   spawnedEnemies: z.number().int().min(0).max(100_000),
   abilityChargeTicks: z.number().int().min(0).max(10_000).optional(),
+  teaBreakUsedThisWave: z.boolean().optional(),
   placements: z.array(towerPlacementSchema).max(40),
   metrics: z.object({
     spentGold: z.number().int().min(0).max(999_999),
     leakedEnemies: z.number().int().min(0).max(9999),
+    leakedByEnemyId: z
+      .record(idSchema, z.number().int().min(0).max(9999))
+      .optional(),
     soldTowers: z.number().int().min(0).max(9999),
     usedTowerIds: z.array(idSchema).max(40),
+    maxTowersPlaced: z.number().int().min(0).max(999).optional(),
+    bossDefeatPathPercent: z
+      .number()
+      .int()
+      .min(0)
+      .max(100)
+      .nullable()
+      .optional(),
   }),
 });
+
+const supportedContentVersionSchema = z.union([
+  z.literal(LEGACY_CONTENT_VERSION),
+  z.literal(CONTENT_VERSION),
+]);
 
 export const battleResultSchema = z.object({
   levelId: idSchema,
   seed: z.number().int().min(1).max(2_147_483_647),
-  contentVersion: z.literal(CONTENT_VERSION),
+  contentVersion: supportedContentVersionSchema,
   modifierIds: z.array(idSchema).max(8),
   result: z.enum(["victory", "defeat"]),
   score: z.number().int().min(0).max(10_000_000),
@@ -75,6 +93,16 @@ export const saveDataSchema = z.object({
   campaign: campaignProgressSchema,
   settings: settingsSchema,
   checkpoint: battleCheckpointSchema.nullable(),
+});
+
+/**
+ * Mirrors `saveDataSchema` but pinned to the legacy content version. The
+ * campaign/settings/checkpoint shapes are unchanged between v1 and v2 (all
+ * v2 additions are optional/backward compatible), so this schema exists
+ * purely to accept legacy envelopes prior to migration.
+ */
+export const saveDataSchemaV1 = saveDataSchema.extend({
+  contentVersion: z.literal(LEGACY_CONTENT_VERSION),
 });
 
 export const cloudSaveSchema = z.object({
@@ -126,8 +154,15 @@ export const startWaveCommandSchema = z.object({
   type: z.literal("start-wave"),
 });
 
+export const abilityIdSchema = z.enum([
+  "royal-forkfall",
+  "emergency-tea-break",
+]);
+
 export const activateAbilityCommandSchema = z.object({
   type: z.literal("activate-ability"),
+  // Omitted for backward compatibility; defaults to Royal Forkfall.
+  abilityId: abilityIdSchema.optional(),
 });
 
 export const gameCommandSchema = z.discriminatedUnion("type", [
@@ -138,6 +173,7 @@ export const gameCommandSchema = z.discriminatedUnion("type", [
   activateAbilityCommandSchema,
 ]);
 
+export type AbilityId = z.infer<typeof abilityIdSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type BattleCheckpoint = z.infer<typeof battleCheckpointSchema>;
 export type BattleResult = z.infer<typeof battleResultSchema>;

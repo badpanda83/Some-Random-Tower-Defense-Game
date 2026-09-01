@@ -86,6 +86,7 @@ function renderGame(
     onRetry: () => void;
     onAbandon: () => Promise<void>;
   }> = {},
+  unlockedRewardIds: readonly string[] = [],
 ) {
   const callbacks = {
     onCheckpoint: vi.fn(),
@@ -97,8 +98,10 @@ function renderGame(
   };
   render(
     <GameScreen
+      levelId={checkpoint?.levelId ?? "muddy-moat"}
       seed={7}
       modifierIds={[]}
+      unlockedRewardIds={unlockedRewardIds}
       checkpoint={checkpoint}
       settings={settings}
       synchronizationBlocked={false}
@@ -111,6 +114,42 @@ function renderGame(
 describe("mission abandonment", () => {
   beforeEach(() => {
     battlefieldTest.setPaused.mockClear();
+  });
+  afterEach(cleanup);
+
+  describe("earned battlefield abilities", () => {
+    it("reveals Emergency Tea Break and requires explicit cast confirmation", () => {
+      renderGame(null, {}, ["emergency-tea-break"]);
+      fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+      act(() => battlefieldTest.advance?.(1));
+
+      fireEvent.change(
+        screen.getByRole("combobox", { name: "Choose battlefield ability" }),
+        { target: { value: "emergency-tea-break" } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Arm Tea" }));
+
+      expect(screen.getByRole("button", { name: "Cast Tea" })).toBeVisible();
+      expect(screen.getByText(/armed.*Press Cast to confirm/i)).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Cast Tea" }));
+      expect(screen.getByText(/slowed every non-boss enemy/i)).toBeVisible();
+    });
+
+    it("requires abilities to be armed again after an intermission", () => {
+      renderGame();
+      fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+      act(() => battlefieldTest.advance?.(240));
+      fireEvent.click(screen.getByRole("button", { name: "Arm Forkfall" }));
+      expect(
+        screen.getByRole("button", { name: "Cast Forkfall" }),
+      ).toBeVisible();
+
+      act(() => battlefieldTest.advance?.(1_000));
+
+      expect(
+        screen.getByRole("button", { name: "Arm Forkfall" }),
+      ).toBeDisabled();
+    });
   });
 
   describe("Royal Forkfall controls", () => {
@@ -175,7 +214,9 @@ describe("mission abandonment", () => {
         fireEvent.click(screen.getByRole("button", { name: "Start wave 6" }));
         act(() => battlefieldTest.advance?.(10_000));
         expect(
-          screen.getByRole("heading", { name: "The moat is defended!" }),
+          screen.getByRole("heading", {
+            name: "The Muddy Moat is defended!",
+          }),
         ).toBeInTheDocument();
         return callbacks;
       }
@@ -255,7 +296,7 @@ describe("mission abandonment", () => {
       expect(screen.getByText(/Press Cast to confirm/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Cast Forkfall" }));
-      expect(screen.getByText(/struck for 176 damage/)).toBeInTheDocument();
+      expect(screen.getByText(/struck for 70 damage/)).toBeInTheDocument();
       expect(screen.getByText("0% charged")).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Arm Forkfall" }),
@@ -318,8 +359,10 @@ describe("mission abandonment", () => {
     };
     const game = (synchronizationBlocked: boolean) => (
       <GameScreen
+        levelId="muddy-moat"
         seed={7}
         modifierIds={[]}
+        unlockedRewardIds={[]}
         checkpoint={null}
         settings={settings}
         synchronizationBlocked={synchronizationBlocked}
@@ -347,5 +390,29 @@ describe("mission abandonment", () => {
     expect(callbacks.onAbandon).toHaveBeenCalledOnce();
     expect(callbacks.onComplete).not.toHaveBeenCalled();
     expect(callbacks.onCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it("explains compact defender choices on hover, focus, and touch without spending", () => {
+    renderGame();
+    const fork = screen.getByRole("button", {
+      name: /Sir Stabs-a-Lot.*physical single-target damage.*57 gold/i,
+    });
+
+    fireEvent.pointerEnter(fork, { pointerType: "mouse" });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Sir Stabs-a-Lot");
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      /physical single-target damage.*range.*cadence.*57 gold/i,
+    );
+    expect(screen.getByText("270")).toBeInTheDocument();
+
+    fireEvent.pointerLeave(fork, { pointerType: "mouse" });
+    fireEvent.focus(fork);
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.click(fork);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Sir Stabs-a-Lot");
+    expect(screen.getByText("270")).toBeInTheDocument();
   });
 });

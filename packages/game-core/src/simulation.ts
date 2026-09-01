@@ -1,5 +1,6 @@
 import {
   CONTENT_VERSION,
+  type AbilityId,
   type BattleCheckpoint,
   type GameCommand,
 } from "@srtg/protocol";
@@ -8,14 +9,19 @@ import {
   enemyDefinitions,
   levelDefinitions,
   modifierDefinitions,
+  rewardDefinitions,
   towerDefinitions,
 } from "./content.js";
+import { evaluateMasteryRule, type MasteryContext } from "./mastery.js";
 import { pointAlongPath, preparePath } from "./path.js";
 import { SeededRandom } from "./rng.js";
 import {
+  EMERGENCY_TEA_BREAK_SLOW_TICKS,
   ROYAL_FORKFALL_CHARGE_TICKS,
   ROYAL_FORKFALL_DAMAGE,
   TICK_MS,
+  type BossEscortDefinition,
+  type EnemyDefinition,
   type EnemyState,
   type GameEvent,
   type GameState,
@@ -23,6 +29,8 @@ import {
   type Simulation,
   type SimulationOptions,
   type StepResult,
+  type TowerDefinition,
+  type TowerPadDefinition,
   type TowerState,
 } from "./types.js";
 import { validateCheckpointContent } from "./validation.js";
@@ -30,8 +38,11 @@ import { validateCheckpointContent } from "./validation.js";
 interface MutableMetrics {
   spentGold: number;
   leakedEnemies: number;
+  leakedByEnemyId: Record<string, number>;
   soldTowers: number;
   usedTowerIds: string[];
+  maxTowersPlaced: number;
+  bossDefeatPathPercent: number | null;
 }
 
 interface MutableState {
@@ -47,6 +58,7 @@ interface MutableState {
   gold: number;
   score: number;
   abilityChargeTicks: number;
+  teaBreakUsedThisWave: boolean;
   towers: TowerState[];
   enemies: EnemyState[];
   metrics: MutableMetrics;
@@ -63,6 +75,30 @@ function squaredDistance(left: Point, right: Point): number {
   return x * x + y * y;
 }
 
+/**
+ * The content maps use `as const satisfies Record<string, X>` so individual
+ * definitions keep their literal types (useful for tests). That means a
+ * generic string-keyed lookup returns the narrow per-key literal type rather
+ * than the shared `X` shape, which breaks access to optional fields that
+ * only some definitions declare (e.g. `traits`, `bossPhase`, `pierceCount`).
+ * These helpers normalize lookups back to the shared definition type.
+ */
+function enemyDefinition(enemyId: string): EnemyDefinition {
+  const definition = enemyDefinitions[enemyId as keyof typeof enemyDefinitions];
+  if (!definition) {
+    throw new Error(`Unknown enemy: ${enemyId}`);
+  }
+  return definition;
+}
+
+function towerDefinition(towerId: string): TowerDefinition {
+  const definition = towerDefinitions[towerId as keyof typeof towerDefinitions];
+  if (!definition) {
+    throw new Error(`Unknown tower: ${towerId}`);
+  }
+  return definition;
+}
+
 function deepState(state: MutableState): GameState {
   return {
     ...state,
@@ -72,6 +108,7 @@ function deepState(state: MutableState): GameState {
     metrics: {
       ...state.metrics,
       usedTowerIds: [...state.metrics.usedTowerIds],
+      leakedByEnemyId: { ...state.metrics.leakedByEnemyId },
     },
     completedMasteryIds: [...state.completedMasteryIds],
   };
@@ -90,6 +127,7 @@ class GameSimulation implements Simulation {
   private readonly level;
   private readonly path;
   private readonly random;
+  private readonly unlockedRewardIds: ReadonlySet<string>;
   private mutableState: MutableState;
   private enemyCounter = 0;
   private towerCounter = 0;
@@ -126,6 +164,7 @@ class GameSimulation implements Simulation {
     this.level = level;
     this.path = preparePath(level.path);
     this.random = new SeededRandom(seed);
+    this.unlockedRewardIds = new Set(options.unlockedRewardIds ?? []);
     if (options.checkpoint) {
       const checkpointErrors = validateCheckpointContent(options.checkpoint);
       if (checkpointErrors.length > 0) {
@@ -149,6 +188,24 @@ class GameSimulation implements Simulation {
     );
     const checkpoint = options.checkpoint;
 
+    const towers: TowerState[] =
+      checkpoint?.placements.map((placement) => {
+        const effectiveMax = this.effectiveMaxLevel(placement.towerId);
+        if (placement.level > effectiveMax) {
+          throw new Error(
+            `Tower ${placement.towerId} level ${placement.level} exceeds the unlocked maximum of ${effectiveMax}`,
+          );
+        }
+        return {
+          id: placement.id,
+          towerId: placement.towerId,
+          padId: placement.padId,
+          level: placement.level,
+          nextAttackTick: checkpoint.tick,
+          investedGold: this.investedGold(placement.towerId, placement.level),
+        };
+      }) ?? [];
+
     this.mutableState = {
       levelId,
       seed,
@@ -165,28 +222,31 @@ class GameSimulation implements Simulation {
         checkpoint?.abilityChargeTicks ?? 0,
         ROYAL_FORKFALL_CHARGE_TICKS,
       ),
-      towers:
-        checkpoint?.placements.map((placement) => ({
-          id: placement.id,
-          towerId: placement.towerId,
-          padId: placement.padId,
-          level: placement.level,
-          nextAttackTick: checkpoint.tick,
-          investedGold: this.investedGold(placement.towerId, placement.level),
-        })) ?? [],
+      teaBreakUsedThisWave: checkpoint?.teaBreakUsedThisWave ?? false,
+      towers,
       enemies: [],
       metrics: checkpoint
         ? {
             spentGold: checkpoint.metrics.spentGold,
             leakedEnemies: checkpoint.metrics.leakedEnemies,
+            leakedByEnemyId: { ...(checkpoint.metrics.leakedByEnemyId ?? {}) },
             soldTowers: checkpoint.metrics.soldTowers,
             usedTowerIds: [...checkpoint.metrics.usedTowerIds],
+            maxTowersPlaced: Math.max(
+              checkpoint.metrics.maxTowersPlaced ?? 0,
+              towers.length,
+            ),
+            bossDefeatPathPercent:
+              checkpoint.metrics.bossDefeatPathPercent ?? null,
           }
         : {
             spentGold: 0,
             leakedEnemies: 0,
+            leakedByEnemyId: {},
             soldTowers: 0,
             usedTowerIds: [],
+            maxTowersPlaced: towers.length,
+            bossDefeatPathPercent: null,
           },
       completedMasteryIds: [],
     };
@@ -219,7 +279,7 @@ class GameSimulation implements Simulation {
         this.startWave();
         break;
       case "activate-ability":
-        this.activateAbility(events);
+        this.activateAbility(command.abilityId ?? "royal-forkfall", events);
         break;
       default:
         assertNever(command);
@@ -249,6 +309,13 @@ class GameSimulation implements Simulation {
     return pointAlongPath(this.path, enemy.pathDistanceMilli);
   }
 
+  public getTowerMaxLevel(towerId: string): number {
+    if (!Object.hasOwn(towerDefinitions, towerId)) {
+      throw new Error(`Unknown tower: ${towerId}`);
+    }
+    return this.effectiveMaxLevel(towerId);
+  }
+
   public createCheckpoint(): BattleCheckpoint | null {
     const state = this.mutableState;
     if (
@@ -269,6 +336,7 @@ class GameSimulation implements Simulation {
       gold: state.gold,
       score: state.score,
       abilityChargeTicks: state.abilityChargeTicks,
+      teaBreakUsedThisWave: state.teaBreakUsedThisWave,
       spawnedEnemies: this.enemyCounter,
       placements: state.towers.map((tower) => ({
         id: tower.id,
@@ -279,8 +347,11 @@ class GameSimulation implements Simulation {
       metrics: {
         spentGold: state.metrics.spentGold,
         leakedEnemies: state.metrics.leakedEnemies,
+        leakedByEnemyId: { ...state.metrics.leakedByEnemyId },
         soldTowers: state.metrics.soldTowers,
         usedTowerIds: [...state.metrics.usedTowerIds],
+        maxTowersPlaced: state.metrics.maxTowersPlaced,
+        bossDefeatPathPercent: state.metrics.bossDefeatPathPercent,
       },
     };
   }
@@ -292,6 +363,7 @@ class GameSimulation implements Simulation {
         levelId: state.levelId,
         seed: state.seed,
         modifierIds: state.modifierIds,
+        unlockedRewardIds: [...this.unlockedRewardIds].sort(),
         tick: state.tick,
         phase: state.phase,
         waveIndex: state.waveIndex,
@@ -299,6 +371,7 @@ class GameSimulation implements Simulation {
         gold: state.gold,
         score: state.score,
         abilityChargeTicks: state.abilityChargeTicks,
+        teaBreakUsedThisWave: state.teaBreakUsedThisWave,
         towers: state.towers,
         enemies: state.enemies,
         metrics: state.metrics,
@@ -315,8 +388,15 @@ class GameSimulation implements Simulation {
     if (!definition) {
       throw new Error(`Unknown tower: ${towerId}`);
     }
-    if (!this.level.pads.some((pad) => pad.id === padId)) {
+    const pad = this.level.pads.find((candidate) => candidate.id === padId);
+    if (!pad) {
       throw new Error(`Unknown tower pad: ${padId}`);
+    }
+    if (pad.allowedTowerIds && !pad.allowedTowerIds.includes(towerId)) {
+      throw new Error(`Tower ${towerId} cannot be placed on pad ${padId}`);
+    }
+    if (this.isPadShutDown(pad)) {
+      throw new Error(`Tower pad ${padId} is shut down`);
     }
     if (this.mutableState.towers.some((tower) => tower.padId === padId)) {
       throw new Error(`Tower pad ${padId} is occupied`);
@@ -340,6 +420,7 @@ class GameSimulation implements Simulation {
       nextAttackTick: 0,
       investedGold: definition.cost,
     });
+    this.mutableState.metrics.maxTowersPlaced += 1;
   }
 
   private upgradeTower(instanceId: string): void {
@@ -354,8 +435,9 @@ class GameSimulation implements Simulation {
 
     const definition =
       towerDefinitions[tower.towerId as keyof typeof towerDefinitions];
+    const effectiveMax = this.effectiveMaxLevel(tower.towerId);
     const level = definition.levels[tower.level - 1];
-    if (!level || level.upgradeCost === null) {
+    if (!level || level.upgradeCost === null || tower.level >= effectiveMax) {
       throw new Error("Tower is already at maximum level");
     }
     if (this.mutableState.gold < level.upgradeCost) {
@@ -395,9 +477,23 @@ class GameSimulation implements Simulation {
     this.mutableState.phase = "active";
     this.mutableState.waveStartedAtTick = this.mutableState.tick;
     this.mutableState.nextSpawnIndex = 0;
+    this.mutableState.teaBreakUsedThisWave = false;
   }
 
-  private activateAbility(events: GameEvent[]): void {
+  private activateAbility(abilityId: AbilityId, events: GameEvent[]): void {
+    switch (abilityId) {
+      case "royal-forkfall":
+        this.activateRoyalForkfall(events);
+        return;
+      case "emergency-tea-break":
+        this.activateEmergencyTeaBreak(events);
+        return;
+      default:
+        assertNever(abilityId);
+    }
+  }
+
+  private activateRoyalForkfall(events: GameEvent[]): void {
     const state = this.mutableState;
     if (state.phase !== "active") {
       throw new Error("Royal Forkfall can only be used during a wave");
@@ -424,6 +520,118 @@ class GameSimulation implements Simulation {
       targetInstanceId: target.id,
       damageDealt: healthBefore - healthAfter,
     });
+  }
+
+  private activateEmergencyTeaBreak(events: GameEvent[]): void {
+    const state = this.mutableState;
+    if (state.phase !== "active") {
+      throw new Error("Emergency Tea Break can only be used during a wave");
+    }
+    if (!this.isAbilityUnlocked("emergency-tea-break")) {
+      throw new Error("Emergency Tea Break has not been unlocked");
+    }
+    if (state.teaBreakUsedThisWave) {
+      throw new Error("Emergency Tea Break has already been used this wave");
+    }
+
+    const affected: string[] = [];
+    for (const enemy of state.enemies) {
+      const definition = enemyDefinition(enemy.enemyId);
+      if (definition.boss) {
+        continue;
+      }
+      if (
+        this.applySlow(enemy.id, EMERGENCY_TEA_BREAK_SLOW_TICKS, {
+          extend: true,
+        })
+      ) {
+        affected.push(enemy.id);
+      }
+    }
+
+    state.teaBreakUsedThisWave = true;
+    affected.sort();
+    events.push({ type: "tea-break-activated", affectedInstanceIds: affected });
+  }
+
+  private isAbilityUnlocked(abilityId: AbilityId): boolean {
+    if (abilityId === "royal-forkfall") {
+      return true;
+    }
+    return Object.values(rewardDefinitions).some(
+      (reward) =>
+        reward.kind === "ability" &&
+        reward.abilityId === abilityId &&
+        this.unlockedRewardIds.has(reward.id),
+    );
+  }
+
+  private effectiveMaxLevel(towerId: string): number {
+    const definition =
+      towerDefinitions[towerId as keyof typeof towerDefinitions];
+    const reward = Object.values(rewardDefinitions).find(
+      (candidate) =>
+        candidate.kind === "tower-rank" && candidate.towerId === towerId,
+    );
+    if (
+      reward &&
+      reward.kind === "tower-rank" &&
+      this.unlockedRewardIds.has(reward.id)
+    ) {
+      return Math.min(definition.levels.length, reward.unlockedLevel);
+    }
+    return definition.baseMaxLevel;
+  }
+
+  private isPadShutDown(pad: TowerPadDefinition): boolean {
+    const state = this.mutableState;
+    if (!pad.shutdowns || pad.shutdowns.length === 0) {
+      return false;
+    }
+    if (state.waveStartedAtTick === null) {
+      return false;
+    }
+    const elapsed = state.tick - state.waveStartedAtTick;
+    const extraTicks = state.modifierIds.reduce(
+      (total, id) =>
+        total +
+        modifierDefinitions[id as keyof typeof modifierDefinitions]
+          .padShutdownExtraTicks,
+      0,
+    );
+    return pad.shutdowns.some(
+      (window) =>
+        window.waveIndex === state.waveIndex &&
+        elapsed >= window.fromTick &&
+        elapsed < window.toTick + extraTicks,
+    );
+  }
+
+  private applySlow(
+    instanceId: string,
+    ticks: number,
+    options: { extend?: boolean } = {},
+  ): boolean {
+    const state = this.mutableState;
+    if (ticks <= 0) {
+      return false;
+    }
+    const index = state.enemies.findIndex((enemy) => enemy.id === instanceId);
+    const enemy = state.enemies[index];
+    if (!enemy) {
+      return false;
+    }
+    const definition = enemyDefinition(enemy.enemyId);
+    const slowImmune =
+      definition.traits?.some((trait) => trait.kind === "slow-immune") ?? false;
+    if (slowImmune || (!options.extend && enemy.slowUntilTick > state.tick)) {
+      return false;
+    }
+    state.enemies[index] = {
+      ...enemy,
+      slowUntilTick: Math.max(enemy.slowUntilTick, state.tick + ticks),
+    };
+    return true;
   }
 
   private requirePreparing(): void {
@@ -472,6 +680,7 @@ class GameSimulation implements Simulation {
       state.waveIndex += 1;
       state.waveStartedAtTick = null;
       state.nextSpawnIndex = 0;
+      state.teaBreakUsedThisWave = false;
       state.towers = state.towers.map((tower) => ({
         ...tower,
         nextAttackTick: state.tick,
@@ -505,48 +714,72 @@ class GameSimulation implements Simulation {
     }
 
     const elapsed = state.tick - state.waveStartedAtTick;
+    const spawnIntervalPercent = state.modifierIds.reduce(
+      (percent, modifierId) =>
+        Math.floor(
+          (percent *
+            modifierDefinitions[modifierId as keyof typeof modifierDefinitions]
+              .spawnIntervalPercent) /
+            100,
+        ),
+      100,
+    );
     while (state.nextSpawnIndex < wave.spawns.length) {
       const spawn = wave.spawns[state.nextSpawnIndex];
-      if (!spawn || spawn.atTick > elapsed) {
+      const effectiveAtTick = spawn
+        ? Math.floor((spawn.atTick * spawnIntervalPercent) / 100)
+        : Number.POSITIVE_INFINITY;
+      if (!spawn || effectiveAtTick > elapsed) {
         break;
       }
 
-      const definition =
-        enemyDefinitions[spawn.enemyId as keyof typeof enemyDefinitions];
-      if (!definition) {
-        throw new Error(`Unknown enemy: ${spawn.enemyId}`);
-      }
-
-      const healthPercent = state.modifierIds.reduce(
-        (percent, modifierId) =>
-          Math.floor(
-            (percent *
-              modifierDefinitions[
-                modifierId as keyof typeof modifierDefinitions
-              ].enemyHealthPercent) /
-              100,
-          ),
-        100,
-      );
-      const maxHealth = Math.ceil((definition.maxHealth * healthPercent) / 100);
-      this.enemyCounter += 1;
-      const instanceId = `enemy-${this.enemyCounter}`;
-      state.enemies.push({
-        id: instanceId,
-        enemyId: spawn.enemyId,
-        health: maxHealth,
-        maxHealth,
-        pathDistanceMilli: 0,
-        slowUntilTick: 0,
-        variant: this.random.int(3),
-        bossPhase: false,
-      });
+      this.spawnEnemyInstance(spawn.enemyId, events);
       state.nextSpawnIndex += 1;
-      events.push({
-        type: "enemy-spawned",
-        enemyId: spawn.enemyId,
-        instanceId,
-      });
+    }
+  }
+
+  private spawnEnemyInstance(enemyId: string, events: GameEvent[]): void {
+    const state = this.mutableState;
+    const definition =
+      enemyDefinitions[enemyId as keyof typeof enemyDefinitions];
+    if (!definition) {
+      throw new Error(`Unknown enemy: ${enemyId}`);
+    }
+
+    const healthPercent = state.modifierIds.reduce(
+      (percent, modifierId) =>
+        Math.floor(
+          (percent *
+            modifierDefinitions[modifierId as keyof typeof modifierDefinitions]
+              .enemyHealthPercent) /
+            100,
+        ),
+      100,
+    );
+    const maxHealth = Math.ceil((definition.maxHealth * healthPercent) / 100);
+    this.enemyCounter += 1;
+    const instanceId = `enemy-${this.enemyCounter}`;
+    state.enemies.push({
+      id: instanceId,
+      enemyId,
+      health: maxHealth,
+      maxHealth,
+      pathDistanceMilli: 0,
+      slowUntilTick: 0,
+      variant: this.random.int(3),
+      bossPhase: false,
+      wardConsumed: false,
+    });
+    events.push({
+      type: "enemy-spawned",
+      enemyId,
+      instanceId,
+    });
+  }
+
+  private spawnEscort(escort: BossEscortDefinition, events: GameEvent[]): void {
+    for (let index = 0; index < escort.count; index += 1) {
+      this.spawnEnemyInstance(escort.enemyId, events);
     }
   }
 
@@ -563,14 +796,16 @@ class GameSimulation implements Simulation {
         continue;
       }
 
-      const definition =
-        towerDefinitions[tower.towerId as keyof typeof towerDefinitions];
+      const definition = towerDefinition(tower.towerId);
       const level = definition.levels[tower.level - 1];
       const pad = this.level.pads.find(
         (candidate) => candidate.id === tower.padId,
       );
       if (!level || !pad) {
         throw new Error(`Invalid tower state: ${tower.id}`);
+      }
+      if (this.isPadShutDown(pad)) {
+        continue;
       }
 
       const targets = state.enemies
@@ -584,41 +819,46 @@ class GameSimulation implements Simulation {
             right.pathDistanceMilli - left.pathDistanceMilli ||
             left.id.localeCompare(right.id),
         );
-      const target = targets[0];
+
+      const primaryTargets = targets.slice(0, 1 + (level.pierceCount ?? 0));
+      const target = primaryTargets[0];
       if (!target) {
         continue;
       }
 
-      const targetPosition = this.getEnemyPosition(target);
-      const affected = state.enemies
-        .filter(
-          (enemy) =>
-            enemy.id === target.id ||
-            (definition.splashRadius > 0 &&
-              squaredDistance(targetPosition, this.getEnemyPosition(enemy)) <=
-                definition.splashRadius * definition.splashRadius),
-        )
-        .sort((left, right) => left.id.localeCompare(right.id));
-
-      for (const enemy of affected) {
-        this.damageEnemy(enemy.id, level.damage, definition.damageType, events);
-        const current = state.enemies.find(
-          (candidate) => candidate.id === enemy.id,
-        );
-        if (
-          current &&
-          definition.slowTicks > 0 &&
-          current.slowUntilTick <= state.tick
-        ) {
-          const slowed: EnemyState = {
-            ...current,
-            slowUntilTick: Math.max(
-              current.slowUntilTick,
-              state.tick + definition.slowTicks,
-            ),
-          };
-          state.enemies[state.enemies.indexOf(current)] = slowed;
+      const affectedIds = new Set<string>();
+      for (const primary of primaryTargets) {
+        affectedIds.add(primary.id);
+        if (definition.splashRadius > 0) {
+          const primaryPosition = this.getEnemyPosition(primary);
+          for (const enemy of state.enemies) {
+            if (
+              squaredDistance(primaryPosition, this.getEnemyPosition(enemy)) <=
+              definition.splashRadius * definition.splashRadius
+            ) {
+              affectedIds.add(enemy.id);
+            }
+          }
         }
+      }
+      const affected = [...affectedIds]
+        .sort((left, right) => left.localeCompare(right))
+        .map((id) => state.enemies.find((enemy) => enemy.id === id))
+        .filter((enemy): enemy is EnemyState => enemy !== undefined);
+
+      let damageDealt = 0;
+      let defeatedCount = 0;
+      for (const enemy of affected) {
+        const healthBefore = enemy.health;
+        this.damageEnemy(enemy.id, level.damage, definition.damageType, events);
+        const healthAfter =
+          state.enemies.find((candidate) => candidate.id === enemy.id)
+            ?.health ?? 0;
+        damageDealt += healthBefore - healthAfter;
+        if (healthAfter === 0) {
+          defeatedCount += 1;
+        }
+        this.applySlow(enemy.id, definition.slowTicks);
       }
 
       const cooldown = this.cooldownFor(tower, level.cooldownTicks);
@@ -632,6 +872,8 @@ class GameSimulation implements Simulation {
         towerInstanceId: tower.id,
         targetInstanceId: target.id,
         affectedInstanceIds: affected.map((enemy) => enemy.id),
+        damageDealt,
+        defeatedCount,
       });
     }
   }
@@ -649,8 +891,16 @@ class GameSimulation implements Simulation {
       return;
     }
 
-    const definition =
-      enemyDefinitions[enemy.enemyId as keyof typeof enemyDefinitions];
+    const definition = enemyDefinition(enemy.enemyId);
+
+    const hasWard =
+      definition.traits?.some((trait) => trait.kind === "first-hit-ward") ??
+      false;
+    if (hasWard && !enemy.wardConsumed) {
+      state.enemies[index] = { ...enemy, wardConsumed: true };
+      return;
+    }
+
     const ignoredArmor =
       damageType === "arcane"
         ? Math.ceil(definition.armor / 2)
@@ -661,17 +911,30 @@ class GameSimulation implements Simulation {
     let health = Math.max(0, enemy.health - damage);
     let bossPhase = enemy.bossPhase;
 
-    if (
-      definition.boss &&
-      !bossPhase &&
-      health <= Math.floor(enemy.maxHealth / 2)
-    ) {
-      health = Math.floor(enemy.maxHealth / 2);
-      bossPhase = true;
-      events.push({ type: "boss-phase", instanceId });
+    const phaseConfig = definition.bossPhase;
+    if (phaseConfig && !bossPhase) {
+      const threshold = Math.floor(
+        (enemy.maxHealth * phaseConfig.healthThresholdPercent) / 100,
+      );
+      if (health <= threshold) {
+        health = threshold;
+        bossPhase = true;
+        events.push({ type: "boss-phase", instanceId });
+        if (phaseConfig.escort) {
+          this.spawnEscort(phaseConfig.escort, events);
+        }
+      }
     }
 
     if (health <= 0) {
+      if (definition.boss) {
+        state.metrics.bossDefeatPathPercent = Math.min(
+          100,
+          Math.floor(
+            (enemy.pathDistanceMilli / this.path.totalDistanceMilli) * 100,
+          ),
+        );
+      }
       state.enemies.splice(index, 1);
       state.gold += definition.reward;
       state.score += definition.maxHealth + definition.reward * 10;
@@ -730,13 +993,14 @@ class GameSimulation implements Simulation {
     const survivors: EnemyState[] = [];
 
     for (const enemy of state.enemies) {
-      const definition =
-        enemyDefinitions[enemy.enemyId as keyof typeof enemyDefinitions];
+      const definition = enemyDefinition(enemy.enemyId);
       const speedPercent =
         enemy.slowUntilTick > state.tick
           ? 100 - towerDefinitions.bardbarian.slowPercent
           : 100;
-      const bossPercent = enemy.bossPhase ? 155 : 100;
+      const bossPercent = enemy.bossPhase
+        ? (definition.bossPhase?.speedMultiplierPercent ?? 100)
+        : 100;
       const distance =
         enemy.pathDistanceMilli +
         Math.floor(
@@ -746,6 +1010,8 @@ class GameSimulation implements Simulation {
       if (distance >= this.path.totalDistanceMilli) {
         state.lives = Math.max(0, state.lives - definition.lifeDamage);
         state.metrics.leakedEnemies += 1;
+        state.metrics.leakedByEnemyId[enemy.enemyId] =
+          (state.metrics.leakedByEnemyId[enemy.enemyId] ?? 0) + 1;
         events.push({
           type: "enemy-leaked",
           instanceId: enemy.id,
@@ -761,23 +1027,16 @@ class GameSimulation implements Simulation {
 
   private evaluateMastery(): string[] {
     const state = this.mutableState;
-    const completed: string[] = [];
+    const context: MasteryContext = {
+      metrics: state.metrics,
+      modifierIds: state.modifierIds,
+      finalGold: state.gold,
+      totalTowerTypeCount: Object.keys(towerDefinitions).length,
+    };
 
-    if (state.metrics.leakedEnemies === 0) {
-      completed.push("dry-socks");
-    }
-    if (
-      Object.keys(towerDefinitions).every((towerId) =>
-        state.metrics.usedTowerIds.includes(towerId),
-      )
-    ) {
-      completed.push("balanced-party");
-    }
-    if (state.metrics.spentGold <= 620) {
-      completed.push("royal-accounting");
-    }
-
-    return completed;
+    return this.level.mastery
+      .filter((mastery) => evaluateMasteryRule(mastery.rule, context))
+      .map((mastery) => mastery.id);
   }
 
   private investedGold(towerId: string, level: number): number {

@@ -31,9 +31,11 @@ function towerPadName(position: {
   readonly y: number;
 }): string {
   const name = new Map([
+    ["83,74", "bramble seat"],
     ["245,250", "puddle perch"],
     ["285,448", "mushroom box"],
     ["472,249", "crooked stool"],
+    ["520,55", "soggy plinth"],
     ["713,270", "turnip stage"],
     ["782,474", "bucket throne"],
     ["858,300", "gate crate"],
@@ -62,12 +64,12 @@ async function placeTower(
     .click({ timeout: 10_000 });
   await page
     .getByRole("button", {
-      name: new RegExp(`^Preview ${name} for \\d+ gold$`),
+      name: new RegExp(`^Preview .+${name}.+\\d+ gold`),
     })
     .click();
   await page
     .getByRole("button", {
-      name: new RegExp(`^Confirm ${name} placement for \\d+ gold$`),
+      name: new RegExp(`^Confirm .+${name} placement for \\d+ gold$`),
     })
     .click();
 }
@@ -81,9 +83,11 @@ async function upgradeTower(
       name: new RegExp(`^Inspect .+ at ${towerPadName(position)}$`),
     })
     .click();
-  await page.getByRole("button", { name: /^Upgrade .+ for \d+ gold$/ }).click();
   await page
-    .getByRole("button", { name: /^Confirm .+ upgrade for \d+ gold$/ })
+    .getByRole("button", { name: /^Upgrade .+ for \d+ gold\./ })
+    .click();
+  await page
+    .getByRole("button", { name: /^Confirm .+ upgrade for \d+ gold\./ })
     .click();
 }
 
@@ -110,7 +114,7 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await expect(
     page.getByRole("heading", {
-      name: /realm has selected its cheapest champions/i,
+      name: /Four calamities.*affordable defense force/i,
     }),
   ).toBeVisible();
   await expect(page.getByText("The Muddy Moat").first()).toBeVisible();
@@ -144,33 +148,41 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
     name: "Open hero wheel at bramble seat",
   });
   const forkKnightOption = page.getByRole("button", {
-    name: "Preview Fork Knight for 57 gold",
+    name: /Preview .*Fork Knight.*57 gold/,
   });
   await bramblePad.click();
   await expect(forkKnightOption).toBeFocused();
   await forkKnightOption.click();
   await expect(
-    page.getByRole("button", { name: "Cancel Fork Knight placement" }),
+    page.getByRole("button", { name: /Cancel .*Fork Knight placement/ }),
   ).toBeFocused();
-  await expect(page.getByText("Fork Knight · 57g")).toBeVisible();
+  await expect(
+    page.locator(".battlefield-context-label", {
+      hasText: /Fork Knight.*57g/,
+    }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: "Confirm Fork Knight placement for 57 gold",
+      name: /Confirm .*Fork Knight placement for 57 gold/,
     }),
   ).toBeVisible();
   await expect(gold).toHaveText("270");
   await page
-    .getByRole("button", { name: "Cancel Fork Knight placement" })
+    .getByRole("button", { name: /Cancel .*Fork Knight placement/ })
     .click();
   await expect(bramblePad).toBeFocused();
-  await expect(page.getByText("Fork Knight · 57g")).not.toBeVisible();
+  await expect(
+    page.locator(".battlefield-context-label", {
+      hasText: /Fork Knight.*57g/,
+    }),
+  ).not.toBeVisible();
   await expect(gold).toHaveText("270");
 
   await bramblePad.click();
   await forkKnightOption.click();
   await page
     .getByRole("button", {
-      name: "Confirm Fork Knight placement for 57 gold",
+      name: /Confirm .*Fork Knight placement for 57 gold/,
     })
     .click();
   await expect(
@@ -178,14 +190,14 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
   ).toBeVisible();
   await expect(gold).toHaveText("213");
   const initialSell = page.getByRole("button", {
-    name: "Sell Fork Knight for 39 gold",
+    name: /Sell .*Fork Knight for 39 gold/,
   });
   await expect(initialSell).toBeEnabled();
   await initialSell.click();
   await expect(gold).toHaveText("213");
   await page
     .getByRole("button", {
-      name: "Confirm sale of Fork Knight for 39 gold",
+      name: /Confirm sale of .*Fork Knight for 39 gold/,
     })
     .click();
   await expect(
@@ -197,20 +209,20 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
     .getByRole("button", { name: "Open hero wheel at bramble seat" })
     .click();
   await page
-    .getByRole("button", { name: "Preview Fork Knight for 57 gold" })
+    .getByRole("button", { name: /Preview .*Fork Knight.*57 gold/ })
     .click();
   await page
     .getByRole("button", {
-      name: "Confirm Fork Knight placement for 57 gold",
+      name: /Confirm .*Fork Knight placement for 57 gold/,
     })
     .click();
   await expect(gold).toHaveText("195");
   await page
-    .getByRole("button", { name: "Sell Fork Knight for 39 gold" })
+    .getByRole("button", { name: /Sell .*Fork Knight for 39 gold/ })
     .click();
   await expect(
     page.getByRole("button", {
-      name: "Confirm sale of Fork Knight for 39 gold",
+      name: /Confirm sale of .*Fork Knight for 39 gold/,
     }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Start wave 1" }).click();
@@ -221,7 +233,7 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
     page.getByRole("button", { name: "Pause battle" }),
   ).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Sell Fork Knight for 39 gold" }),
+    page.getByRole("button", { name: /Sell .*Fork Knight for 39 gold/ }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "Pause battle" }).click();
   const battleSettings = page.getByLabel("Battle settings");
@@ -236,32 +248,44 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
     .getByRole("button", { name: "Open hero wheel at puddle perch" })
     .click();
   await page
-    .getByRole("button", { name: "Preview Discount Wizard for 95 gold" })
+    .getByRole("button", { name: /Preview .*Discount Wizard.*95 gold/ })
     .click();
-  await expect(page.getByText("Discount Wizard · 95g")).toBeVisible();
+  await expect(
+    page.locator(".battlefield-context-label", {
+      hasText: /Discount Wizard.*95g/,
+    }),
+  ).toBeVisible();
   await expect(gold).toHaveText("195");
   await page
     .getByRole("button", {
-      name: "Confirm Discount Wizard placement for 95 gold",
+      name: /Confirm .*Discount Wizard placement for 95 gold/,
     })
     .click();
-  await expect(page.getByText(/Discount Wizard · rank 1/)).toBeVisible();
+  await expect(
+    page.locator(".battlefield-context-label", {
+      hasText: /Discount Wizard.*rank 1/,
+    }),
+  ).toBeVisible();
   await expect(gold).toHaveText("100");
 
   await page
-    .getByRole("button", { name: "Upgrade Discount Wizard for 76 gold" })
+    .getByRole("button", { name: /Upgrade .*Discount Wizard for 76 gold/ })
     .click();
   await expect(gold).toHaveText("100");
   await page
     .getByRole("button", {
-      name: "Confirm Discount Wizard upgrade for 76 gold",
+      name: /Confirm .*Discount Wizard upgrade for 76 gold/,
     })
     .click();
-  await expect(page.getByText(/Discount Wizard · rank 2/)).toBeVisible();
+  await expect(
+    page.locator(".battlefield-context-label", {
+      hasText: /Discount Wizard.*rank 2/,
+    }),
+  ).toBeVisible();
   await expect(gold).toHaveText("24");
   await expect(
     page.getByRole("button", {
-      name: "Upgrade Discount Wizard for 119 gold",
+      name: /Upgrade .*Discount Wizard for 119 gold/,
     }),
   ).toBeDisabled();
 
@@ -269,32 +293,36 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
     .getByRole("button", { name: "Open hero wheel at mushroom box" })
     .click();
   await page
-    .getByRole("button", { name: "Preview Bardbarian for 85 gold" })
+    .getByRole("button", { name: /Preview .*Bardbarian.*85 gold/ })
     .click();
   await expect(page.getByText(/need 61g/)).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: "Confirm Bardbarian placement for 85 gold",
+      name: /Confirm .*Bardbarian placement for 85 gold/,
     }),
   ).toBeDisabled();
   await expect(gold).toHaveText("24");
   await page
-    .getByRole("button", { name: "Cancel Bardbarian placement" })
+    .getByRole("button", { name: /Cancel .*Bardbarian placement/ })
     .click();
 
   await page
-    .getByRole("button", { name: "Inspect Fork Knight at bramble seat" })
+    .getByRole("button", { name: /Inspect .*Fork Knight at bramble seat/ })
     .click();
-  await expect(page.getByText(/Fork Knight · rank 1/)).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Sell Fork Knight for 39 gold" }),
+    page.locator(".battlefield-context-label", {
+      hasText: /Fork Knight.*rank 1/,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Sell .*Fork Knight for 39 gold/ }),
   ).toBeDisabled();
   await expect(gold).toHaveText("24");
 });
 
 test("keeps campaign portrait-friendly and explains battle orientation", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.goto("/");
   await page.getByRole("button", { name: "Enter the realm" }).click();
@@ -305,7 +333,7 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   await page.getByRole("button", { name: "Begin defense" }).click();
 
   const orientation = page.getByText(
-    "Turn your phone sideways to defend the moat",
+    "Turn your phone sideways to defend the realm",
   );
   await expect(orientation).toBeVisible();
   await expect(
@@ -341,11 +369,39 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   const waveBox = await startWave.boundingBox();
   expect(waveBox?.height).toBeGreaterThanOrEqual(44);
   const canvasBox = await canvas.boundingBox();
-  expect(canvasBox?.height).toBeGreaterThanOrEqual(240);
+  expect(canvasBox?.width).toBeGreaterThanOrEqual(568 * 0.95);
+  expect(canvasBox?.height).toBeGreaterThanOrEqual(320 * 0.78);
+
+  const defenderInfo = page.getByRole("button", {
+    name: /Sir Stabs-a-Lot.*Fork Knight.*physical single-target damage.*57 gold/i,
+  });
+  await expect(defenderInfo).toBeVisible();
+  if (testInfo.project.name !== "mobile-chromium") {
+    await defenderInfo.hover();
+    await expect(page.getByRole("tooltip")).toContainText(
+      /Sir Stabs-a-Lot.*Fork Knight/i,
+    );
+  }
+  await defenderInfo.focus();
+  await expect(page.getByRole("tooltip")).toContainText(
+    /physical single-target damage.*range.*cadence/i,
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).not.toBeVisible();
+  if (testInfo.project.name === "mobile-chromium") {
+    await defenderInfo.tap();
+  } else {
+    await defenderInfo.click();
+  }
+  await expect(page.getByRole("tooltip")).toContainText(
+    /Sir Stabs-a-Lot.*Fork Knight/i,
+  );
+  await expect(page.locator(".resource-gold strong")).toHaveText("270");
+  await page.getByRole("button", { name: "Dismiss defender details" }).click();
 
   const floatingControls = [
     page.getByRole("group", { name: "Royal Forkfall ability" }),
-    page.getByRole("list", { name: "Defender costs" }),
+    page.getByRole("group", { name: "Defender costs" }),
     startWave,
   ];
   const padControls = await page
@@ -384,9 +440,17 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   const padBox = await pad.boundingBox();
   expect(padBox?.width).toBeGreaterThanOrEqual(44);
   expect(padBox?.height).toBeGreaterThanOrEqual(44);
-  await pad.click();
+  const scaledPad = {
+    x: (canvasBox?.x ?? 0) + ((canvasBox?.width ?? 960) * 83) / 960,
+    y: (canvasBox?.y ?? 0) + ((canvasBox?.height ?? 540) * 74) / 540,
+  };
+  if (testInfo.project.name === "mobile-chromium") {
+    await page.touchscreen.tap(scaledPad.x, scaledPad.y);
+  } else {
+    await page.mouse.click(scaledPad.x, scaledPad.y);
+  }
   const forkKnight = page.getByRole("button", {
-    name: "Preview Fork Knight for 57 gold",
+    name: /Preview .*Fork Knight.*57 gold/,
   });
   await expect(forkKnight).toBeVisible();
   const wheelButtonBox = await forkKnight.boundingBox();
@@ -400,7 +464,7 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   ).toBeLessThanOrEqual(320);
   await forkKnight.click();
   const confirm = page.getByRole("button", {
-    name: "Confirm Fork Knight placement for 57 gold",
+    name: /Confirm .*Fork Knight placement for 57 gold/,
   });
   await expect(confirm).toBeVisible();
   const confirmBox = await confirm.boundingBox();
@@ -410,7 +474,7 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   ).toBeLessThanOrEqual(320);
   await confirm.click();
   const upgrade = page.getByRole("button", {
-    name: "Upgrade Fork Knight for 52 gold",
+    name: /Upgrade .*Fork Knight for 52 gold/,
   });
   await expect(upgrade).toBeVisible();
   const upgradeBox = await upgrade.boundingBox();
@@ -419,7 +483,7 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
     (upgradeBox?.y ?? -1) + (upgradeBox?.height ?? 321),
   ).toBeLessThanOrEqual(320);
   const sell = page.getByRole("button", {
-    name: "Sell Fork Knight for 39 gold",
+    name: /Sell .*Fork Knight for 39 gold/,
   });
   const sellBox = await sell.boundingBox();
   expect(sellBox?.width).toBeGreaterThanOrEqual(44);
@@ -428,13 +492,39 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   expect((sellBox?.y ?? -1) + (sellBox?.height ?? 321)).toBeLessThanOrEqual(
     320,
   );
+
+  await page.setViewportSize({ width: 852, height: 393 });
+  const wideCanvasBox = await canvas.boundingBox();
+  expect(wideCanvasBox?.width).toBeGreaterThanOrEqual(852 * 0.95);
+  expect(wideCanvasBox?.height).toBeGreaterThanOrEqual(393 * 0.82);
+  expect(
+    (wideCanvasBox?.x ?? -1) + (wideCanvasBox?.width ?? 853),
+  ).toBeLessThanOrEqual(852);
+  expect(
+    (wideCanvasBox?.y ?? -1) + (wideCanvasBox?.height ?? 394),
+  ).toBeLessThanOrEqual(393);
+
+  await page.setViewportSize({ width: 1600, height: 900 });
+  const largeCanvasBox = await canvas.boundingBox();
+  expect(largeCanvasBox?.width).toBeLessThanOrEqual(1440);
+  expect(largeCanvasBox?.x).toBeGreaterThan(0);
+  const placedPad = page.getByRole("button", {
+    name: /Inspect .*Fork Knight at bramble seat/,
+  });
+  const placedPadBox = await placedPad.boundingBox();
+  const expectedPadX =
+    (largeCanvasBox?.x ?? 0) + ((largeCanvasBox?.width ?? 960) * 83) / 960;
+  expect((placedPadBox?.x ?? 0) + (placedPadBox?.width ?? 0) / 2).toBeCloseTo(
+    expectedPadX,
+    0,
+  );
 });
 
 test("persists a completed victory and unlocks Mimic Market offline", async ({
   page,
   context,
 }, testInfo) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   test.skip(
     testInfo.project.name !== "desktop-chromium",
     "Full victory flow runs once on desktop.",
@@ -454,47 +544,51 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
     page.getByRole("button", { name: "Change game speed" }),
   ).toHaveText("2×");
 
+  await placeTower(page, /Fork Knight/, { x: 83, y: 74 });
   await placeTower(page, /Discount Wizard/, { x: 245, y: 250 });
-  await placeTower(page, /Fork Knight/, { x: 472, y: 249 });
-  await placeTower(page, /Fork Knight/, { x: 713, y: 270 });
+  await placeTower(page, /Fork Knight/, { x: 285, y: 448 });
+  await placeTower(page, /Fork Knight/, { x: 520, y: 55 });
   await page.getByRole("button", { name: "Start wave 1" }).click();
   await expect(page.getByRole("button", { name: "Start wave 2" })).toBeVisible({
-    timeout: 30_000,
+    timeout: 70_000,
   });
 
-  await upgradeTower(page, { x: 245, y: 250 });
+  await placeTower(page, /Discount Wizard/, { x: 472, y: 249 });
   await page.getByRole("button", { name: "Start wave 2" }).click();
   await expect(page.getByRole("button", { name: "Start wave 3" })).toBeVisible({
-    timeout: 30_000,
+    timeout: 70_000,
+  });
+
+  await placeTower(page, /Discount Wizard/, { x: 713, y: 270 });
+  await placeTower(page, /Fork Knight/, { x: 782, y: 474 });
+  await page.getByRole("button", { name: "Start wave 3" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 4" })).toBeVisible({
+    timeout: 70_000,
   });
 
   await placeTower(page, /Discount Wizard/, { x: 858, y: 300 });
-  await page.getByRole("button", { name: "Start wave 3" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 4" })).toBeVisible({
-    timeout: 30_000,
+  await upgradeTower(page, { x: 83, y: 74 });
+  await upgradeTower(page, { x: 285, y: 448 });
+  await page.getByRole("button", { name: "Start wave 4" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 5" })).toBeVisible({
+    timeout: 70_000,
+  });
+
+  await upgradeTower(page, { x: 83, y: 74 });
+  await upgradeTower(page, { x: 245, y: 250 });
+  await upgradeTower(page, { x: 520, y: 55 });
+  await page.getByRole("button", { name: "Start wave 5" }).click();
+  await expect(page.getByRole("button", { name: "Start wave 6" })).toBeVisible({
+    timeout: 70_000,
   });
 
   await upgradeTower(page, { x: 245, y: 250 });
-  await upgradeTower(page, { x: 858, y: 300 });
-  await page.getByRole("button", { name: "Start wave 4" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 5" })).toBeVisible({
-    timeout: 30_000,
-  });
-
-  await placeTower(page, /Bardbarian/, { x: 782, y: 474 });
-  await upgradeTower(page, { x: 472, y: 249 });
-  await page.getByRole("button", { name: "Start wave 5" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 6" })).toBeVisible({
-    timeout: 30_000,
-  });
-
-  await upgradeTower(page, { x: 858, y: 300 });
-  await placeTower(page, /Discount Wizard/, { x: 285, y: 448 });
+  await upgradeTower(page, { x: 285, y: 448 });
   await page.getByRole("button", { name: "Start wave 6" }).click();
 
   await expect(
-    page.getByRole("heading", { name: "The moat is defended!" }),
-  ).toBeVisible({ timeout: 45_000 });
+    page.getByRole("heading", { name: "The Muddy Moat is defended!" }),
+  ).toBeVisible({ timeout: 70_000 });
   await page.evaluate(async () => navigator.serviceWorker.ready);
   await page.getByRole("button", { name: "Continue to campaign" }).click();
 
@@ -502,19 +596,19 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
     name: /Mimic Market/,
   });
   await expect(mimicMarket).toHaveAccessibleName(/Mimic Market\. Unlocked\./);
-  await expect(mimicMarket).toContainText("Unlocked · preview coming later");
+  await expect(mimicMarket).toContainText("Ready to defend");
   await expect(page.getByText("1 victory")).toBeVisible();
   await expect(page.locator(".sync-pill")).toContainText("synced");
 
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
-  await expect(mimicMarket).toContainText("Unlocked · preview coming later");
+  await expect(mimicMarket).toContainText("Ready to defend");
   await expect(page.getByText("1 victory")).toBeVisible();
 
   await context.setOffline(true);
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
-  await expect(mimicMarket).toContainText("Unlocked · preview coming later");
+  await expect(mimicMarket).toContainText("Ready to defend");
   await expect(page.getByText("1 victory")).toBeVisible();
   await context.setOffline(false);
 });
@@ -532,7 +626,7 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
     .getByRole("button", { name: "Open hero wheel at bramble seat" })
     .click();
   const forkKnightOption = page.getByRole("button", {
-    name: "Preview Fork Knight for 57 gold",
+    name: /Preview .*Fork Knight.*57 gold/,
   });
   await expect(forkKnightOption).toBeVisible();
   await page.getByRole("button", { name: "Leave mission" }).click();
@@ -561,7 +655,7 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
   await expect(
     page.getByRole("button", { name: /Resume wave/ }),
   ).not.toBeVisible();
-  await expect(page.getByText(/victor(y|ies)/i)).not.toBeVisible();
+  await expect(page.getByText("0 victories")).toBeVisible();
   await expect
     .poll(async () => (await storedCheckpoint(page)).checkpoint)
     .toBeNull();
@@ -572,6 +666,6 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
   await expect(
     page.getByRole("button", { name: /Resume wave/ }),
   ).not.toBeVisible();
-  await expect(page.getByText(/victor(y|ies)/i)).not.toBeVisible();
+  await expect(page.getByText("0 victories")).toBeVisible();
   await context.setOffline(false);
 });

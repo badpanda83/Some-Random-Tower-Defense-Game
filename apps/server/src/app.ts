@@ -13,8 +13,8 @@ import { validateSaveDataContent } from "@srtg/game-core";
 import {
   apiErrorSchema,
   cloudSaveSchema,
+  parseSaveDataWithMigration,
   profileSchema,
-  putSaveRequestSchema,
   saveConflictSchema,
 } from "@srtg/protocol";
 import { z } from "zod";
@@ -31,6 +31,11 @@ const slotParametersSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]*$/),
 });
 
+const putSaveEnvelopeSchema = z.object({
+  expectedRevision: z.number().int().min(0),
+  data: z.unknown(),
+});
+
 interface BuildAppOptions {
   readonly config: AppConfig;
   readonly auth: AuthServices;
@@ -44,7 +49,7 @@ function responseSave(save: StoredSave) {
     slot: save.slot,
     revision: save.revision,
     updatedAt: save.updatedAt.toISOString(),
-    data: save.data,
+    data: parseSaveDataWithMigration(save.data),
   });
 }
 
@@ -242,32 +247,38 @@ export async function buildApp({
       if (!parameters.success) {
         return badRequest(reply, "The save slot name is invalid.");
       }
-      const body = putSaveRequestSchema.safeParse(request.body);
-      if (!body.success) {
+      const envelope = putSaveEnvelopeSchema.safeParse(request.body);
+      if (!envelope.success) {
         return badRequest(reply, "The save payload is invalid or unsupported.");
       }
-      if (!body.data.data.campaign.unlockedNodeIds.includes("muddy-moat")) {
+      let data;
+      try {
+        data = parseSaveDataWithMigration(envelope.data.data);
+      } catch {
+        return badRequest(reply, "The save payload is invalid or unsupported.");
+      }
+      if (!data.campaign.unlockedNodeIds.includes("muddy-moat")) {
         return badRequest(
           reply,
           "The starting campaign node must remain unlocked.",
         );
       }
-      const contentErrors = validateSaveDataContent(body.data.data);
+      const contentErrors = validateSaveDataContent(data);
       if (contentErrors.length > 0) {
         return badRequest(
           reply,
           contentErrors[0] ?? "The save references unknown game content.",
         );
       }
-      if (JSON.stringify(body.data.data).length > 200 * 1024) {
+      if (JSON.stringify(data).length > 200 * 1024) {
         return badRequest(reply, "The save payload exceeds the 200 KiB limit.");
       }
 
       const result = await repository.putSave(
         user.id,
         parameters.data.slot,
-        body.data.expectedRevision,
-        body.data.data,
+        envelope.data.expectedRevision,
+        data,
       );
       if (result.type === "conflict") {
         return reply.code(409).send(

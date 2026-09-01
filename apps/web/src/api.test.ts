@@ -1,7 +1,7 @@
 import { CONTENT_VERSION, type CloudSave, type Profile } from "@srtg/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { synchronizeSave } from "./api.js";
+import { getCloudSave, synchronizeSave } from "./api.js";
 import { createFreshSave, withBattleResult } from "./save.js";
 import type { LocalSaveRecord } from "./storage.js";
 
@@ -63,6 +63,26 @@ afterEach(() => {
 });
 
 describe("cloud identity boundaries", () => {
+  it("migrates a legacy cloud payload before current-schema validation", async () => {
+    const remote = remoteSave(false);
+    mockCloud({
+      ...remote,
+      data: {
+        ...remote.data,
+        contentVersion: 1,
+        campaign: {
+          ...remote.data.campaign,
+          unlockedNodeIds: ["muddy-moat", "mimic-market"],
+        },
+      },
+    } as unknown as CloudSave);
+
+    const migrated = await getCloudSave();
+
+    expect(migrated?.data.contentVersion).toBe(2);
+    expect(migrated?.data.campaign.unlockedNodeIds).toContain("mimic-market");
+  });
+
   it("surfaces equal revision numbers as a conflict when owners differ", async () => {
     mockCloud(remoteSave(false));
 

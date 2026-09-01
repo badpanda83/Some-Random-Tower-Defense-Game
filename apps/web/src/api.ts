@@ -1,6 +1,7 @@
 import {
   cloudSaveSchema,
   DEFAULT_SAVE_SLOT,
+  parseSaveDataWithMigration,
   profileSchema,
   saveConflictSchema,
   type CloudSave,
@@ -60,7 +61,11 @@ export async function getProfile(): Promise<Profile> {
 export async function getCloudSave(): Promise<CloudSave | null> {
   try {
     const response = await request(`/api/saves/${DEFAULT_SAVE_SLOT}`);
-    const remote = cloudSaveSchema.parse(await response.json());
+    const payload = (await response.json()) as Record<string, unknown>;
+    const remote = cloudSaveSchema.parse({
+      ...payload,
+      data: parseSaveDataWithMigration(payload.data),
+    });
     return { ...remote, data: normalizeSaveProgress(remote.data) };
   } catch (error) {
     if (error instanceof ApiResponseError && error.status === 404) {

@@ -1,4 +1,4 @@
-import { saveDataSchema, type SaveData } from "@srtg/protocol";
+import { parseSaveDataWithMigration, type SaveData } from "@srtg/protocol";
 import { openDB, type DBSchema } from "idb";
 
 import { createFreshSave, normalizeSaveProgress } from "./save.js";
@@ -31,6 +31,16 @@ function database() {
   });
 }
 
+export function parseLocalSaveData(data: unknown): SaveData {
+  try {
+    return parseSaveDataWithMigration(data);
+  } catch {
+    throw new Error(
+      "The local save uses an unsupported format. Clear site data or update the game.",
+    );
+  }
+}
+
 export async function loadLocalSave(): Promise<LocalSaveRecord> {
   const stored = await (await database()).get("saves", SAVE_KEY);
   if (!stored) {
@@ -43,15 +53,12 @@ export async function loadLocalSave(): Promise<LocalSaveRecord> {
     };
   }
 
-  const parsed = saveDataSchema.safeParse(stored.data);
-  if (!parsed.success) {
-    throw new Error(
-      "The local save uses an unsupported format. Clear site data or update the game.",
-    );
-  }
+  const parsed = parseLocalSaveData(stored.data);
 
-  const normalized = normalizeSaveProgress(parsed.data);
-  const progressRepaired = normalized !== parsed.data;
+  const normalized = normalizeSaveProgress(parsed);
+  const progressRepaired =
+    normalized !== parsed ||
+    parsed.contentVersion !== stored.data.contentVersion;
   return {
     ...stored,
     data: normalized,

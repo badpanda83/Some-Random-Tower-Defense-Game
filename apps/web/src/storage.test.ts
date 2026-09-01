@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createFreshSave } from "./save.js";
-import { createLocalSaveWriter, type LocalSaveRecord } from "./storage.js";
+import {
+  createLocalSaveWriter,
+  parseLocalSaveData,
+  type LocalSaveRecord,
+} from "./storage.js";
 
 function record(updatedAt: string): LocalSaveRecord {
   return {
@@ -45,5 +49,25 @@ describe("local save writer", () => {
     await flush;
     expect(flushed).toBe(true);
     expect(writes).toEqual(["start:first", "start:second", "finish:second"]);
+  });
+
+  it("migrates legacy campaign data without dropping preview access", () => {
+    const legacy = {
+      ...createFreshSave(),
+      contentVersion: 1,
+      campaign: {
+        ...createFreshSave().campaign,
+        unlockedNodeIds: ["muddy-moat", "mimic-market", "troll-tollway"],
+      },
+    };
+
+    const loaded = parseLocalSaveData(legacy);
+
+    expect(loaded.contentVersion).toBe(2);
+    expect(loaded.campaign.unlockedNodeIds).toEqual([
+      "muddy-moat",
+      "mimic-market",
+      "troll-tollway",
+    ]);
   });
 });

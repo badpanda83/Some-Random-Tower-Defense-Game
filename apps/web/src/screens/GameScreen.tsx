@@ -1,5 +1,6 @@
 import {
   createSimulation,
+  levelDefinitions,
   muddyMoatLevel,
   ROYAL_FORKFALL_CHARGE_TICKS,
   towerDefinitions,
@@ -8,6 +9,7 @@ import {
 } from "@srtg/game-core";
 import {
   CONTENT_VERSION,
+  type AbilityId,
   type BattleCheckpoint,
   type BattleResult,
   type GameSpeed,
@@ -22,10 +24,16 @@ import {
   type PlacementPreview,
 } from "../game/Battlefield.js";
 import { GameAudio } from "../game/audio.js";
+import {
+  towerChoiceName,
+  towerTacticalDescription,
+} from "../game/tower-copy.js";
 
 interface GameScreenProps {
+  readonly levelId: string;
   readonly seed: number;
   readonly modifierIds: readonly string[];
+  readonly unlockedRewardIds: readonly string[];
   readonly checkpoint: BattleCheckpoint | null;
   readonly settings: Settings;
   readonly synchronizationBlocked: boolean;
@@ -110,8 +118,10 @@ function TowerPortrait({ towerId }: { readonly towerId: string }) {
 }
 
 export function GameScreen({
+  levelId,
   seed,
   modifierIds,
+  unlockedRewardIds,
   checkpoint,
   settings,
   synchronizationBlocked,
@@ -125,16 +135,22 @@ export function GameScreen({
     () =>
       createSimulation(
         checkpoint
-          ? { checkpoint }
-          : { seed, levelId: "muddy-moat", modifierIds },
+          ? { checkpoint, unlockedRewardIds }
+          : { seed, levelId, modifierIds, unlockedRewardIds },
       ),
-    [checkpoint, modifierIds, seed],
+    [checkpoint, levelId, modifierIds, seed, unlockedRewardIds],
   );
   const [state, setState] = useState<GameState>(simulation.state);
+  const level =
+    levelDefinitions[state.levelId as keyof typeof levelDefinitions] ??
+    muddyMoatLevel;
   const [placementPreview, setPlacementPreview] =
     useState<PlacementPreview | null>(null);
   const [paused, setPaused] = useState(false);
   const [abilityArmed, setAbilityArmed] = useState(false);
+  const [selectedAbility, setSelectedAbility] =
+    useState<AbilityId>("royal-forkfall");
+  const [towerInfoId, setTowerInfoId] = useState<string | null>(null);
   const [portraitBlocked, setPortraitBlocked] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
   const [quitSaving, setQuitSaving] = useState(false);
@@ -180,6 +196,19 @@ export function GameScreen({
     const timer = window.setTimeout(() => setMessage(null), 4_500);
     return () => window.clearTimeout(timer);
   }, [message]);
+
+  useEffect(() => {
+    if (!towerInfoId) {
+      return;
+    }
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTowerInfoId(null);
+      }
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [towerInfoId]);
 
   useEffect(() => {
     if (!window.matchMedia) {
@@ -277,6 +306,9 @@ export function GameScreen({
   function handleState(next: GameState, events: readonly GameEvent[]) {
     audio.current.play(events);
     setState(next);
+    if (next.phase !== "active") {
+      setAbilityArmed(false);
+    }
     if (next.phase === "preparing") {
       const nextCheckpoint = simulation.createCheckpoint();
       const signature = nextCheckpoint ? JSON.stringify(nextCheckpoint) : "";
@@ -290,7 +322,6 @@ export function GameScreen({
     }
     if (next.phase === "victory" || next.phase === "defeat") {
       setPlacementPreview(null);
-      setAbilityArmed(false);
     }
     const abilityEvent = events.find(
       (event) => event.type === "ability-activated",
@@ -299,6 +330,9 @@ export function GameScreen({
       setMessage(
         `Royal Forkfall struck for ${abilityEvent.damageDealt} damage!`,
       );
+    }
+    if (events.some((event) => event.type === "tea-break-activated")) {
+      setMessage("Emergency Tea Break slowed every non-boss enemy!");
     }
   }
 
@@ -400,6 +434,18 @@ export function GameScreen({
   const abilityPercent = Math.round(
     (state.abilityChargeTicks / ROYAL_FORKFALL_CHARGE_TICKS) * 100,
   );
+  const teaBreakUnlocked = unlockedRewardIds.includes("emergency-tea-break");
+  const selectedAbilityReady =
+    selectedAbility === "royal-forkfall"
+      ? abilityReady
+      : teaBreakUnlocked && !state.teaBreakUsedThisWave;
+  const selectedAbilityName =
+    selectedAbility === "royal-forkfall"
+      ? "Royal Forkfall"
+      : "Emergency Tea Break";
+  const towerInfo = towerInfoId
+    ? towerDefinitions[towerInfoId as keyof typeof towerDefinitions]
+    : null;
 
   return (
     <main
@@ -414,7 +460,7 @@ export function GameScreen({
         aria-hidden={!portraitBlocked}
       >
         <img src="/crest.svg" alt="" />
-        <strong>Turn your phone sideways to defend the moat</strong>
+        <strong>Turn your phone sideways to defend the realm</strong>
         <span>
           Rotate to landscape. Battle resumes automatically when your phone is
           sideways.
@@ -424,7 +470,7 @@ export function GameScreen({
       <header className="game-hud">
         <div className="hud-title">
           <span className="eyebrow">Act I</span>
-          <strong>{muddyMoatLevel.name}</strong>
+          <strong>{level.name}</strong>
         </div>
         <div className="hud-resources">
           <span className="resource resource-lives">
@@ -438,8 +484,8 @@ export function GameScreen({
           <span className="resource">
             <small>Wave</small>
             <strong>
-              {Math.min(state.waveIndex + 1, muddyMoatLevel.waves.length)}/
-              {muddyMoatLevel.waves.length}
+              {Math.min(state.waveIndex + 1, level.waves.length)}/
+              {level.waves.length}
             </strong>
           </span>
         </div>
@@ -546,45 +592,107 @@ export function GameScreen({
           onPauseChanged={setPaused}
           onError={setMessage}
         />
-        <div className="defender-dock" role="list" aria-label="Defender costs">
+        <div className="defender-dock" role="group" aria-label="Defender costs">
           {Object.values(towerDefinitions).map((tower) => (
-            <span
+            <button
+              type="button"
               key={tower.id}
               className={`defender-dock-item tower-${tower.id}`}
-              role="listitem"
-              aria-label={`${tower.shortName}, ${tower.cost} gold`}
+              aria-label={`${towerChoiceName(tower)}. ${towerTacticalDescription(tower)}`}
+              aria-describedby={
+                towerInfoId === tower.id
+                  ? "defender-dock-description"
+                  : undefined
+              }
+              onPointerEnter={(event) => {
+                if (event.pointerType === "mouse") {
+                  setTowerInfoId(tower.id);
+                }
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType === "mouse") {
+                  setTowerInfoId(null);
+                }
+              }}
+              onFocus={() => setTowerInfoId(tower.id)}
+              onBlur={() => setTowerInfoId(null)}
+              onClick={() => setTowerInfoId(tower.id)}
             >
               <span className="tower-portrait" aria-hidden="true">
                 <TowerPortrait towerId={tower.id} />
               </span>
               <small>{tower.cost}g</small>
-            </span>
+            </button>
           ))}
         </div>
+        {towerInfo && (
+          <aside
+            id="defender-dock-description"
+            className="defender-info-popover defender-dock-popover"
+            role="tooltip"
+          >
+            <span>
+              <strong>{towerChoiceName(towerInfo)}</strong>
+              <small>{towerTacticalDescription(towerInfo)}</small>
+            </span>
+            <button
+              type="button"
+              onClick={() => setTowerInfoId(null)}
+              aria-label="Dismiss defender details"
+            >
+              ×
+            </button>
+          </aside>
+        )}
         <div
-          className={`ability-control ${abilityReady ? "is-ready" : ""} ${
+          className={`ability-control ${
+            teaBreakUnlocked ? "has-selector" : ""
+          } ${selectedAbilityReady ? "is-ready" : ""} ${
             abilityArmed ? "is-armed" : ""
           }`}
           role="group"
-          aria-label="Royal Forkfall ability"
+          aria-label={`${selectedAbilityName} ability`}
         >
           <div className="ability-copy">
-            <span>
-              <strong>Royal Forkfall</strong>
+            {teaBreakUnlocked ? (
+              <select
+                className="ability-select"
+                value={selectedAbility}
+                aria-label="Choose battlefield ability"
+                onChange={(event) => {
+                  setSelectedAbility(event.target.value as AbilityId);
+                  setAbilityArmed(false);
+                }}
+              >
+                <option value="royal-forkfall">Royal Forkfall</option>
+                <option value="emergency-tea-break">Emergency Tea Break</option>
+              </select>
+            ) : (
+              <span>
+                <strong>Royal Forkfall</strong>
+                <small>
+                  {abilityReady ? "READY" : `${abilityPercent}% charged`}
+                </small>
+              </span>
+            )}
+            {selectedAbility === "royal-forkfall" ? (
+              <progress
+                value={state.abilityChargeTicks}
+                max={ROYAL_FORKFALL_CHARGE_TICKS}
+                aria-label="Royal Forkfall charge"
+              />
+            ) : (
               <small>
-                {abilityReady ? "READY" : `${abilityPercent}% charged`}
+                {state.teaBreakUsedThisWave
+                  ? "USED THIS WAVE"
+                  : "SLOWS NON-BOSSES FOR 4S"}
               </small>
-            </span>
-            <progress
-              value={state.abilityChargeTicks}
-              max={ROYAL_FORKFALL_CHARGE_TICKS}
-              aria-label="Royal Forkfall charge"
-            />
+            )}
           </div>
           <button
             className="ability-button"
             disabled={
-              !abilityReady ||
+              !selectedAbilityReady ||
               state.phase !== "active" ||
               state.enemies.length === 0 ||
               paused ||
@@ -594,15 +702,24 @@ export function GameScreen({
             onClick={() => {
               if (!abilityArmed) {
                 setAbilityArmed(true);
-                setMessage("Forkfall armed. Press Cast to confirm.");
+                setMessage(
+                  `${selectedAbilityName} armed. Press Cast to confirm.`,
+                );
                 return;
               }
-              if (battlefield.current?.dispatch({ type: "activate-ability" })) {
+              if (
+                battlefield.current?.dispatch({
+                  type: "activate-ability",
+                  abilityId: selectedAbility,
+                })
+              ) {
                 setAbilityArmed(false);
               }
             }}
           >
-            {abilityArmed ? "Cast Forkfall" : "Arm Forkfall"}
+            {abilityArmed
+              ? `Cast ${selectedAbility === "royal-forkfall" ? "Forkfall" : "Tea"}`
+              : `Arm ${selectedAbility === "royal-forkfall" ? "Forkfall" : "Tea"}`}
           </button>
         </div>
         {state.phase === "preparing" && !placementPreview && (
@@ -645,7 +762,7 @@ export function GameScreen({
             </span>
             <h1>
               {state.phase === "victory"
-                ? "The moat is defended!"
+                ? `${level.name} is defended!`
                 : "The gate filed for leave."}
             </h1>
             <p>
@@ -655,7 +772,7 @@ export function GameScreen({
             </p>
             {state.phase === "victory" && (
               <div className="result-masteries">
-                {muddyMoatLevel.mastery.map((mastery) => (
+                {level.mastery.map((mastery) => (
                   <span
                     key={mastery.id}
                     className={
