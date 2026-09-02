@@ -19,7 +19,11 @@ import {
 } from "@srtg/protocol";
 import { z } from "zod";
 
-import type { AuthServices, AuthenticatedUser } from "./auth.js";
+import {
+  AUTH_CLIENT_IP_HEADER,
+  type AuthServices,
+  type AuthenticatedUser,
+} from "./auth.js";
 import type { AppConfig } from "./config.js";
 import type { GameRepository, StoredSave } from "./database/repository.js";
 
@@ -65,6 +69,9 @@ function badRequest(reply: FastifyReply, message: string) {
 function nodeHeaders(request: FastifyRequest): Headers {
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
+    if (name === AUTH_CLIENT_IP_HEADER) {
+      continue;
+    }
     if (Array.isArray(value)) {
       for (const item of value) {
         headers.append(name, item);
@@ -73,6 +80,7 @@ function nodeHeaders(request: FastifyRequest): Headers {
       headers.set(name, String(value));
     }
   }
+  headers.set(AUTH_CLIENT_IP_HEADER, request.ip);
   return headers;
 }
 

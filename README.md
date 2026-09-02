@@ -110,14 +110,30 @@ This repository is already linked to an existing Railway project. Keep the servi
    - `PUBLIC_URL=https://your-domain.example`
    - `BETTER_AUTH_SECRET` with at least 32 random characters
    - `TRUST_PROXY=true` (only on Railway, where all public traffic crosses its header-sanitizing edge proxy)
-   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`
-   - `EMAIL_FROM`
+   - `RESEND_API_KEY=re_...`
+   - `EMAIL_FROM=The Dubious Realm <noreply@mail.dubiousrealm.com>`
 4. Keep the service root directory at the repository root (`/`). Railway will use the root `Dockerfile`; no custom build command is needed.
 5. Keep configuration-as-code enabled. `railway.json` sets `node dist/database/migrate.js` as the pre-deploy command, `node dist/index.js` as the start command, and `/health/ready` as the health check.
 6. Under **Networking**, generate a Railway domain or attach the intended custom domain. Update `PUBLIC_URL` to the final HTTPS origin exactly, with no trailing slash.
 7. Deploy the linked branch. Confirm `/health/live`, `/health/ready`, anonymous play, a save/reload, and a delivered magic link.
 
 The app and API share one origin and one container. PostgreSQL remains a separate durable service. Back up PostgreSQL with the provider's snapshots plus periodic `pg_dump`; test restores before relying on them.
+
+Production uses Resend's HTTPS API on port 443 and requires both
+`RESEND_API_KEY` and `EMAIL_FROM`. `NODE_ENV=production` selects Resend
+automatically; `EMAIL_PROVIDER=smtp` is rejected, and legacy `SMTP_*` variables
+are ignored. Verify the `EMAIL_FROM` domain in Resend before testing delivery.
+`EMAIL_SEND_TIMEOUT_MS` defaults to 10000 and may be set from 1000 through 30000.
+
+For migration troubleshooting, a magic-link request that stayed on **Sending**
+without a Resend event was the old SMTP transport waiting on
+`smtp.resend.com`; Railway blocks outbound SMTP ports 25, 465, and 587 on
+restricted plans. Remove the production `SMTP_*` variables, add the two Resend
+variables above, and redeploy. If startup rejects configuration, check the
+Railway deploy logs for the named missing variable. If delivery fails after
+startup, the server emits a structured `magic_link_email_delivery_failed`
+event containing only provider, failure kind, and optional HTTP status; API
+keys, recipients, tokens, and magic URLs are never logged.
 
 ## Portable Docker hosting
 
