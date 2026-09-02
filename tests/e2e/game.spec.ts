@@ -1,4 +1,26 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
+
+const MVP_ITEM_IDS = [
+  "butter-knife-of-bravery",
+  "emergency-pea",
+  "fork-of-many-tines",
+  "excalifork",
+  "apprentice-bathrobe",
+  "wand-of-mild-inconvenience",
+  "wand-of-definitely-winter",
+  "wand-of-ooze-and-aahs",
+  "lute-with-one-good-string",
+  "metronome-of-questionable-tempo",
+  "backup-dancer-in-a-jar",
+  "the-forbidden-power-chord",
+  "cardboard-cuirass-deluxe-ish",
+  "map-that-says-here-ish",
+  "boots-of-sensible-standing",
+  "pocket-hourglass-mostly-sand",
+  "cape-of-the-second-chance",
+  "royal-participation-trophy",
+  "plot-armor-pin",
+] as const;
 
 async function storedCheckpoint(page: Page) {
   return page.evaluate(async () => {
@@ -97,6 +119,71 @@ async function prepareFirstChestSave(page: Page): Promise<void> {
     });
     database.close();
   });
+}
+
+async function prepareEconomyManagementSave(page: Page): Promise<void> {
+  await page.evaluate(async (itemIds) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction("saves", "readwrite");
+    const store = transaction.objectStore("saves");
+    const record = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = store.get("campaign");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      },
+    );
+    const data = record.data as {
+      economy: {
+        questCrowns: number;
+        craftingDust: number;
+        lootSeed: string | null;
+        pity: Record<string, number>;
+      };
+      settings: { reducedMotion: boolean };
+      guidance: Record<string, boolean>;
+      inventory: {
+        ownedItemIds: string[];
+        metadata: Record<
+          string,
+          { favorite: boolean; locked: boolean; isNew: boolean }
+        >;
+      };
+      loadouts: Record<string, Record<string, string | null>>;
+    };
+    data.economy.questCrowns = 120;
+    data.economy.craftingDust = 10_000;
+    data.economy.lootSeed = "0123456789abcdef0123456789abcdef";
+    data.economy.pity = {
+      sinceS: 4,
+      sinceSPlus: 11,
+      sinceSPlusPlus: 29,
+      sinceSPlusPlusPlus: 59,
+    };
+    data.settings.reducedMotion = true;
+    data.guidance.firstChestOpened = true;
+    data.guidance.rpgTourComplete = true;
+    data.guidance.rpgTourPending = false;
+    data.guidance.battleTutorialComplete = true;
+    data.inventory.ownedItemIds = [...itemIds];
+    data.inventory.metadata = Object.fromEntries(
+      itemIds.map((itemId) => [
+        itemId,
+        { favorite: false, locked: false, isNew: false },
+      ]),
+    );
+    data.loadouts["fork-knight"]!.charm = "map-that-says-here-ish";
+    store.put({ ...record, data, pending: true }, "campaign");
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  }, MVP_ITEM_IDS);
 }
 
 async function storedRpgState(page: Page) {
@@ -1283,6 +1370,228 @@ test("welcomes a veteran and keeps their checkpoint during replayable training",
         nextWave: 1,
       },
     });
+});
+
+test("converts a duplicate, crafts directly, moves universal gear, and locks checkpoints", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "The complete inventory transaction path runs once on desktop.",
+  );
+  await page.route("**/api/**", (route) => route.abort());
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Enter the realm" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => storedCheckpoint(page))
+    .toMatchObject({
+      checkpoint: null,
+      pending: true,
+    });
+  await prepareEconomyManagementSave(page);
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByRole("button", { name: "Chests" }).click();
+
+  await expect(page.getByText(/S\+\+\+ within 1/)).toBeVisible();
+  await page
+    .getByRole("article")
+    .filter({ hasText: "Royal Supply Chest" })
+    .getByRole("button", { name: "Review purchase" })
+    .click();
+  await page.getByRole("button", { name: "Confirm and open one" }).click();
+  await expect(
+    page.getByText("Duplicate converted: +460 Dust total"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Back to chests" }).click();
+  await page.getByRole("button", { name: "Defenders" }).click();
+
+  const search = page.getByLabel("Search");
+  await search.fill("Butter Knife");
+  await page.getByRole("button", { name: /Butter Knife of Bravery/ }).click();
+  await page.getByRole("button", { name: "Salvage for 10 Dust" }).click();
+  await page.getByRole("button", { name: "Confirm salvage" }).click();
+  await page
+    .getByRole("button", { name: "Craft exactly this item · 80 Dust" })
+    .click();
+  await page.getByRole("button", { name: "Confirm craft" }).click();
+  await expect(
+    page.getByText(/Butter Knife of Bravery crafted directly/),
+  ).toBeVisible();
+
+  await search.fill("Map That Says");
+  await page
+    .locator(".inventory-list")
+    .getByRole("button", { name: /Map That Says 'Here-ish'/ })
+    .click();
+  await page.getByLabel("Equip for").selectOption("bardbarian");
+  await page.getByRole("button", { name: "Equip" }).click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Move Map That Says 'Here-ish' from Fork Knight to Bardbarian",
+  );
+  await page.getByRole("button", { name: "Confirm equip" }).click();
+  await expect(
+    page.getByText("Map That Says 'Here-ish' equipped for Bardbarian."),
+  ).toBeVisible();
+
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction("saves", "readwrite");
+    const store = transaction.objectStore("saves");
+    const record = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = store.get("campaign");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      },
+    );
+    const data = record.data as {
+      checkpoint: unknown;
+      loadouts: Record<string, Record<string, string | null>>;
+    };
+    data.checkpoint = {
+      levelId: "muddy-moat",
+      seed: 88,
+      modifierIds: [],
+      tick: 100,
+      nextWave: 1,
+      lives: 18,
+      gold: 200,
+      score: 500,
+      spawnedEnemies: 12,
+      attemptId: "attempt-loadout-lock",
+      loadoutSnapshot: data.loadouts,
+      placements: [],
+      metrics: {
+        spentGold: 0,
+        leakedEnemies: 0,
+        soldTowers: 0,
+        usedTowerIds: [],
+      },
+    };
+    store.put({ ...record, data, pending: true }, "campaign");
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByRole("button", { name: "Defenders" }).click();
+  await page.getByLabel("Search").fill("Butter Knife");
+  await page.getByRole("button", { name: /Butter Knife of Bravery/ }).click();
+  await expect(page.getByRole("button", { name: "Equip" })).toBeDisabled();
+  await expect(
+    page.getByText(/Finish or abandon the current mission to change gear/),
+  ).toBeVisible();
+});
+
+test("blocks economy actions while local and cloud saves conflict", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "The cloud conflict surface runs once on desktop.",
+  );
+  const abortApi = (route: Route) => route.abort();
+  await page.route("**/api/**", abortApi);
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Enter the realm" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => storedCheckpoint(page))
+    .toMatchObject({
+      checkpoint: null,
+      pending: true,
+    });
+  await prepareEconomyManagementSave(page);
+  const localData = await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const record = await new Promise<{ data: Record<string, unknown> }>(
+      (resolve, reject) => {
+        const transaction = database.transaction("saves", "readonly");
+        const request = transaction.objectStore("saves").get("campaign");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      },
+    );
+    database.close();
+    return record.data;
+  });
+  const remoteData = structuredClone(localData) as {
+    settings: { muted: boolean };
+  };
+  remoteData.settings.muted = !remoteData.settings.muted;
+
+  await page.unroute("**/api/**", abortApi);
+  await page.route("**/api/auth/get-session*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        session: {
+          id: "session-1",
+          token: "session-token",
+          userId: "guest-1",
+          expiresAt: "2027-09-02T00:00:00.000Z",
+          createdAt: "2026-09-02T00:00:00.000Z",
+          updatedAt: "2026-09-02T00:00:00.000Z",
+        },
+        user: {
+          id: "guest-1",
+          name: "Guest Adventurer",
+          email: "guest@example.test",
+          emailVerified: false,
+          isAnonymous: true,
+          createdAt: "2026-09-02T00:00:00.000Z",
+          updatedAt: "2026-09-02T00:00:00.000Z",
+        },
+      }),
+    }),
+  );
+  await page.route("**/api/profile", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "guest-1",
+        displayName: "Guest Adventurer",
+        isAnonymous: true,
+        email: null,
+      }),
+    }),
+  );
+  await page.route("**/api/saves/campaign", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        slot: "campaign",
+        revision: 2,
+        updatedAt: "2026-09-02T00:00:00.000Z",
+        data: remoteData,
+      }),
+    }),
+  );
+  await page.reload();
+
+  await expect(
+    page.getByRole("heading", { name: "Which progress should survive?" }),
+  ).toBeVisible();
+  await expect(page.getByText("Nothing has been overwritten.")).toBeVisible();
+  await expect(page.locator(".app-surface")).toHaveAttribute("inert", "");
 });
 
 test("keeps portrait progression menus inside a 320px viewport", async ({
