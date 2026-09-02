@@ -601,7 +601,8 @@ export function GameScreen({
           >
             <span>Start Wave {state.waveIndex + 1}</span>
             <small id={`wave-${state.waveIndex + 1}-threat`}>
-              Next: {level.waves[state.waveIndex]?.name}
+              Next: {level.waves[state.waveIndex]?.name} —{" "}
+              {level.waves[state.waveIndex]?.preview}
             </small>
           </button>
         )}

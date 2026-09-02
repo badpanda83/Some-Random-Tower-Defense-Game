@@ -20,7 +20,7 @@
     "typecheck": "corepack pnpm --filter @srtg/protocol build && corepack pnpm --filter @srtg/game-core build && corepack pnpm -r --if-present typecheck",
     "db:generate": "corepack pnpm --filter @srtg/server db:generate",
     "db:migrate": "corepack pnpm --filter @srtg/server db:migrate",
-    "report:balance": "corepack pnpm --filter @srtg/game-core build && node scripts/report-campaign-balance.mjs",
+    "report:balance": "corepack pnpm --filter @srtg/protocol build && corepack pnpm --filter @srtg/game-core build && node scripts/report-campaign-balance.mjs",
     "start": "corepack pnpm --filter @srtg/server start"
   },
   "devDependencies": {

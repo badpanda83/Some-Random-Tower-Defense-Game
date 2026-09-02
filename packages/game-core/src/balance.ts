@@ -77,6 +77,8 @@ export interface MissionBalanceReport {
   readonly levelId: ActOneLevelId;
   readonly strategyId: string;
   readonly result: "victory" | "defeat";
+  readonly endingWave: number;
+  readonly battleTicks: number;
   readonly activeTicks: number;
   readonly activeMinutes: number;
   readonly planningActions: number;
@@ -113,9 +115,10 @@ export const referenceStrategies = {
     id: "blade-and-song",
     towerPattern: ["fork-knight", "fork-knight", "fork-knight", "bardbarian"],
   },
-  "fork-brigade": {
-    id: "fork-brigade",
+  "mono-fork-matrix": {
+    id: "mono-fork-matrix",
     towerPattern: ["fork-knight"],
+    maxTowers: 2,
   },
   "two-knight-table-service": {
     id: "two-knight-table-service",
@@ -125,6 +128,70 @@ export const referenceStrategies = {
       { towerId: "fork-knight", padId: "frost-perch", level: 4 },
       { towerId: "fork-knight", padId: "floe-crossing", level: 4 },
     ],
+  },
+  "bridge-blade-and-magic": {
+    id: "bridge-blade-and-magic",
+    towerPattern: ["fork-knight", "discount-wizard"],
+    preferredPadIds: [
+      "north-tollgate",
+      "north-catwalk",
+      "south-tollgate",
+      "south-catwalk",
+      "north-overlook",
+      "island-permit-office",
+      "island-checkpoint",
+    ],
+  },
+  "bridge-authorized-roster": {
+    id: "bridge-authorized-roster",
+    towerPattern: ["fork-knight", "bardbarian"],
+    maxTowers: 4,
+    spendingLimit: 780,
+  },
+  "three-way-defense": {
+    id: "three-way-defense",
+    towerPattern: ["fork-knight", "discount-wizard", "bardbarian"],
+  },
+  "siege-skeleton-crew": {
+    id: "siege-skeleton-crew",
+    towerPattern: ["fork-knight", "discount-wizard", "bardbarian"],
+    maxTowers: 4,
+  },
+  "fork-and-song": {
+    id: "fork-and-song",
+    towerPattern: ["fork-knight", "bardbarian"],
+  },
+  "network-blade-and-magic": {
+    id: "network-blade-and-magic",
+    towerPattern: ["fork-knight", "discount-wizard"],
+    preferredPadIds: [
+      "north-door",
+      "north-band",
+      "south-door",
+      "south-band",
+      "north-wall",
+      "south-wall",
+      "coat-check",
+      "last-handshake",
+    ],
+  },
+  "network-fork-and-song": {
+    id: "network-fork-and-song",
+    towerPattern: ["fork-knight", "bardbarian"],
+    preferredPadIds: [
+      "north-door",
+      "north-band",
+      "south-door",
+      "south-band",
+      "north-wall",
+      "south-wall",
+      "coat-check",
+      "last-handshake",
+    ],
+  },
+  "fork-brigade": {
+    id: "fork-brigade",
+    towerPattern: ["fork-knight"],
   },
   "budget-party": {
     id: "budget-party",
@@ -152,25 +219,6 @@ export const referenceStrategies = {
     towerPattern: ["fork-knight", "discount-wizard", "bardbarian"],
     maxTowers: 5,
     spendingLimit: 620,
-  },
-  "claims-control": {
-    id: "claims-control",
-    towerPattern: ["fork-knight", "discount-wizard"],
-    vacateBeforeWaves: [
-      {
-        waveIndex: 5,
-        padIds: [
-          "siege-ladder-west",
-          "west-parapet",
-          "siege-ladder-east",
-          "east-parapet",
-          "east-rampart",
-          "keep-drawbridge",
-          "keep-barbican",
-          "keep-standing-stone",
-        ],
-      },
-    ],
   },
   "volcanic-detour": {
     id: "volcanic-detour",
@@ -201,15 +249,38 @@ export const representativeStrategyIdsByLevel = {
   "troll-tollway": ["blade-and-magic", "blade-and-song"],
   "castle-hassle": ["blade-and-magic", "blade-and-song"],
   "frozen-assets": ["blade-and-magic", "five-tower-party"],
-  "department-of-unnecessary-bridges": ["blade-and-magic", "blade-and-song"],
-  "siege-and-desist": ["blade-and-magic", "blade-and-song"],
-  "lava-lamp-district": ["blade-and-magic", "blade-and-song"],
-  "necromancers-networking-event": ["blade-and-magic", "blade-and-song"],
+  "department-of-unnecessary-bridges": [
+    "bridge-blade-and-magic",
+    "three-way-defense",
+  ],
+  "siege-and-desist": ["blade-and-magic", "three-way-defense"],
+  "lava-lamp-district": ["blade-and-magic", "fork-and-song"],
+  "necromancers-networking-event": [
+    "network-blade-and-magic",
+    "network-fork-and-song",
+  ],
   "quarterly-dragon-review": ["blade-and-magic", "blade-and-song"],
 } as const satisfies Record<
   CampaignLevelId,
   readonly [keyof typeof referenceStrategies, keyof typeof referenceStrategies]
 >;
+
+export const twoForkStressPadIdsByLevel = {
+  "frozen-assets": ["frost-perch", "floe-crossing"],
+  "department-of-unnecessary-bridges": ["north-tollgate", "north-catwalk"],
+  "siege-and-desist": ["siege-ladder-west", "west-parapet"],
+  "lava-lamp-district": ["west-inside", "west-outside"],
+  "necromancers-networking-event": ["north-door", "south-door"],
+  "quarterly-dragon-review": ["warehouse-door", "warehouse-rack"],
+} as const satisfies Partial<
+  Record<CampaignLevelId, readonly [string, string]>
+>;
+
+export function runTwoForkStressReference(
+  levelId: keyof typeof twoForkStressPadIdsByLevel,
+): MissionBalanceReport {
+  return runReferenceStrategy(levelId, referenceStrategies["mono-fork-matrix"]);
+}
 
 export const referencePlanningModel = {
   briefingSeconds: 33,
@@ -479,6 +550,8 @@ export function runReferenceStrategy(
     levelId,
     strategyId: strategy.id,
     result: simulation.state.phase === "victory" ? "victory" : "defeat",
+    endingWave: Math.min(simulation.state.waveIndex + 1, level.waves.length),
+    battleTicks: simulation.state.tick,
     activeTicks,
     activeMinutes: roundedMinutes(activeTicks),
     planningActions,

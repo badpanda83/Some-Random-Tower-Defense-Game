@@ -331,6 +331,9 @@ export function CampaignScreen({
               <p className="mission-mechanic">
                 {selectedLevel.mechanicSummary}
               </p>
+              <p className="mission-threat">
+                <strong>Threats:</strong> {selectedLevel.threatSummary}
+              </p>
               <div className="mission-stats">
                 <span>
                   <strong>{selectedLevel.waves.length}</strong> waves

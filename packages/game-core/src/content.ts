@@ -170,7 +170,7 @@ export const enemyDefinitions = {
     lifeDamage: 2,
     boss: false,
     traits: [
-      { kind: "damage-resistance", damageType: "physical", percent: 40 },
+      { kind: "damage-resistance", damageType: "physical", percent: 25 },
     ],
   },
   "dragon-intern": {
@@ -1600,9 +1600,9 @@ export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
   order: 6,
   estimatedMinutes: 15,
   threatSummary:
-    "A new Middle Manager Mage grants a visible speed aura to anyone nearby, while a miniboss Comptroller General hastens at half health behind a Queue Jumper escort.",
+    "Physical-resistant Frozen Asset Auditors use the south bridges while Middle Manager Mages accelerate priority convoys, capped by a hastening Comptroller General.",
   mechanicSummary:
-    "Two parallel routes cross three bridge islands and reconverge; the two central island pads are shared by both routes and telegraph scheduled permit shutdowns well before they close.",
+    "Two routes demand simultaneous coverage. Telegraphed permit shutdowns pause the shared island pads, forcing distributed fallback coverage while resistant convoys cross south.",
   environment: {
     theme: "bureaucratic-bridges",
     decorIds: ["permit-booths", "bridge-piers", "filing-cabinets"],
@@ -1710,10 +1710,10 @@ export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
     {
       name: "Full Toll",
       preview:
-        "Armored auditors anchor the south route while commuters keep the north busy.",
+        "Physical-resistant Frozen Asset Auditors take the south route while commuters keep the north busy.",
       spawns: wave(
         group("basic-goblin", 16, 20),
-        group("tax-troll", 5, 108, 300, "south-route"),
+        group("frozen-auditor", 6, 94, 260, "south-route"),
         group("fast-mimic", 8, 34, 720),
         group("basic-goblin", 16, 18, 1_060),
       ),
@@ -1733,11 +1733,11 @@ export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
     {
       name: "Middle Management",
       preview:
-        "The Middle Manager Mage debuts, visibly hastening every coworker who walks near it.",
+        "Priority target: Middle Manager Mages visibly hasten physical-resistant auditors on both routes.",
       spawns: wave(
         group("middle-manager-mage", 4, 76),
         group("middle-manager-mage", 4, 74, 30, "south-route"),
-        group("basic-goblin", 16, 19, 440),
+        group("frozen-auditor", 5, 86, 380, "south-route"),
         group("queue-jumper", 10, 33, 820),
         group("tax-troll", 5, 98, 1_220),
       ),
@@ -1770,10 +1770,10 @@ export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
     {
       name: "Red Tape Review",
       preview:
-        "The permit office closes again as auditors cross both routes together.",
+        "The permit office closes again as ordinary and physical-resistant auditors cross opposite routes.",
       spawns: wave(
         group("tax-troll", 5, 92),
-        group("tax-troll", 4, 90, 30, "south-route"),
+        group("frozen-auditor", 5, 82, 30, "south-route"),
         group("queue-jumper", 12, 31, 480),
         group("basic-goblin", 18, 17, 840),
         group("fast-mimic", 11, 29, 1_200),
@@ -1794,10 +1794,10 @@ export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
     {
       name: "The Comptroller General",
       preview:
-        "The Comptroller General advances behind auditors, then hastens with a Queue Jumper escort at half health.",
+        "Physical-resistant auditors hold the south bridge while the Comptroller advances north, then hastens with a Queue Jumper escort.",
       spawns: wave(
         group("basic-goblin", 18, 17),
-        group("tax-troll", 5, 88, 340, "south-route"),
+        group("frozen-auditor", 9, 62, 240, "south-route"),
         group("queue-jumper", 12, 30, 720),
         group("coupon-squire", 8, 44, 1_060),
         group("comptroller-general", 1, 1, 1_400),
@@ -1841,9 +1841,9 @@ export const siegeAndDesistLevel: LevelDefinition = {
   order: 7,
   estimatedMinutes: 16,
   threatSummary:
-    "A full veteran roster plus a new Refund Slime that splits into two goblins on defeat, capped by a warded Queen who summons Middle Managers at half health before an unwarded, unleashed final phase.",
+    "Physical-resistant auditors pressure the east flank while Refund Slimes split on the west, capped by a warded Queen who summons priority Middle Managers.",
   mechanicSummary:
-    "Left and right flanks wrap the keep and merge at the drawbridge; the three contested keep pads share coverage of both flanks and telegraph a cluster shutdown on select later waves.",
+    "Left and right flanks require separate opening coverage. The three shared keep pads shut down together on telegraphed waves, rewarding planned arcane or sonic cleanup on each flank.",
   environment: {
     theme: "siege-keep",
     decorIds: ["siege-towers", "banner-poles", "catapults"],
@@ -1968,11 +1968,13 @@ export const siegeAndDesistLevel: LevelDefinition = {
     },
     {
       name: "Siege Engines",
-      preview: "Auditor trolls anchor the west while mimics probe the east.",
+      preview:
+        "Armored Trolls anchor the west while physical-resistant Frozen Asset Auditors and Mimics probe the east.",
       spawns: wave(
         group("basic-goblin", 22, 16),
         group("tax-troll", 7, 88, 260),
-        group("fast-mimic", 12, 27, 620, "right-flank"),
+        group("frozen-auditor", 3, 88, 320, "right-flank"),
+        group("fast-mimic", 10, 27, 760, "right-flank"),
         group("basic-goblin", 22, 14, 1_000),
       ),
     },
@@ -2001,10 +2003,11 @@ export const siegeAndDesistLevel: LevelDefinition = {
     {
       name: "Cold Reinforcements",
       preview:
-        "Veteran Warranty Wraiths and a Middle Manager Mage return from prior campaigns.",
+        "Wraiths screen the west while a priority Middle Manager accelerates physical-resistant auditors east.",
       spawns: wave(
         group("warranty-wraith", 8, 44),
         group("middle-manager-mage", 5, 56, 30, "right-flank"),
+        group("frozen-auditor", 6, 76, 220, "right-flank"),
         group("queue-jumper", 14, 25, 440),
         group("coupon-squire", 10, 36, 800),
         group("tax-troll", 6, 74, 1_160),
@@ -2016,7 +2019,7 @@ export const siegeAndDesistLevel: LevelDefinition = {
         "Refund Slimes debut, splitting into weaker goblins the instant they fall, as the keep cluster closes again.",
       spawns: wave(
         group("refund-slime", 5, 46),
-        group("refund-slime", 5, 44, 30, "right-flank"),
+        group("refund-slime", 4, 44, 30, "right-flank"),
         group("warranty-wraith", 8, 40, 460),
         group("bog-guard", 8, 42, 820, "right-flank"),
         group("basic-goblin", 22, 13, 1_180),
@@ -2024,10 +2027,12 @@ export const siegeAndDesistLevel: LevelDefinition = {
     },
     {
       name: "Full Muster",
-      preview: "Every prior threat crosses at once in a dense mixed formation.",
+      preview:
+        "Every prior threat crosses in readable companies: resistant auditors east, splits west, and support at the merge.",
       spawns: wave(
         group("tax-troll", 7, 74),
         group("middle-manager-mage", 5, 50, 30, "right-flank"),
+        group("frozen-auditor", 6, 72, 180, "right-flank"),
         group("queue-jumper", 16, 24, 420),
         group("refund-slime", 5, 42, 780),
         group("coupon-squire", 10, 34, 1_100, "right-flank"),
@@ -2050,10 +2055,10 @@ export const siegeAndDesistLevel: LevelDefinition = {
     {
       name: "Queen of Pending Litigation",
       preview:
-        "The warded Queen advances behind a veteran escort, summons Middle Managers at half health, then sheds her ward for a fast final phase.",
+        "Physical-resistant auditors contest the east before the warded Queen summons priority Middle Managers and sheds her ward for a fast final phase.",
       spawns: wave(
         group("bog-guard", 10, 44),
-        group("tax-troll", 7, 70, 300, "right-flank"),
+        group("frozen-auditor", 9, 58, 240, "right-flank"),
         group("refund-slime", 6, 38, 660),
         group("queue-jumper", 16, 22, 1_020, "right-flank"),
         group("queen-of-pending-litigation", 1, 1, 1_360),
@@ -2094,9 +2099,9 @@ export const lavaLampDistrictLevel: LevelDefinition = {
   order: 8,
   estimatedMinutes: 15,
   threatSummary:
-    "Queue Jumpers, Warranty Wraiths, Middle Managers, and Refund Slimes recombine around three lava pools before the warded Lava Lamp Landlord hardens and calls split cleanup.",
+    "Physical-resistant auditors cross during eruptions while Queue Jumpers, Managers, and Refund Slimes test each bend before the Lava Lamp Landlord hardens.",
   mechanicSummary:
-    "A tight S-route has deterministic, telegraphed eruptions. Each eruption exposes authored pads and activates a marked hot-road speed zone.",
+    "Telegraphed eruptions expose each pool's pads and accelerate a marked road segment, requiring relocation before resistant convoys reach each hot bend.",
   environment: {
     theme: "lava-lamp-district",
     decorIds: ["lava-pool-west", "lava-pool-center", "lava-pool-east"],
@@ -2264,10 +2269,11 @@ export const lavaLampDistrictLevel: LevelDefinition = {
     {
       name: "West Pool Warning",
       preview:
-        "The west eruption is telegraphed before exposed pads close and the road runs hot.",
+        "The west eruption closes exposed pads as physical-resistant auditors enter the hot road.",
       spawns: pacedWave(
         157,
-        group("coupon-squire", 12, 34),
+        group("frozen-auditor", 8, 52),
+        group("coupon-squire", 8, 34, 260),
         group("queue-jumper", 20, 25, 300),
         group("warranty-wraith", 10, 38, 690),
       ),
@@ -2285,10 +2291,11 @@ export const lavaLampDistrictLevel: LevelDefinition = {
     {
       name: "Central Boil",
       preview:
-        "Refund Slimes reach the central eruption and split into cleanup traffic.",
+        "Physical-resistant auditors screen Refund Slimes through the central eruption and its split cleanup.",
       spawns: pacedWave(
         157,
-        group("refund-slime", 10, 43),
+        group("frozen-auditor", 7, 54),
+        group("refund-slime", 9, 43, 220),
         group("warranty-wraith", 10, 39, 260),
         group("queue-jumper", 20, 23, 610),
       ),
@@ -2306,10 +2313,11 @@ export const lavaLampDistrictLevel: LevelDefinition = {
     {
       name: "East Pool Rush",
       preview:
-        "Aura-supported Queue Jumpers foreground the final hot-road counter.",
+        "Priority Managers accelerate physical-resistant auditors and Queue Jumpers through the final hot road.",
       spawns: pacedWave(
         157,
         group("middle-manager-mage", 8, 54),
+        group("frozen-auditor", 8, 50, 140),
         group("queue-jumper", 28, 21, 170),
         group("coupon-squire", 14, 31, 690),
       ),
@@ -2317,12 +2325,12 @@ export const lavaLampDistrictLevel: LevelDefinition = {
     {
       name: "Landlord's Liquidation",
       preview:
-        "Boss: haste and aura lead into the warded Lava Lamp Landlord, whose hardened shell breaks into a fast final eviction with split reinforcements.",
+        "Boss: resistant auditors cross the central encore before the warded Landlord hardens, then races with split reinforcements.",
       spawns: pacedWave(
         157,
         group("middle-manager-mage", 7, 50),
         group("queue-jumper", 24, 22, 120),
-        group("tax-troll", 10, 60, 520),
+        group("frozen-auditor", 9, 56, 500),
         group("refund-slime", 10, 38, 800),
         group("lava-lamp-landlord", 1, 1, 1_120),
       ),
@@ -2360,9 +2368,9 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
   order: 9,
   estimatedMinutes: 16,
   threatSummary:
-    "Marked waves refer their first defeated non-boss back at half health; referred Trolls and Warranty Wraiths headline the final mixer under Middle Manager support.",
+    "Marked waves refer their first defeated non-boss at half health; physical-resistant auditors and split claims return under priority Middle Manager support.",
   mechanicSummary:
-    "Two opposite-corner routes cross visually through a no-build ballroom, then merge near the exit. Referrals are spectral, one-shot, and cannot refer themselves.",
+    "Two entrances require simultaneous coverage before a no-build ballroom and late merge. Referrals are spectral, one-shot, and cannot refer themselves.",
   environment: {
     theme: "necromancer-ballroom",
     decorIds: ["no-build-dance-floor", "spectral-banners", "exit-coat-check"],
@@ -2461,11 +2469,12 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     {
       name: "First Referral",
       preview:
-        "Marked: the first defeated non-boss returns once at half health.",
+        "Marked: the first physical-resistant auditor defeated returns once at half health; arcane or sonic coverage finishes the referral.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,
-        group("coupon-squire", 14, 36, 0, "northwest-invite"),
+        group("frozen-auditor", 10, 42, 0, "northwest-invite"),
+        group("coupon-squire", 8, 36, 380, "northwest-invite"),
         group("warranty-wraith", 10, 44, 30, "southwest-plus-one"),
         group("queue-jumper", 18, 25, 620),
       ),
@@ -2483,12 +2492,14 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     },
     {
       name: "Claims Follow-Up",
-      preview: "Marked: Slimes split while one first defeat also returns.",
+      preview:
+        "Marked: resistant auditors lead north while Slimes split south; the first defeat also returns.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,
-        group("refund-slime", 12, 42, 0, "northwest-invite"),
-        group("refund-slime", 12, 42, 20, "southwest-plus-one"),
+        group("frozen-auditor", 8, 48, 0, "northwest-invite"),
+        group("refund-slime", 10, 42, 240, "northwest-invite"),
+        group("refund-slime", 10, 42, 20, "southwest-plus-one"),
         group("warranty-wraith", 12, 38, 610),
       ),
     },
@@ -2505,12 +2516,13 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     },
     {
       name: "Executive Introduction",
-      preview: "Marked: armored guests meet a dense aura-supported merge.",
+      preview:
+        "Marked: physical-resistant auditors and warded guests meet an aura-supported merge.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,
         group("middle-manager-mage", 8, 52, 0, "northwest-invite"),
-        group("tax-troll", 12, 62, 100, "northwest-invite"),
+        group("frozen-auditor", 11, 56, 100, "northwest-invite"),
         group("coupon-squire", 18, 31, 20, "southwest-plus-one"),
         group("queue-jumper", 22, 22, 650, "southwest-plus-one"),
       ),
@@ -2529,11 +2541,11 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     {
       name: "Referral Capstone",
       preview:
-        "Marked: the first Troll or Wraith defeat returns once while Middle Managers support both routes.",
+        "Marked: the first resistant Auditor or Wraith returns while priority Middle Managers support both routes.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,
-        group("tax-troll", 14, 58, 0, "northwest-invite"),
+        group("frozen-auditor", 13, 54, 0, "northwest-invite"),
         group("warranty-wraith", 16, 35, 20, "southwest-plus-one"),
         group("middle-manager-mage", 10, 46, 300),
         group("middle-manager-mage", 10, 46, 320, "southwest-plus-one"),

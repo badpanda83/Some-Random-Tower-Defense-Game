@@ -5,6 +5,8 @@ import {
   referenceStrategies,
   representativeStrategyIdsByLevel,
   runReferenceStrategy,
+  runTwoForkStressReference,
+  twoForkStressPadIdsByLevel,
 } from "../packages/game-core/dist/index.js";
 
 const reports = [];
@@ -44,7 +46,7 @@ console.log(
         towerContribution:
           "Attack actions, affected-target hits, damage, and kills observed in deterministic game events.",
         degenerateBuild:
-          "Combat-only stress test: two rank-IV Fork Knights begin on the two legal shore pads with no acquisition delay and no other towers.",
+          "Economy-authentic no-gear stress matrix: exactly two Fork Knights use the audited seed-123 pads and upgrade normally to rank IV when they survive long enough. No other towers are placed.",
       },
       campaign: {
         totalNodes: campaignNodes.length,
@@ -53,7 +55,7 @@ console.log(
       masteryEvidence: [
         runReferenceStrategy(
           "siege-and-desist",
-          referenceStrategies["claims-control"],
+          referenceStrategies["siege-skeleton-crew"],
         ),
         runReferenceStrategy(
           "lava-lamp-district",
@@ -68,7 +70,13 @@ console.log(
           referenceStrategies["executive-budget"],
         ),
       ],
-      degenerateBuildEvidence: runReferenceStrategy(
+      degenerateBuildEvidence: Object.keys(twoForkStressPadIdsByLevel).map(
+        (levelId) => ({
+          pads: twoForkStressPadIdsByLevel[levelId],
+          ...runTwoForkStressReference(levelId),
+        }),
+      ),
+      prebuiltMaxRankFrozenEvidence: runReferenceStrategy(
         "frozen-assets",
         referenceStrategies["two-knight-table-service"],
       ),

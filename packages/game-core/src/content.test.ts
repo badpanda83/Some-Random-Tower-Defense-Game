@@ -210,6 +210,24 @@ describe("content integrity", () => {
     ).toHaveLength(3);
   });
 
+  it("telegraphs each late-campaign counter before combat", () => {
+    for (const levelId of [
+      "department-of-unnecessary-bridges",
+      "siege-and-desist",
+      "lava-lamp-district",
+      "necromancers-networking-event",
+    ] as const) {
+      const level = levelDefinitions[levelId];
+      expect(level.threatSummary).toMatch(/physical-resistant/i);
+      expect(level.mechanicSummary).toMatch(
+        /simultaneous|shut down|eruption|no-build/i,
+      );
+      expect(
+        level.waves.some((wave) => /physical-resistant/i.test(wave.preview)),
+      ).toBe(true);
+    }
+  });
+
   it("declares exactly two authored routes per Act II mission, both reachable from spawns", () => {
     for (const level of [
       levelDefinitions["frozen-assets"],
@@ -356,7 +374,7 @@ describe("content integrity", () => {
 
   it("declares Act I enemy traits and boss phase data", () => {
     expect(enemyDefinitions["frozen-auditor"]?.traits).toEqual([
-      { kind: "damage-resistance", damageType: "physical", percent: 40 },
+      { kind: "damage-resistance", damageType: "physical", percent: 25 },
     ]);
     expect(enemyDefinitions["coupon-squire"]?.traits).toEqual([
       { kind: "first-hit-ward" },
