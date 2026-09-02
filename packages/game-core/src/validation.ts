@@ -97,6 +97,15 @@ export function validateCheckpointContent(
       errors.push(`Unknown leaked-by-wave index: ${waveIndexKey}`);
     }
   }
+  for (const waveIndex of checkpoint.metrics.referredWaveIndices ?? []) {
+    if (
+      waveIndex < 0 ||
+      waveIndex >= level.waves.length ||
+      !level.waves[waveIndex]?.referral
+    ) {
+      errors.push(`Unknown referred wave index: ${waveIndex}`);
+    }
+  }
 
   return errors;
 }

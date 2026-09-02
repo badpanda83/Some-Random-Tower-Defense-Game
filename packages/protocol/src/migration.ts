@@ -1,52 +1,63 @@
 import {
   CONTENT_VERSION,
   LEGACY_CONTENT_VERSION,
+  PREVIOUS_CONTENT_VERSION,
   saveDataSchema,
   saveDataSchemaV1,
+  saveDataSchemaV2,
   type SaveData,
 } from "./schemas.js";
 
 /**
- * Migrates a save payload from the legacy v1 content version to the current
- * v2 version. Idempotent: passing already-current (v2) data returns it
+ * Migrates a save payload from v1 or v2 to the current v3 version.
+ * Idempotent: passing already-current data returns it
  * unchanged (structurally re-validated), so callers can migrate
  * unconditionally on every load without double-transforming.
  *
- * The v1 and v2 envelope shapes are identical except for the top-level
- * `contentVersion` literal (every v2 addition is optional/backward
- * compatible), so migration never drops or resets valid v1 data: Muddy Moat
- * progress, settings, checkpoints, recent results, and any legacy
- * mimic-market/troll-tollway preview unlocks in `unlockedNodeIds` all pass
- * through untouched.
+ * All additions are optional/backward compatible, so migration only updates
+ * the envelope version and preserves progress, settings, checkpoints, and
+ * battle results exactly.
  *
- * Throws if `input` matches neither the v1 nor the v2 schema.
+ * Throws if `input` matches none of the supported save schemas.
  */
-export function migrateSaveDataV1ToV2(input: unknown): SaveData {
+export function migrateSaveDataToV3(input: unknown): SaveData {
   const current = saveDataSchema.safeParse(input);
   if (current.success) {
     return current.data;
   }
 
-  const legacy = saveDataSchemaV1.parse(input);
+  const previous = saveDataSchemaV2.safeParse(input);
+  const legacy = previous.success
+    ? previous.data
+    : saveDataSchemaV1.parse(input);
   return saveDataSchema.parse({
     ...legacy,
     contentVersion: CONTENT_VERSION,
   });
 }
 
+/** @deprecated Use `migrateSaveDataToV3`; retained for existing consumers. */
+export const migrateSaveDataV1ToV2 = migrateSaveDataToV3;
+export const migrateSaveDataV1ToV3 = migrateSaveDataToV3;
+export const migrateSaveDataV2ToV3 = migrateSaveDataToV3;
+
 /** True when `input` parses as a legacy v1 save envelope. */
 export function isLegacySaveData(input: unknown): boolean {
   return saveDataSchemaV1.safeParse(input).success;
 }
 
-/**
- * Parses any supported save payload (legacy v1 or current v2), migrating
- * legacy data to the current version. Prefer this at ingestion boundaries
- * (cloud sync, local storage load) so writes can always be normalized back
- * out as v2.
- */
-export function parseSaveDataWithMigration(input: unknown): SaveData {
-  return migrateSaveDataV1ToV2(input);
+/** True when `input` parses as a v2 save envelope. */
+export function isPreviousSaveData(input: unknown): boolean {
+  return saveDataSchemaV2.safeParse(input).success;
 }
 
-export { LEGACY_CONTENT_VERSION };
+/**
+ * Parses any supported save payload (v1, v2, or current v3), migrating older
+ * data to the current version. Prefer this at ingestion boundaries (cloud
+ * sync, local storage load) so writes are always normalized back out as v3.
+ */
+export function parseSaveDataWithMigration(input: unknown): SaveData {
+  return migrateSaveDataToV3(input);
+}
+
+export { LEGACY_CONTENT_VERSION, PREVIOUS_CONTENT_VERSION };

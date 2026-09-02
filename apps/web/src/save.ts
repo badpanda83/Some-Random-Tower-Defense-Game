@@ -69,17 +69,77 @@ function battleAttemptKey(result: BattleResult): string {
   ].join(":");
 }
 
-export function normalizeSaveProgress(save: SaveData): SaveData {
-  const unlocked = new Set(save.campaign.unlockedNodeIds);
+export function victoriousLevelIds(save: SaveData): ReadonlySet<string> {
   const victoriousLevels = new Set(
     Object.entries(save.campaign.levels)
       .filter(([, progress]) => progress.victories > 0)
       .map(([levelId]) => levelId),
   );
+  for (const result of save.campaign.recentResults) {
+    if (result.result === "victory") {
+      victoriousLevels.add(result.levelId);
+    }
+  }
+  return victoriousLevels;
+}
+
+export function normalizeSaveProgress(save: SaveData): SaveData {
+  let levels = save.campaign.levels;
+  let levelsChanged = false;
+  const recentByLevel = new Map<string, Map<string, BattleResult>>();
+  for (const result of save.campaign.recentResults) {
+    const results =
+      recentByLevel.get(result.levelId) ?? new Map<string, BattleResult>();
+    results.set(battleAttemptKey(result), result);
+    recentByLevel.set(result.levelId, results);
+  }
+  for (const [levelId, keyedResults] of recentByLevel) {
+    const results = [...keyedResults.values()];
+    const victories = results.filter((result) => result.result === "victory");
+    const previous = levels[levelId];
+    const recovered = {
+      bestScore: Math.max(
+        previous?.bestScore ?? 0,
+        ...results.map((result) => result.score),
+      ),
+      victories: Math.max(previous?.victories ?? 0, victories.length),
+      completedMasteryIds: Array.from(
+        new Set([
+          ...(previous?.completedMasteryIds ?? []),
+          ...victories.flatMap((result) => result.completedMasteryIds),
+        ]),
+      ).sort(),
+      completedModifierIds: Array.from(
+        new Set([
+          ...(previous?.completedModifierIds ?? []),
+          ...victories.flatMap((result) => result.modifierIds),
+        ]),
+      ).sort(),
+    };
+    if (
+      !previous ||
+      previous.bestScore !== recovered.bestScore ||
+      previous.victories !== recovered.victories ||
+      previous.completedMasteryIds.join(",") !==
+        recovered.completedMasteryIds.join(",") ||
+      previous.completedModifierIds.join(",") !==
+        recovered.completedModifierIds.join(",")
+    ) {
+      if (!levelsChanged) {
+        levels = { ...levels };
+        levelsChanged = true;
+      }
+      levels[levelId] = recovered;
+    }
+  }
+
+  const unlocked = new Set(save.campaign.unlockedNodeIds);
+  const victoriousLevels = victoriousLevelIds({
+    ...save,
+    campaign: { ...save.campaign, levels },
+  });
   const completedModifiers = new Set(
-    Object.values(save.campaign.levels).flatMap(
-      (progress) => progress.completedModifierIds,
-    ),
+    Object.values(levels).flatMap((progress) => progress.completedModifierIds),
   );
   const recordedAttemptIds = Array.from(
     new Set([
@@ -90,7 +150,6 @@ export function normalizeSaveProgress(save: SaveData): SaveData {
 
   for (const result of save.campaign.recentResults) {
     if (result.result === "victory") {
-      victoriousLevels.add(result.levelId);
       result.modifierIds.forEach((modifierId) =>
         completedModifiers.add(modifierId),
       );
@@ -121,7 +180,8 @@ export function normalizeSaveProgress(save: SaveData): SaveData {
     unlockedNodeIds.every(
       (nodeId, index) => nodeId === save.campaign.unlockedNodeIds[index],
     ) &&
-    recordedAttemptIds.length === save.campaign.recordedAttemptIds.length
+    recordedAttemptIds.length === save.campaign.recordedAttemptIds.length &&
+    !levelsChanged
   ) {
     return save;
   }
@@ -130,6 +190,7 @@ export function normalizeSaveProgress(save: SaveData): SaveData {
     ...save,
     campaign: {
       ...save.campaign,
+      levels,
       unlockedNodeIds,
       recordedAttemptIds,
     },
@@ -137,16 +198,7 @@ export function normalizeSaveProgress(save: SaveData): SaveData {
 }
 
 export function unlockedRewardIds(save: SaveData): readonly string[] {
-  const victoriousLevels = new Set(
-    Object.entries(save.campaign.levels)
-      .filter(([, progress]) => progress.victories > 0)
-      .map(([levelId]) => levelId),
-  );
-  for (const result of save.campaign.recentResults) {
-    if (result.result === "victory") {
-      victoriousLevels.add(result.levelId);
-    }
-  }
+  const victoriousLevels = victoriousLevelIds(save);
   const rewards = campaignNodes.flatMap((node) => {
     if (!node.levelId) {
       return [];

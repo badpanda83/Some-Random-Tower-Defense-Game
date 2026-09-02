@@ -134,7 +134,7 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await expect(
     page.getByRole("heading", {
-      name: /Seven authored calamities.*affordable defense force/i,
+      name: /Ten authored calamities.*affordable defense force/i,
     }),
   ).toBeVisible();
   await expect(page.getByText("The Muddy Moat").first()).toBeVisible();
@@ -343,6 +343,7 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
 test("keeps campaign portrait-friendly and explains battle orientation", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 393, height: 852 });
   await page.goto("/");
   await page.getByRole("button", { name: "Enter the realm" }).click();
@@ -648,19 +649,19 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
     name: /Mimic Market/,
   });
   await expect(mimicMarket).toHaveAccessibleName(/Mimic Market\. Unlocked\./);
-  await expect(mimicMarket).toContainText("Ready to defend");
+  await expect(mimicMarket).toContainText("Act I · ready");
   await expect(page.getByText("1 victory")).toBeVisible();
   await expect(page.locator(".sync-pill")).toContainText("synced");
 
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
-  await expect(mimicMarket).toContainText("Ready to defend");
+  await expect(mimicMarket).toContainText("Act I · ready");
   await expect(page.getByText("1 victory")).toBeVisible();
 
   await context.setOffline(true);
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
-  await expect(mimicMarket).toContainText("Ready to defend");
+  await expect(mimicMarket).toContainText("Act I · ready");
   await expect(page.getByText("1 victory")).toBeVisible();
   await context.setOffline(false);
 });
@@ -848,14 +849,201 @@ test("completes a real Act II mission (Frozen Assets) from a deterministic mid-c
   await expect(departmentOfBridges).toHaveAccessibleName(
     /Department of Unnecessary Bridges\. Unlocked\./,
   );
-  await expect(departmentOfBridges).toContainText("Ready to defend");
+  await expect(departmentOfBridges).toContainText("Act II · ready");
 
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await expect(
     page.getByRole("button", { name: /Frozen Assets/ }),
   ).toContainText("1 victory");
-  await expect(departmentOfBridges).toContainText("Ready to defend");
+  await expect(departmentOfBridges).toContainText("Act II · ready");
+});
+
+test("completes Act III and persists the 10/10 campaign epilogue", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(210_000);
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "The final campaign completion flow runs once on desktop.",
+  );
+
+  const victory = {
+    bestScore: 10_000,
+    victories: 1,
+    completedMasteryIds: [],
+    completedModifierIds: [],
+  };
+  const completedBeforeFinale = [
+    "muddy-moat",
+    "mimic-market",
+    "troll-tollway",
+    "castle-hassle",
+    "frozen-assets",
+    "department-of-unnecessary-bridges",
+    "siege-and-desist",
+    "lava-lamp-district",
+    "necromancers-networking-event",
+  ];
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Enter the realm" }),
+  ).toBeVisible();
+  await seedSaveData(page, {
+    contentVersion: 3,
+    campaign: {
+      unlockedNodeIds: [...completedBeforeFinale, "quarterly-dragon-review"],
+      levels: Object.fromEntries(
+        completedBeforeFinale.map((levelId) => [levelId, victory]),
+      ),
+      recentResults: [],
+      recordedAttemptIds: [],
+    },
+    settings: {
+      muted: true,
+      reducedMotion: false,
+      lowEffects: false,
+      gameSpeed: 1,
+    },
+    checkpoint: {
+      levelId: "quarterly-dragon-review",
+      seed: 123,
+      modifierIds: [],
+      tick: 14_648,
+      nextWave: 9,
+      lives: 18,
+      gold: 375,
+      score: 89_585,
+      abilityChargeTicks: 22,
+      teaBreakUsedThisWave: false,
+      spawnedEnemies: 608,
+      placements: [
+        {
+          id: "tower-1",
+          towerId: "fork-knight",
+          padId: "warehouse-door",
+          level: 4,
+        },
+        {
+          id: "tower-2",
+          towerId: "discount-wizard",
+          padId: "warehouse-rack",
+          level: 4,
+        },
+        {
+          id: "tower-3",
+          towerId: "fork-knight",
+          padId: "courtyard-door",
+          level: 4,
+        },
+        {
+          id: "tower-4",
+          towerId: "discount-wizard",
+          padId: "courtyard-dais",
+          level: 4,
+        },
+        {
+          id: "tower-5",
+          towerId: "fork-knight",
+          padId: "tunnel-desk",
+          level: 3,
+        },
+        {
+          id: "tower-6",
+          towerId: "discount-wizard",
+          padId: "tunnel-lamp",
+          level: 2,
+        },
+        {
+          id: "tower-7",
+          towerId: "fork-knight",
+          padId: "review-left",
+          level: 1,
+        },
+        {
+          id: "tower-8",
+          towerId: "discount-wizard",
+          padId: "review-right",
+          level: 1,
+        },
+        {
+          id: "tower-9",
+          towerId: "fork-knight",
+          padId: "gate-north",
+          level: 1,
+        },
+        {
+          id: "tower-10",
+          towerId: "discount-wizard",
+          padId: "gate-south",
+          level: 1,
+        },
+      ],
+      metrics: {
+        spentGold: 2_247,
+        leakedEnemies: 0,
+        leakedByEnemyId: {},
+        leakedByWaveIndex: {},
+        soldTowers: 0,
+        usedTowerIds: ["discount-wizard", "fork-knight"],
+        maxTowersPlaced: 10,
+        bossDefeatPathPercent: 47,
+        splitSpawns: 128,
+        abilityActivations: { "royal-forkfall": 60 },
+        lastEnemyClearedTick: {
+          "basic-goblin": 13_793,
+          "fast-mimic": 2_154,
+          "queue-jumper": 11_903,
+          "coupon-squire": 12_165,
+          "warranty-wraith": 11_954,
+          "bog-guard": 3_371,
+          "tax-troll": 14_648,
+          "middle-manager-mage": 13_156,
+          "refund-slime": 13_769,
+          "dragon-intern": 9_970,
+        },
+        leaksDuringEnvironmentHazards: 0,
+        exposedPadUses: 0,
+        referredEnemiesReachedHalfway: 0,
+        referredWaveIndices: [],
+        bossReinforcementCalls: {},
+      },
+    },
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByRole("button", { name: "Resume wave 10" }).click();
+  await expect(page.getByRole("button", { name: "Start Wave 10" })).toBeVisible(
+    { timeout: 20_000 },
+  );
+  await page.getByRole("button", { name: "Change game speed" }).click();
+  await page.getByRole("button", { name: "Start Wave 10" }).click();
+
+  await expect(
+    page.getByRole("status", {
+      name: /Chief Executive Dragon health and ward status/,
+    }),
+  ).toBeVisible({ timeout: 80_000 });
+  await expect(
+    page.getByRole("heading", { name: "Quarterly Dragon Review is defended!" }),
+  ).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText(/campaign epilogue is unlocked/i)).toBeVisible();
+  await page.getByRole("button", { name: "Continue to campaign" }).click();
+
+  await expect(page.getByText("10/10").first()).toBeVisible();
+  await expect(
+    page.getByText("The Quarterly Review is adjourned."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Quarterly Dragon Review\. Unlocked\./ }),
+  ).toContainText("1 victory");
+
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await expect(page.getByText("10/10").first()).toBeVisible();
+  await expect(
+    page.getByText("The Quarterly Review is adjourned."),
+  ).toBeVisible();
 });
 
 test("cancels and confirms mission abandonment without retaining progress", async ({

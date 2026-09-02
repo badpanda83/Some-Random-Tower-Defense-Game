@@ -42,35 +42,31 @@ describe("campaign screen", () => {
     ).toBeVisible();
   });
 
-  it("shows exactly seven playable mission nodes and an honest Act III boundary", () => {
+  it("shows exactly ten playable mission nodes across all three acts", () => {
     renderCampaign();
 
     expect(
       screen.getAllByRole("button", {
-        name: /The Muddy Moat|Mimic Market|Troll Tollway|Castle Hassle|Frozen Assets|Department of Unnecessary Bridges|Siege and Desist/,
+        name: /The Muddy Moat|Mimic Market|Troll Tollway|Castle Hassle|Frozen Assets|Department of Unnecessary Bridges|Siege and Desist|Lava Lamp District|Necromancers' Networking Event|Quarterly Dragon Review/,
       }),
-    ).toHaveLength(7);
+    ).toHaveLength(10);
     expect(screen.getByText("0/10")).toBeInTheDocument();
-    expect(screen.getByText(/Act III lies ahead/)).toBeVisible();
-    expect(
-      screen.getByText(/no preview mission is playable yet/),
-    ).toBeVisible();
     expect(screen.queryByText(/preview coming later/i)).not.toBeInTheDocument();
   });
 
-  it("marks Act III chapters as unplayable previews rather than locked missions", () => {
+  it("marks the three Act III missions as sequentially locked", () => {
     renderCampaign();
 
-    const previewButtons = screen.getAllByRole("button", {
-      name: /Act III.*Not yet available/,
+    const lockedButtons = screen.getAllByRole("button", {
+      name: /Lava Lamp District.*Locked|Necromancers' Networking Event.*Locked|Quarterly Dragon Review.*Locked/,
     });
-    expect(previewButtons).toHaveLength(3);
-    for (const button of previewButtons) {
+    expect(lockedButtons).toHaveLength(3);
+    for (const button of lockedButtons) {
       expect(button).toHaveAttribute("aria-disabled", "true");
     }
   });
 
-  it("describes the Act II finale reward without promising a playable Act III mission", () => {
+  it("describes the Act II finale's next playable mission and reward", () => {
     const fresh = createFreshSave();
     renderCampaign({
       ...fresh,
@@ -87,10 +83,7 @@ describe("campaign screen", () => {
       screen.getByRole("button", { name: /Siege and Desist.*Unlocked/i }),
     );
 
-    expect(screen.getByText("Act III coming next + Power Chord")).toBeVisible();
-    expect(
-      screen.queryByText(/Act III · Chapter I \+/),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("Lava Lamp District + Power Chord")).toBeVisible();
   });
 
   it("explains a locked mission without allowing it to start", () => {
@@ -158,7 +151,7 @@ describe("campaign screen", () => {
     expect(onStart).toHaveBeenCalledWith("mimic-market", [], true);
   });
 
-  it("starts each unlocked mission across Act I and Act II with its authored level id", () => {
+  it("starts each unlocked mission with its authored level id", () => {
     const fresh = createFreshSave();
     const allUnlocked = {
       ...fresh,
@@ -172,6 +165,9 @@ describe("campaign screen", () => {
           "frozen-assets",
           "department-of-unnecessary-bridges",
           "siege-and-desist",
+          "lava-lamp-district",
+          "necromancers-networking-event",
+          "quarterly-dragon-review",
         ],
       },
     };
@@ -187,6 +183,9 @@ describe("campaign screen", () => {
         "department-of-unnecessary-bridges",
       ],
       ["Siege and Desist", "siege-and-desist"],
+      ["Lava Lamp District", "lava-lamp-district"],
+      ["Necromancers' Networking Event", "necromancers-networking-event"],
+      ["Quarterly Dragon Review", "quarterly-dragon-review"],
     ] as const) {
       const onStart = renderCampaign(allUnlocked);
       fireEvent.click(
@@ -198,5 +197,99 @@ describe("campaign screen", () => {
       expect(onStart).toHaveBeenCalledWith(levelId, [], false);
       cleanup();
     }
+  });
+
+  it("shows act completion and the persistent campaign epilogue at 10/10", () => {
+    const fresh = createFreshSave();
+    const levelIds = [
+      "muddy-moat",
+      "mimic-market",
+      "troll-tollway",
+      "castle-hassle",
+      "frozen-assets",
+      "department-of-unnecessary-bridges",
+      "siege-and-desist",
+      "lava-lamp-district",
+      "necromancers-networking-event",
+      "quarterly-dragon-review",
+    ];
+    renderCampaign({
+      ...fresh,
+      campaign: {
+        ...fresh.campaign,
+        unlockedNodeIds: levelIds,
+        levels: Object.fromEntries(
+          levelIds.map((levelId) => [
+            levelId,
+            {
+              bestScore: 1,
+              victories: 1,
+              completedMasteryIds: [],
+              completedModifierIds: [],
+            },
+          ]),
+        ),
+      },
+    });
+
+    expect(screen.getByText("10/10")).toBeVisible();
+    expect(screen.getByText("4/4 complete")).toBeVisible();
+    expect(screen.getAllByText("3/3 complete")).toHaveLength(2);
+    expect(
+      screen.getByText("The Quarterly Review is adjourned."),
+    ).toBeVisible();
+    expect(
+      screen.getAllByText(/Completion Crest.*Executive Palette/),
+    ).toHaveLength(2);
+  });
+
+  it("shows recovered final victory as persistent campaign completion", () => {
+    const fresh = createFreshSave();
+    const levelIds = [
+      "muddy-moat",
+      "mimic-market",
+      "troll-tollway",
+      "castle-hassle",
+      "frozen-assets",
+      "department-of-unnecessary-bridges",
+      "siege-and-desist",
+      "lava-lamp-district",
+      "necromancers-networking-event",
+    ];
+    renderCampaign({
+      ...fresh,
+      campaign: {
+        ...fresh.campaign,
+        unlockedNodeIds: [...levelIds, "quarterly-dragon-review"],
+        levels: Object.fromEntries(
+          levelIds.map((levelId) => [
+            levelId,
+            {
+              bestScore: 1,
+              victories: 1,
+              completedMasteryIds: [],
+              completedModifierIds: [],
+            },
+          ]),
+        ),
+        recentResults: [
+          {
+            levelId: "quarterly-dragon-review",
+            seed: 10,
+            contentVersion: 3,
+            modifierIds: [],
+            result: "victory",
+            score: 10_000,
+            completedMasteryIds: [],
+            completedAt: "2026-09-01T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("10/10")).toBeVisible();
+    expect(
+      screen.getByText("The Quarterly Review is adjourned."),
+    ).toBeVisible();
   });
 });

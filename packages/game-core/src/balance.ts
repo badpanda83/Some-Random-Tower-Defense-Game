@@ -34,6 +34,14 @@ export interface ReferenceStrategy {
   readonly towerPattern: readonly TowerId[];
   readonly maxTowers?: number;
   readonly spendingLimit?: number;
+  /** Optional authored placement order for lane-specific regression builds. */
+  readonly preferredPadIds?: readonly string[];
+  /** Optional combat-only opening setup used for fixed-build stress tests. */
+  readonly initialPlacements?: readonly {
+    readonly towerId: TowerId;
+    readonly padId: string;
+    readonly level: number;
+  }[];
   readonly vacateBeforeWaves?: readonly {
     readonly waveIndex: number;
     readonly padIds: readonly string[];
@@ -78,6 +86,11 @@ export interface MissionBalanceReport {
   readonly gold: number;
   readonly leakedByEnemyId: Readonly<Record<string, number>>;
   readonly splitSpawns: number;
+  readonly spentGold: number;
+  readonly leaksDuringEnvironmentHazards: number;
+  readonly exposedPadUses: number;
+  readonly referredEnemiesReachedHalfway: number;
+  readonly bossReinforcementCalls: Readonly<Record<string, number>>;
   readonly towers: number;
   readonly peakEnemies: number;
   readonly completedMasteryIds: readonly string[];
@@ -103,6 +116,15 @@ export const referenceStrategies = {
   "fork-brigade": {
     id: "fork-brigade",
     towerPattern: ["fork-knight"],
+  },
+  "two-knight-table-service": {
+    id: "two-knight-table-service",
+    towerPattern: ["fork-knight"],
+    maxTowers: 2,
+    initialPlacements: [
+      { towerId: "fork-knight", padId: "frost-perch", level: 4 },
+      { towerId: "fork-knight", padId: "floe-crossing", level: 4 },
+    ],
   },
   "budget-party": {
     id: "budget-party",
@@ -150,7 +172,44 @@ export const referenceStrategies = {
       },
     ],
   },
+  "volcanic-detour": {
+    id: "volcanic-detour",
+    towerPattern: ["fork-knight", "discount-wizard", "bardbarian"],
+    vacateBeforeWaves: [
+      { waveIndex: 2, padIds: ["west-inside", "west-outside"] },
+      { waveIndex: 4, padIds: ["center-inside", "center-outside"] },
+      { waveIndex: 6, padIds: ["east-inside", "east-outside"] },
+      { waveIndex: 7, padIds: ["center-inside", "center-outside"] },
+    ],
+  },
+  "six-degree-defense": {
+    id: "six-degree-defense",
+    towerPattern: ["fork-knight", "discount-wizard", "bardbarian"],
+    maxTowers: 6,
+  },
+  "executive-budget": {
+    id: "executive-budget",
+    towerPattern: ["fork-knight", "discount-wizard", "bardbarian"],
+    maxTowers: 7,
+    spendingLimit: 1_650,
+  },
 } as const satisfies Record<string, ReferenceStrategy>;
+
+export const representativeStrategyIdsByLevel = {
+  "muddy-moat": ["blade-and-magic", "blade-and-song"],
+  "mimic-market": ["blade-and-magic", "blade-and-song"],
+  "troll-tollway": ["blade-and-magic", "blade-and-song"],
+  "castle-hassle": ["blade-and-magic", "blade-and-song"],
+  "frozen-assets": ["blade-and-magic", "five-tower-party"],
+  "department-of-unnecessary-bridges": ["blade-and-magic", "blade-and-song"],
+  "siege-and-desist": ["blade-and-magic", "blade-and-song"],
+  "lava-lamp-district": ["blade-and-magic", "blade-and-song"],
+  "necromancers-networking-event": ["blade-and-magic", "blade-and-song"],
+  "quarterly-dragon-review": ["blade-and-magic", "blade-and-song"],
+} as const satisfies Record<
+  CampaignLevelId,
+  readonly [keyof typeof referenceStrategies, keyof typeof referenceStrategies]
+>;
 
 export const referencePlanningModel = {
   briefingSeconds: 33,
@@ -172,12 +231,46 @@ export function runReferenceStrategy(
     throw new Error(`Unknown campaign level: ${levelId}`);
   }
   const unlockedRewardIds = unlockedRewardIdsUpTo(levelId);
-  const simulation = createSimulation({
-    levelId,
-    seed: 123,
-    modifierIds,
-    unlockedRewardIds,
-  });
+  const simulation = createSimulation(
+    strategy.initialPlacements
+      ? {
+          checkpoint: {
+            levelId,
+            seed: 123,
+            modifierIds: [...modifierIds],
+            tick: 0,
+            nextWave: 0,
+            lives: level.startingLives,
+            gold: 0,
+            score: 0,
+            spawnedEnemies: 0,
+            placements: strategy.initialPlacements.map((placement, index) => ({
+              id: `tower-${index + 1}`,
+              ...placement,
+            })),
+            metrics: {
+              spentGold: 0,
+              leakedEnemies: 0,
+              soldTowers: 0,
+              usedTowerIds: Array.from(
+                new Set(
+                  strategy.initialPlacements.map(
+                    (placement) => placement.towerId,
+                  ),
+                ),
+              ),
+              maxTowersPlaced: strategy.initialPlacements.length,
+            },
+          },
+          unlockedRewardIds,
+        }
+      : {
+          levelId,
+          seed: 123,
+          modifierIds,
+          unlockedRewardIds,
+        },
+  );
   const waveStartedAt = new Map<number, number>();
   const waves: WaveBalanceReport[] = [];
   const contribution: Record<string, TowerContribution> = {};
@@ -234,8 +327,20 @@ export function runReferenceStrategy(
         planningActions += 1;
       }
       const towerLimit = strategy.maxTowers ?? level.pads.length;
-      for (let padIndex = 0; padIndex < level.pads.length; padIndex += 1) {
-        const pad = level.pads[padIndex];
+      const orderedPads = strategy.preferredPadIds
+        ? [
+            ...strategy.preferredPadIds
+              .map((padId) => level.pads.find((pad) => pad.id === padId))
+              .filter((pad): pad is (typeof level.pads)[number] =>
+                Boolean(pad),
+              ),
+            ...level.pads.filter(
+              (pad) => !strategy.preferredPadIds?.includes(pad.id),
+            ),
+          ]
+        : level.pads;
+      for (let padIndex = 0; padIndex < orderedPads.length; padIndex += 1) {
+        const pad = orderedPads[padIndex];
         if (
           !pad ||
           vacatedPadIds.has(pad.id) ||
@@ -385,6 +490,13 @@ export function runReferenceStrategy(
     gold: simulation.state.gold,
     leakedByEnemyId: simulation.state.metrics.leakedByEnemyId,
     splitSpawns: simulation.state.metrics.splitSpawns,
+    spentGold: simulation.state.metrics.spentGold,
+    leaksDuringEnvironmentHazards:
+      simulation.state.metrics.leaksDuringEnvironmentHazards,
+    exposedPadUses: simulation.state.metrics.exposedPadUses,
+    referredEnemiesReachedHalfway:
+      simulation.state.metrics.referredEnemiesReachedHalfway,
+    bossReinforcementCalls: simulation.state.metrics.bossReinforcementCalls,
     towers: simulation.state.towers.length,
     peakEnemies,
     completedMasteryIds: simulation.state.completedMasteryIds,

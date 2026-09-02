@@ -49,6 +49,19 @@ describe("content integrity", () => {
           expect(shutdown.fromTick).toBeLessThan(shutdown.toTick);
         }
       }
+      const padIds = new Set(level.pads.map((pad) => pad.id));
+      const zoneIds = new Set(
+        (level.speedZones ?? []).map((zone) => zone.id).filter(Boolean),
+      );
+      for (const hazard of level.environmentHazards ?? []) {
+        expect(hazard.waveIndex).toBeLessThan(level.waves.length);
+        for (const padId of hazard.exposedPadIds) {
+          expect(padIds.has(padId)).toBe(true);
+        }
+        for (const zoneId of hazard.speedZoneIds) {
+          expect(zoneIds.has(zoneId)).toBe(true);
+        }
+      }
     }
 
     expect(new Set(campaignNodes.map((node) => node.id)).size).toBe(
@@ -94,31 +107,30 @@ describe("content integrity", () => {
     expect(towerDefinitions.bardbarian.slowTicks).toBe(60);
   });
 
-  it("exposes exactly seven playable levels across Act I and Act II, plus an honest Act III boundary", () => {
+  it("exposes exactly ten playable levels in a 4/3/3 campaign", () => {
     expect(Object.keys(levelDefinitions).sort()).toEqual([
       "castle-hassle",
       "department-of-unnecessary-bridges",
       "frozen-assets",
+      "lava-lamp-district",
       "mimic-market",
       "muddy-moat",
+      "necromancers-networking-event",
+      "quarterly-dragon-review",
       "siege-and-desist",
       "troll-tollway",
     ]);
     expect(campaignNodes).toHaveLength(10);
     const playableNodes = campaignNodes.filter((node) => node.levelId !== null);
-    expect(playableNodes).toHaveLength(7);
+    expect(playableNodes).toHaveLength(10);
     for (const node of playableNodes) {
-      expect(node.act === 1 || node.act === 2).toBe(true);
+      expect(node.levelId).toBe(node.id);
     }
-    const previewNodes = campaignNodes.filter((node) => node.levelId === null);
-    expect(previewNodes).toHaveLength(3);
-    for (const node of previewNodes) {
-      expect(node.act).toBe(3);
-      // An honest "coming later" placeholder never unlocks through normal play.
-      expect(node.unlockConditions).toHaveLength(0);
-    }
+    expect(campaignNodes.filter((node) => node.levelId === null)).toHaveLength(
+      0,
+    );
     for (const level of Object.values(levelDefinitions)) {
-      expect(level.act === 1 || level.act === 2).toBe(true);
+      expect(level.act === 1 || level.act === 2 || level.act === 3).toBe(true);
     }
   });
 
@@ -131,14 +143,14 @@ describe("content integrity", () => {
     );
     expect(levelDefinitions["siege-and-desist"]?.id).toBe("siege-and-desist");
     expect(campaignNodes.map((node) => node.id).sort()).toEqual([
-      "act-three-preview-one",
-      "act-three-preview-three",
-      "act-three-preview-two",
       "castle-hassle",
       "department-of-unnecessary-bridges",
       "frozen-assets",
+      "lava-lamp-district",
       "mimic-market",
       "muddy-moat",
+      "necromancers-networking-event",
+      "quarterly-dragon-review",
       "siege-and-desist",
       "troll-tollway",
     ]);
@@ -183,7 +195,7 @@ describe("content integrity", () => {
     );
     expect(
       frozen.pads.filter((pad) => pad.deniedTowerIds?.includes("fork-knight")),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
 
     const bridges = levelDefinitions["department-of-unnecessary-bridges"];
     expect(bridges.pads).toHaveLength(7);
@@ -295,7 +307,7 @@ describe("content integrity", () => {
     expect(actOne).toHaveLength(4);
     expect(actTwo).toHaveLength(3);
     expect(actThree).toHaveLength(3);
-    expect(actThree.every((node) => node.levelId === null)).toBe(true);
+    expect(actThree.every((node) => node.levelId !== null)).toBe(true);
   });
 
   it("ends Mimic Market with an elite warded guard formation", () => {
@@ -343,6 +355,9 @@ describe("content integrity", () => {
   });
 
   it("declares Act I enemy traits and boss phase data", () => {
+    expect(enemyDefinitions["frozen-auditor"]?.traits).toEqual([
+      { kind: "damage-resistance", damageType: "physical", percent: 40 },
+    ]);
     expect(enemyDefinitions["coupon-squire"]?.traits).toEqual([
       { kind: "first-hit-ward" },
     ]);
@@ -352,6 +367,10 @@ describe("content integrity", () => {
     expect(enemyDefinitions["dragon-intern"]?.bossPhase).toEqual({
       healthThresholdPercent: 50,
       speedMultiplierPercent: 155,
+    });
+    expect(enemyDefinitions["dragon-intern"]).toMatchObject({
+      boss: false,
+      encounterRole: "miniboss",
     });
     expect(enemyDefinitions["baron-von-bog"]?.bossPhase).toMatchObject({
       healthThresholdPercent: 50,
@@ -364,7 +383,11 @@ describe("content integrity", () => {
     const forkKnight = towerDefinitions["fork-knight"];
     expect(forkKnight.baseMaxLevel).toBe(3);
     expect(forkKnight.levels).toHaveLength(4);
-    expect(forkKnight.levels[3]?.pierceCount).toBe(1);
+    expect(forkKnight.levels[3]).toMatchObject({
+      damage: 72,
+      cooldownTicks: 11,
+    });
+    expect(forkKnight.levels[3]?.pierceCount).toBeUndefined();
     expect(rewardDefinitions["fork-table-service"]).toMatchObject({
       kind: "tower-rank",
       towerId: "fork-knight",
@@ -399,9 +422,12 @@ describe("content integrity", () => {
     );
   });
 
-  it("defines the Act I and Act II challenge modifiers", () => {
+  it("defines all campaign challenge modifiers", () => {
     expect(Object.keys(modifierDefinitions).sort()).toEqual([
+      "executive-mandate",
+      "hot-seat",
       "red-tape",
+      "referral-only",
       "roadworks",
       "sale-rush",
       "stingy-king",
@@ -413,6 +439,105 @@ describe("content integrity", () => {
     expect(
       modifierDefinitions["red-tape"].padShutdownExtraTicks,
     ).toBeGreaterThan(0);
+  });
+
+  it("authors Act III's required routes, pads, waves, and mechanics", () => {
+    const lava = levelDefinitions["lava-lamp-district"];
+    expect(lava.act).toBe(3);
+    expect(lava.pads).toHaveLength(8);
+    expect(lava.waves).toHaveLength(8);
+    expect(lava.environment.decorIds).toHaveLength(3);
+    expect(lava.environmentHazards).toHaveLength(4);
+    expect(
+      lava.environmentHazards?.every(
+        (hazard) =>
+          hazard.telegraphFromTick < hazard.activeFromTick &&
+          hazard.activeFromTick < hazard.activeToTick,
+      ),
+    ).toBe(true);
+
+    const networking = levelDefinitions["necromancers-networking-event"];
+    expect(networking.routes).toHaveLength(2);
+    expect(networking.pads).toHaveLength(8);
+    expect(networking.waves).toHaveLength(9);
+    expect(networking.waves.filter((wave) => wave.referral)).toHaveLength(4);
+
+    const review = levelDefinitions["quarterly-dragon-review"];
+    expect(review.routes).toHaveLength(3);
+    expect(review.pads).toHaveLength(10);
+    expect(review.waves).toHaveLength(10);
+    expect(
+      review.waves[6]?.spawns.some(
+        (spawn) => spawn.enemyId === "dragon-intern",
+      ),
+    ).toBe(true);
+    expect(
+      review.waves
+        .at(-1)
+        ?.spawns.some((spawn) => spawn.enemyId === "chief-executive-dragon"),
+    ).toBe(true);
+    expect(enemyDefinitions["chief-executive-dragon"].bossPhases).toHaveLength(
+      2,
+    );
+    expect(
+      enemyDefinitions["chief-executive-dragon"].bossPhases.filter(
+        (phase) => phase.reinforcementCallId,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the approved full-boss cadence and explicit finale exception", () => {
+    const fullBossesByMission = Object.fromEntries(
+      Object.values(levelDefinitions).map((level) => [
+        level.order,
+        Array.from(
+          new Set(
+            level.waves
+              .flatMap((wave) => wave.spawns)
+              .map((spawn) => enemyDefinitions[spawn.enemyId])
+              .filter((enemy) => enemy?.boss)
+              .map((enemy) => enemy.id),
+          ),
+        ),
+      ]),
+    );
+
+    expect(fullBossesByMission).toEqual({
+      1: [],
+      2: ["grand-till-mimic"],
+      3: [],
+      4: ["baron-von-bog"],
+      5: [],
+      6: ["comptroller-general"],
+      7: ["queen-of-pending-litigation"],
+      8: ["lava-lamp-landlord"],
+      9: [],
+      10: ["chief-executive-dragon"],
+    });
+  });
+
+  it("defines Act III modifier, cosmetic, and campaign rewards", () => {
+    expect(rewardDefinitions["hot-seat-challenge"]).toMatchObject({
+      kind: "modifier-unlock",
+      modifierId: "hot-seat",
+    });
+    expect(rewardDefinitions["referral-only-challenge"]).toMatchObject({
+      kind: "modifier-unlock",
+      modifierId: "referral-only",
+    });
+    expect(rewardDefinitions["executive-mandate-challenge"]).toMatchObject({
+      kind: "modifier-unlock",
+      modifierId: "executive-mandate",
+    });
+    expect(rewardDefinitions["campaign-epilogue"].kind).toBe("campaign");
+    expect(rewardDefinitions["completion-crest"]).toMatchObject({
+      kind: "cosmetic",
+      cosmeticType: "crest",
+    });
+    expect(rewardDefinitions["executive-palette"]).toMatchObject({
+      kind: "cosmetic",
+      cosmeticType: "palette",
+    });
   });
 
   it("defines three typed mastery rules per level", () => {

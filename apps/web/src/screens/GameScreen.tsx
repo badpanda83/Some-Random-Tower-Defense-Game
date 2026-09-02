@@ -1,9 +1,12 @@
 import {
   createSimulation,
+  enemyDefinitions,
   levelDefinitions,
   muddyMoatLevel,
+  rewardDefinitions,
   ROYAL_FORKFALL_CHARGE_TICKS,
   towerDefinitions,
+  type EnemyDefinition,
   type GameEvent,
   type GameState,
 } from "@srtg/game-core";
@@ -349,6 +352,51 @@ export function GameScreen({
     if (events.some((event) => event.type === "tea-break-activated")) {
       setMessage("Emergency Tea Break slowed every non-boss enemy!");
     }
+    const hazardEvent = events.find(
+      (event) =>
+        event.type === "environment-hazard-telegraphed" ||
+        event.type === "environment-hazard-started",
+    );
+    if (hazardEvent) {
+      const hazard = level.environmentHazards?.find(
+        (candidate) => candidate.id === hazardEvent.hazardId,
+      );
+      setMessage(
+        hazardEvent.type === "environment-hazard-telegraphed"
+          ? `${hazard?.name ?? "Hazard"} warning: exposed pads are marked.`
+          : `${hazard?.name ?? "Hazard"} active: exposed pads are disabled.`,
+      );
+    }
+    const referralEvent = events.find(
+      (event) => event.type === "enemy-referred",
+    );
+    if (referralEvent?.type === "enemy-referred") {
+      setMessage(
+        `Referral revived once at ${referralEvent.health} health. Spectral diamond markers are active.`,
+      );
+    }
+    const bossPhaseEvent = events.find((event) => event.type === "boss-phase");
+    if (bossPhaseEvent?.type === "boss-phase") {
+      setMessage(
+        `${bossPhaseEvent.stageName ?? "Boss stage changed"}${
+          bossPhaseEvent.reinforcementCallId
+            ? " — final reinforcements called."
+            : "."
+        }`,
+      );
+    }
+    const bossEntrance = events.find(
+      (event) =>
+        event.type === "enemy-spawned" &&
+        enemyDefinitions[event.enemyId as keyof typeof enemyDefinitions]?.boss,
+    );
+    if (bossEntrance?.type === "enemy-spawned") {
+      const definition =
+        enemyDefinitions[bossEntrance.enemyId as keyof typeof enemyDefinitions];
+      setMessage(
+        `${definition.name} enters the battlefield. Boss health and stage are now pinned.`,
+      );
+    }
   }
 
   function setSpeed(speed: GameSpeed) {
@@ -454,6 +502,40 @@ export function GameScreen({
   const towerInfo = towerInfoId
     ? towerDefinitions[towerInfoId as keyof typeof towerDefinitions]
     : null;
+  const activeBoss = state.enemies.find(
+    (enemy) =>
+      enemyDefinitions[enemy.enemyId as keyof typeof enemyDefinitions]?.boss,
+  );
+  const activeBossDefinition: EnemyDefinition | null = activeBoss
+    ? enemyDefinitions[activeBoss.enemyId as keyof typeof enemyDefinitions]
+    : null;
+  const activeBossStage =
+    activeBoss && activeBossDefinition
+      ? (activeBossDefinition.bossPhases?.find(
+          (phase) => phase.id === activeBoss.activeBossStageId,
+        ) ??
+        (activeBossDefinition.initialBossStage?.id ===
+        activeBoss.activeBossStageId
+          ? activeBossDefinition.initialBossStage
+          : undefined))
+      : undefined;
+  const activeBossHasWard = Boolean(
+    activeBossDefinition?.traits?.some(
+      (trait) => trait.kind === "first-hit-ward",
+    ),
+  );
+  const activeHazards = (level.environmentHazards ?? []).filter((hazard) =>
+    state.activeEnvironmentHazardIds.includes(hazard.id),
+  );
+  const warningHazards = (level.environmentHazards ?? []).filter((hazard) =>
+    state.telegraphedEnvironmentHazardIds.includes(hazard.id),
+  );
+  const resultRewards = level.rewardIds
+    .map(
+      (rewardId) =>
+        rewardDefinitions[rewardId as keyof typeof rewardDefinitions],
+    )
+    .filter((reward) => Boolean(reward));
 
   return (
     <main
@@ -481,7 +563,9 @@ export function GameScreen({
         }`}
       >
         <div className="hud-title">
-          <span className="eyebrow">Act {level.act === 2 ? "II" : "I"}</span>
+          <span className="eyebrow">
+            Act {["I", "II", "III"][level.act - 1]}
+          </span>
           <strong>{level.name}</strong>
         </div>
         <div className="hud-resources">
@@ -648,6 +732,58 @@ export function GameScreen({
           }}
           onError={setMessage}
         />
+        {(warningHazards.length > 0 || activeHazards.length > 0) && (
+          <div
+            className={`hazard-status ${
+              activeHazards.length > 0 ? "is-active" : "is-warning"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            <strong>
+              {activeHazards.length > 0
+                ? "ERUPTION ACTIVE"
+                : "ERUPTION WARNING"}
+            </strong>
+            <span>
+              {(activeHazards[0] ?? warningHazards[0])?.description}{" "}
+              {activeHazards.length > 0
+                ? "Marked pads are disabled."
+                : "Amber rings mark exposed pads."}
+            </span>
+          </div>
+        )}
+        {activeBoss && activeBossDefinition && (
+          <div
+            className="boss-status"
+            role="status"
+            aria-label={`${activeBossDefinition.name} health and ward status`}
+          >
+            <div>
+              <span className="eyebrow">Boss encounter</span>
+              <strong>{activeBossDefinition.name}</strong>
+              <small>
+                {activeBossStage?.name ?? "Main phase"} ·{" "}
+                {activeBossHasWard
+                  ? activeBoss.wardConsumed
+                    ? "Ward down"
+                    : "Ward intact"
+                  : "No ward"}
+              </small>
+            </div>
+            <div className="boss-health-copy">
+              <strong>
+                {activeBoss.health.toLocaleString()} /{" "}
+                {activeBoss.maxHealth.toLocaleString()}
+              </strong>
+              <progress
+                value={activeBoss.health}
+                max={activeBoss.maxHealth}
+                aria-label={`${activeBossDefinition.name} health`}
+              />
+            </div>
+          </div>
+        )}
         <div className="defender-dock" role="group" aria-label="Defender costs">
           {Object.values(towerDefinitions).map((tower) => (
             <button
@@ -808,7 +944,9 @@ export function GameScreen({
             </h1>
             <p>
               {state.phase === "victory"
-                ? `Final score ${state.score.toLocaleString()}. The kingdom has rounded this up to “legendary.”`
+                ? state.levelId === "quarterly-dragon-review"
+                  ? `Final score ${state.score.toLocaleString()}. The Chief Executive Dragon has signed the severance papers; the campaign epilogue is unlocked.`
+                  : `Final score ${state.score.toLocaleString()}. The kingdom has rounded this up to “legendary.”`
                 : "Try a cheaper opening, a stronger bend in the path, or more utensils."}
             </p>
             {state.phase === "victory" && (
@@ -826,6 +964,14 @@ export function GameScreen({
                     {mastery.name}
                   </span>
                 ))}
+              </div>
+            )}
+            {state.phase === "victory" && resultRewards.length > 0 && (
+              <div className="result-rewards">
+                <strong>First-clear rewards</strong>
+                <span>
+                  {resultRewards.map((reward) => reward.name).join(" · ")}
+                </span>
               </div>
             )}
             {resultError && (

@@ -6,9 +6,27 @@
 
 A cool-looking, humorous fantasy-parody tower-defense PWA about defending a damp kingdom with improvised heroes, discount magic, and suspiciously organized dungeon creatures. It combines strategic towers and ridiculous enemies with a victory-based campaign, optional challenges, and mastery goals that reward different ways to play.
 
-Act I includes four complete authored missions with 31 waves across distinct battlefields: The Muddy Moat, Mimic Market, Troll Tollway, and Castle Hassle. It adds shielded Coupon Squires, slow-proof Queue Jumpers, Baron von Bog, mission-specific pad restrictions and closures, data-driven mastery goals and challenges, the earned Fork Knight rank-IV upgrade, and the earned Emergency Tea Break ability. Story victories unlock the next mission without replay grinding. The touch-first on-canvas controls, charged Royal Forkfall, offline play, guest saves, and optional email-link cloud sync remain intact.
+The complete campaign contains exactly ten playable missions in three acts:
 
-Run `pnpm report:balance` for deterministic 1× mission timing, per-wave duration, lives, economy, peak enemy load, mastery, and tower-contribution reports for two distinct reference compositions.
+| Act     | Missions                                                                    |
+| ------- | --------------------------------------------------------------------------- |
+| I (4)   | The Muddy Moat, Mimic Market, Troll Tollway, Castle Hassle                  |
+| II (3)  | Frozen Assets, Department of Unnecessary Bridges, Siege and Desist          |
+| III (3) | Lava Lamp District, Necromancers' Networking Event, Quarterly Dragon Review |
+
+Act III finishes the campaign with deterministic lava eruptions and hot-road windows, the phased Lava Lamp Landlord, one-shot spectral referrals, three-route formations, the returning Dragon Intern miniboss, and the three-stage Chief Executive Dragon. The regular full-boss cadence is Missions 2, 4, 6, 8, and 10 (Grand Till Mimic, Baron von Bog, Comptroller General, Lava Lamp Landlord, and Chief Executive Dragon); Mission 7's Queen of Pending Litigation is an explicit act-finale exception. Story victories unlock the next mission without replay grinding. Mission 10 awards the campaign epilogue, Completion Crest, Executive Palette, and Executive Mandate challenge; the campaign screen then displays **10/10** completion. There are no preview-only nodes, eleventh mission, or endless mode.
+
+Run `pnpm report:balance` for deterministic 1× mission timing, per-wave duration, lives, economy, peak enemy load, mastery, and tower-contribution reports for two distinct reference compositions. The reporter measures exact active ticks at 20 ticks/second, then adds the disclosed ordinary first-clear planning model: 33 seconds for the briefing, 12 seconds to read each wave preview, and 2.5 seconds per placement, upgrade, sale, or wave-start decision. Retries and paused/idle time are excluded.
+
+Measured normal first clears for Act III are:
+
+| Mission                        |                                      Blade + magic |           Blade + song |
+| ------------------------------ | -------------------------------------------------: | ---------------------: |
+| Lava Lamp District             | 14,409 active ticks / 15.24 representative minutes | 14,295 / 15.15 minutes |
+| Necromancers' Networking Event |                             15,525 / 16.58 minutes | 15,148 / 16.35 minutes |
+| Quarterly Dragon Review        |                             17,370 / 18.61 minutes | 16,817 / 18.27 minutes |
+
+Across all ten missions, the first and second measured normal composition families total 165.33 and 163.89 representative minutes (about 2 hours 45 minutes) for a no-retry campaign clear. Frozen Assets uses the compact five-tower mixed family as its second reference. Its two-rank-IV-Fork combat stress build now fails after six waves, while the two mixed references win with 14 and 8 lives.
 
 ## Architecture
 
@@ -69,7 +87,7 @@ corepack pnpm db:generate      # Generate a migration after schema changes
 corepack pnpm db:migrate       # Apply checked-in migrations
 ```
 
-Game definitions live in `packages/game-core/src/content.ts`. IDs are persistence contracts: add new IDs rather than renaming released ones. Simulation rules must remain independent of Phaser, browser APIs, wall-clock time, and `Math.random`.
+Game definitions live in `packages/game-core/src/content.ts`. IDs are persistence contracts: add new IDs rather than renaming released ones. Simulation rules must remain independent of Phaser, browser APIs, wall-clock time, and `Math.random`. Routes, speed zones, environment hazard schedules, referral-marked waves, boss stages, mastery rules, modifiers, and rewards are typed content rather than level-name branches. Add authored wave previews that truthfully identify formation roles and deterministic pressure windows.
 
 ## Saves and identity
 
@@ -78,7 +96,7 @@ Game definitions live in `packages/game-core/src/content.ts`. IDs are persistenc
 - Linking an email upgrades the guest identity instead of requiring a new profile.
 - Cloud writes include an expected revision. Conflicting local and remote revisions are shown to the player; neither is silently overwritten.
 - Between-wave checkpoints contain only simulation-safe data. Active combat is not serialized.
-- Save payloads carry a `contentVersion`; incompatible payloads fail visibly rather than being guessed into shape.
+- Save payloads carry a `contentVersion`; v3 explicitly migrates v1 and v2 saves while preserving campaign progress, settings, recent results, cloud revision behavior, and compatible between-wave checkpoints. Incompatible payloads fail visibly rather than being guessed into shape.
 
 Guest browser storage can be evicted by the platform. The UI encourages account linking after progress begins.
 
@@ -114,9 +132,11 @@ A Raspberry Pi 3 should use a 64-bit OS. Hosting the app container there is real
 
 ## PWA behavior
 
-The service worker precaches only versioned application assets, activates deployed updates automatically, and reloads open clients onto the current release. `/api` and `/health` always use the network and are never cached. The game pauses when hidden or unfocused unless the persisted **Keep playing while away** setting is enabled; mobile browsers and operating systems may still throttle or suspend background tabs, and the game never catches up elapsed suspension time. It also supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, confirmed touch or mouse placement and upgrades during combat, and a battle-only landscape prompt that automatically clears when a narrow phone rotates sideways; menus and campaign remain portrait-friendly. To deploy a hero, select its roster card, choose an empty pad, then use **Confirm**; **Cancel** or changing heroes never spends gold. Royal Forkfall charges for 12 active-combat seconds, automatically targets the leading enemy for 180 arcane damage, and requires separate **Arm** and **Cast** presses. **Leave mission** is available throughout a battle and requires confirmation before discarding the current attempt and its checkpoint.
+The service worker precaches only versioned application assets, activates deployed updates automatically, and reloads open clients onto the current release. `/api` and `/health` always use the network and are never cached. The game pauses when hidden or unfocused unless the persisted **Keep playing while away** setting is enabled; mobile browsers and operating systems may still throttle or suspend background tabs, and the game never catches up elapsed suspension time. It also supports safe-area insets, reduced motion, low effects, mute, 1x/2x speed, confirmed touch or mouse placement and upgrades during combat, and a battle-only landscape prompt that automatically clears when a narrow phone rotates sideways; menus and campaign remain portrait-friendly. To deploy a hero, select its contextual full-name control, choose an empty pad, then use **Confirm**; **Cancel** or changing heroes never spends gold. The large battlefield-first layout and prominent **Start Wave** control remain available on every map, including a 568×320 landscape viewport. Royal Forkfall charges for 12 active-combat seconds, automatically targets the leading enemy for 180 arcane damage, and requires separate **Arm** and **Cast** presses. **Leave mission** is available throughout a battle and requires confirmation before discarding the current attempt and its checkpoint.
 
-Current tower purchase/upgrade costs are Fork Knight **57/52/85**, Discount Wizard **95/76/119**, and Bardbarian **85/66/105** gold. The Bardbarian slow lasts 3 seconds at 35% and cannot refresh while already active, preserving deterministic control gaps. Fork Knight ranks deal **24/38/58** damage at **16/14/12-tick** cadence and **126/138/152** range.
+Eruptions use amber warning rings, red disabled-pad marks, and triangular hot-road markers. Referred enemies use spectral diamond outlines. Boss stages expose named health and ward status. These cues combine color and shape, honor reduced-motion and low-effects settings, and share the renderer's capped transient-effect budget.
+
+Current tower purchase/upgrade costs are Fork Knight **57/52/85/140**, Discount Wizard **95/76/119/165**, and Bardbarian **85/66/105/150** gold. The Bardbarian slow lasts 3 seconds at 35% and cannot refresh while already active, preserving deterministic control gaps. Fork Knight ranks deal **24/38/58/72** single-target damage at **16/14/12/11-tick** cadence and **126/138/152/152** range. Table Service no longer doubles full-damage targets; Frozen Assets also reserves its lane-center thin-ice pads for arcane or sonic coverage, while the two shore pads keep Fork Knights useful against Warranty Wraiths.
 
 All current visual assets and copy are original project material. No third-party game art is required.
 

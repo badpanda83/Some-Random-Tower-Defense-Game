@@ -50,6 +50,12 @@ export function evaluateMasteryRule(
       return (context.metrics.abilityActivations[rule.abilityId] ?? 0) === 0;
     case "max-split-spawns":
       return context.metrics.splitSpawns <= rule.maxSplits;
+    case "no-leaks-during-environment-hazards":
+      return context.metrics.leaksDuringEnvironmentHazards === 0;
+    case "no-exposed-pad-uses":
+      return context.metrics.exposedPadUses === 0;
+    case "no-referred-enemy-reaches-halfway":
+      return context.metrics.referredEnemiesReachedHalfway === 0;
     case "enemy-cleared-before-half-battle": {
       const clearedAtTick = context.metrics.lastEnemyClearedTick[rule.enemyId];
       return (

@@ -190,6 +190,48 @@ const BATTLEFIELD_THEMES: Record<string, BattlefieldTheme> = {
       [902, 460, 9],
     ],
   },
+  "lava-lamp-district": {
+    ground: 0x24172d,
+    groundAccent: 0x5a2634,
+    border: 0x160d1c,
+    pathEdge: 0x4e2630,
+    path: 0x7c4a4d,
+    pathHighlight: 0xffc857,
+    decorations: [
+      [65, 75, 10],
+      [325, 475, 12],
+      [540, 72, 9],
+      [890, 455, 13],
+    ],
+  },
+  "necromancers-networking-event": {
+    ground: 0x171126,
+    groundAccent: 0x362850,
+    border: 0x0e0a18,
+    pathEdge: 0x302442,
+    path: 0x66517f,
+    pathHighlight: 0xa8f0d0,
+    decorations: [
+      [60, 92, 9],
+      [80, 448, 9],
+      [720, 82, 11],
+      [900, 470, 12],
+    ],
+  },
+  "quarterly-dragon-review": {
+    ground: 0x17202d,
+    groundAccent: 0x39475e,
+    border: 0x0e151e,
+    pathEdge: 0x3e3640,
+    path: 0x76525b,
+    pathHighlight: 0xf2c14e,
+    decorations: [
+      [70, 70, 10],
+      [80, 470, 11],
+      [570, 70, 8],
+      [900, 110, 13],
+    ],
+  },
 };
 
 function routeLength(points: readonly Point[]): number {
@@ -247,6 +289,20 @@ function padShutdownState(
   pad: TowerPadDefinition,
   state: GameState,
 ): "warning" | "active" | null {
+  if (state.exposedPadIds.includes(pad.id)) {
+    return "active";
+  }
+  const telegraphedExposure = (
+    levelDefinitions[state.levelId as keyof typeof levelDefinitions]
+      ?.environmentHazards ?? []
+  ).some(
+    (hazard) =>
+      state.telegraphedEnvironmentHazardIds.includes(hazard.id) &&
+      hazard.exposedPadIds.includes(pad.id),
+  );
+  if (telegraphedExposure) {
+    return "warning";
+  }
   if (
     state.phase !== "active" ||
     state.waveStartedAtTick === null ||
@@ -389,7 +445,8 @@ interface EnemySnapshot extends Point {
 }
 
 interface TransientEffect extends Point {
-  readonly kind: "spawn" | "defeat" | "leak" | "boss-phase" | "ability";
+  readonly kind:
+    "spawn" | "defeat" | "leak" | "boss-phase" | "ability" | "referral";
   readonly color: number;
   readonly startedAtTick: number;
   readonly variant: number;
@@ -729,7 +786,8 @@ class BattleScene extends Phaser.Scene {
       graphics.lineStyle(4, this.theme.pathHighlight, 0.65);
       graphics.strokePoints(pathPoints, false, false);
     }
-    this.drawSpeedZones(graphics, routes, state.tick, motionEnabled);
+    this.drawEnvironmentHazards(graphics, state, motionEnabled);
+    this.drawSpeedZones(graphics, routes, state, motionEnabled);
     this.drawPortalAndTunnel(graphics, state.tick, state.phase === "active");
 
     const occupiedPads = new Set(state.towers.map((tower) => tower.padId));
@@ -908,14 +966,16 @@ class BattleScene extends Phaser.Scene {
   private drawSpeedZones(
     graphics: Phaser.GameObjects.Graphics,
     routes: readonly { readonly id: string; readonly path: readonly Point[] }[],
-    tick: number,
+    state: GameState,
     motionEnabled: boolean,
   ): void {
     const zones = this.level.speedZones;
     if (!zones || zones.length === 0) {
       return;
     }
-    const pulse = motionEnabled ? 0.55 + Math.sin(tick * 0.15) * 0.15 : 0.6;
+    const pulse = motionEnabled
+      ? 0.55 + Math.sin(state.tick * 0.15) * 0.15
+      : 0.6;
     for (const zone of zones) {
       const route = routes.find((candidate) => candidate.id === zone.routeId);
       if (!route) {
@@ -932,10 +992,80 @@ class BattleScene extends Phaser.Scene {
       const points = slice.map(
         (point) => new Phaser.Math.Vector2(point.x, point.y),
       );
-      graphics.lineStyle(58, 0x9fe0f2, 0.22);
+      const active =
+        !zone.activationHazardId ||
+        state.activeEnvironmentHazardIds.includes(zone.activationHazardId);
+      const warning =
+        zone.activationHazardId &&
+        state.telegraphedEnvironmentHazardIds.includes(zone.activationHazardId);
+      const color = zone.activationHazardId ? 0xff8a4c : 0x9fe0f2;
+      graphics.lineStyle(58, color, active ? 0.34 : warning ? 0.2 : 0.08);
       graphics.strokePoints(points, false, false);
-      graphics.lineStyle(3, 0x9fe0f2, pulse);
+      graphics.lineStyle(3, color, active ? pulse : warning ? 0.6 : 0.3);
       graphics.strokePoints(points, false, false);
+      if (zone.activationHazardId) {
+        const marker = pointAtRoutePercent(
+          route.path,
+          (zone.fromPercent + zone.toPercent) / 2,
+        );
+        graphics.fillStyle(color, active ? 0.95 : 0.55);
+        graphics.fillTriangle(
+          marker.x,
+          marker.y - 10,
+          marker.x - 9,
+          marker.y + 7,
+          marker.x + 9,
+          marker.y + 7,
+        );
+      }
+    }
+  }
+
+  private drawEnvironmentHazards(
+    graphics: Phaser.GameObjects.Graphics,
+    state: GameState,
+    motionEnabled: boolean,
+  ): void {
+    for (const hazard of this.level.environmentHazards ?? []) {
+      const pads = hazard.exposedPadIds
+        .map((padId) => this.level.pads.find((pad) => pad.id === padId))
+        .filter((pad): pad is TowerPadDefinition => Boolean(pad));
+      if (pads.length === 0) {
+        continue;
+      }
+      const center = pads.reduce(
+        (point, pad) => ({
+          x: point.x + pad.position.x / pads.length,
+          y: point.y + pad.position.y / pads.length,
+        }),
+        { x: 0, y: 0 },
+      );
+      const active = state.activeEnvironmentHazardIds.includes(hazard.id);
+      const warning = state.telegraphedEnvironmentHazardIds.includes(hazard.id);
+      const pulse =
+        motionEnabled && (active || warning)
+          ? Math.sin(state.tick * 0.18) * 6
+          : 0;
+      graphics.fillStyle(0x4b1723, 0.88);
+      graphics.fillEllipse(center.x, center.y, 102, 66);
+      graphics.fillStyle(
+        active ? 0xff5b3d : warning ? 0xffb347 : 0xa73338,
+        0.7,
+      );
+      graphics.fillEllipse(center.x, center.y, 76 + pulse, 43 + pulse * 0.5);
+      graphics.lineStyle(active ? 6 : 3, active ? 0xffe08a : 0xff8a4c, 0.86);
+      graphics.strokeEllipse(center.x, center.y, 92 + pulse, 57 + pulse * 0.5);
+      for (let vent = -1; vent <= 1; vent += 1) {
+        graphics.fillStyle(active ? 0xffe08a : 0xff8a4c, active ? 0.9 : 0.5);
+        graphics.fillTriangle(
+          center.x + vent * 24,
+          center.y - 12 - (active ? 20 + Math.abs(pulse) : 5),
+          center.x - 7 + vent * 24,
+          center.y + 4,
+          center.x + 7 + vent * 24,
+          center.y + 4,
+        );
+      }
     }
   }
 
@@ -987,9 +1117,11 @@ class BattleScene extends Phaser.Scene {
   ): void {
     const definition: EnemyDefinition =
       enemyDefinitions[enemy.enemyId as keyof typeof enemyDefinitions];
+    const largeEnemy =
+      definition.boss || definition.encounterRole === "miniboss";
     const animated = !this.lowEffects && !this.reducedMotion;
     const stride = animated
-      ? Math.sin((tick + enemy.variant * 5) * (definition.boss ? 0.3 : 0.65))
+      ? Math.sin((tick + enemy.variant * 5) * (largeEnemy ? 0.3 : 0.65))
       : 0;
     const ahead = this.simulation.getEnemyPosition({
       ...enemy,
@@ -1000,7 +1132,7 @@ class BattleScene extends Phaser.Scene {
     const reactiveHit = wasHit && !this.reducedMotion;
     const hitOffset = reactiveHit ? -facing * 3 : 0;
     const x = position.x + hitOffset;
-    const y = position.y + stride * (definition.boss ? 1.5 : 2.4);
+    const y = position.y + stride * (largeEnemy ? 1.5 : 2.4);
     const outline = wasHit ? 0xffffff : enemy.bossPhase ? 0xffd45c : 0x18202a;
 
     if (enemy.bossPhase) {
@@ -1080,7 +1212,51 @@ class BattleScene extends Phaser.Scene {
       graphics.fillStyle(0xeef7d0);
       graphics.fillCircle(x - 7 + facing, y - 11, 2.5);
       graphics.fillCircle(x + 7 + facing, y - 11, 2.5);
-    } else if (enemy.enemyId === "tax-troll") {
+    } else if (enemy.enemyId === "grand-till-mimic") {
+      graphics.fillStyle(0x07090d, 0.56);
+      graphics.fillEllipse(x, position.y + 31, 82, 14);
+      graphics.lineStyle(7, 0x6b3a24);
+      graphics.lineBetween(x - 24, y + 23, x - 31 - stride * 2, y + 38);
+      graphics.lineBetween(x + 24, y + 23, x + 31 + stride * 2, y + 38);
+      graphics.fillStyle(enemy.bossPhaseIndex >= 2 ? 0xc94b32 : 0x8f5732);
+      graphics.fillRoundedRect(x - 39, y - 16, 78, 55, 8);
+      graphics.lineStyle(wasHit ? 8 : 5, outline);
+      graphics.strokeRoundedRect(x - 39, y - 16, 78, 55, 8);
+      graphics.fillStyle(definition.color);
+      graphics.fillRoundedRect(x - 43, y - 35 - Math.abs(stride), 86, 24, 9);
+      graphics.strokeRoundedRect(x - 43, y - 35 - Math.abs(stride), 86, 24, 9);
+      graphics.fillStyle(0x27151a);
+      graphics.fillRect(x - 31, y - 10, 62, 26);
+      graphics.fillStyle(0xfff0c2);
+      for (let tooth = -26; tooth <= 22; tooth += 8) {
+        graphics.fillTriangle(
+          x + tooth,
+          y - 10,
+          x + tooth + 7,
+          y - 10,
+          x + tooth + 3.5,
+          y - 2,
+        );
+        graphics.fillTriangle(
+          x + tooth,
+          y + 16,
+          x + tooth + 7,
+          y + 16,
+          x + tooth + 3.5,
+          y + 8,
+        );
+      }
+      graphics.fillStyle(0xffdf69);
+      graphics.fillRect(x - 6, y + 17, 12, 16);
+      graphics.lineStyle(3, 0x6b3a24);
+      graphics.strokeRect(x - 6, y + 17, 12, 16);
+      graphics.fillStyle(0xeef7d0);
+      graphics.fillCircle(x - 15 + facing * 2, y - 25, 4);
+      graphics.fillCircle(x + 15 + facing * 2, y - 25, 4);
+    } else if (
+      enemy.enemyId === "tax-troll" ||
+      enemy.enemyId === "frozen-auditor"
+    ) {
       graphics.fillStyle(0x07090d, 0.45);
       graphics.fillEllipse(x + 2, position.y + 21, 48, 10);
       graphics.fillStyle(0x4c6575);
@@ -1119,6 +1295,12 @@ class BattleScene extends Phaser.Scene {
         x + facing * 18 + 2,
         y + 13,
       );
+      if (enemy.enemyId === "frozen-auditor") {
+        graphics.lineStyle(3, 0xd9f6ff, 0.9);
+        graphics.lineBetween(x - 18, y + 5, x - 8, y - 5);
+        graphics.lineBetween(x - 8, y - 5, x + 3, y + 2);
+        graphics.lineBetween(x + 3, y + 2, x + 17, y - 10);
+      }
     } else if (enemy.enemyId === "coupon-squire") {
       graphics.fillStyle(0x07090d, 0.44);
       graphics.fillEllipse(x, position.y + 19, 40, 9);
@@ -1332,6 +1514,34 @@ class BattleScene extends Phaser.Scene {
       graphics.lineStyle(1, 0xc0342f, 0.9);
       graphics.lineBetween(x - 4, y + 7, x + 4, y + 11);
       graphics.lineBetween(x + 4, y + 7, x - 4, y + 11);
+    } else if (enemy.enemyId === "lava-lamp-landlord") {
+      const phaseColor =
+        enemy.bossPhaseIndex >= 2
+          ? 0xffd166
+          : enemy.bossPhaseIndex === 1
+            ? 0x8f4938
+            : definition.color;
+      graphics.fillStyle(0x07090d, 0.58);
+      graphics.fillEllipse(x, position.y + 35, 86, 15);
+      graphics.fillStyle(0x592b32);
+      graphics.fillTriangle(x - 38, y + 31, x - 22, y - 19, x - 4, y + 34);
+      graphics.fillTriangle(x + 38, y + 31, x + 22, y - 19, x + 4, y + 34);
+      graphics.fillStyle(phaseColor);
+      graphics.fillEllipse(x, y + 2, reactiveHit ? 50 : 58, 69);
+      graphics.lineStyle(wasHit ? 8 : 5, outline);
+      graphics.strokeEllipse(x, y + 2, reactiveHit ? 50 : 58, 69);
+      graphics.fillStyle(0xffc857);
+      graphics.fillTriangle(x - 24, y - 18, x - 12, y - 47, x - 2, y - 19);
+      graphics.fillTriangle(x + 24, y - 18, x + 12, y - 47, x + 2, y - 19);
+      graphics.fillStyle(0xfff4d6);
+      graphics.fillCircle(x - 10 + facing, y - 9, 4);
+      graphics.fillCircle(x + 10 + facing, y - 9, 4);
+      graphics.fillStyle(0x31151c);
+      graphics.fillCircle(x - 9 + facing * 2, y - 9, 2);
+      graphics.fillCircle(x + 11 + facing * 2, y - 9, 2);
+      graphics.lineStyle(4, 0xffd166, 0.9);
+      graphics.lineBetween(x - 18, y + 13, x + 18, y + 13);
+      graphics.lineBetween(x - 13, y + 22, x + 13, y + 22);
     } else if (enemy.enemyId === "queen-of-pending-litigation") {
       graphics.fillStyle(0x07090d, 0.55);
       graphics.fillEllipse(x, position.y + 33, 78, 14);
@@ -1393,11 +1603,73 @@ class BattleScene extends Phaser.Scene {
       );
     }
 
+    if (enemy.enemyId === "dragon-intern") {
+      graphics.fillStyle(0xf7e5b1, 0.95);
+      graphics.fillRoundedRect(x - 13, y + 12, 26, 17, 3);
+      graphics.lineStyle(2, 0x7d3150);
+      graphics.strokeRoundedRect(x - 13, y + 12, 26, 17, 3);
+      graphics.lineBetween(x - 6, y + 17, x + 6, y + 17);
+    } else if (enemy.enemyId === "chief-executive-dragon") {
+      const stageColor =
+        enemy.bossPhaseIndex >= 2
+          ? 0xff5b4d
+          : enemy.bossPhaseIndex === 1
+            ? 0xd9b45b
+            : 0x8be7ff;
+      graphics.fillStyle(0xffd45c);
+      graphics.fillTriangle(x - 21, y - 30, x - 14, y - 52, x - 5, y - 31);
+      graphics.fillTriangle(x - 8, y - 32, x, y - 57, x + 8, y - 32);
+      graphics.fillTriangle(x + 5, y - 31, x + 14, y - 52, x + 21, y - 30);
+      graphics.lineStyle(4, stageColor, 0.95);
+      for (let marker = 0; marker < 3; marker += 1) {
+        graphics.lineBetween(
+          x - 18 + marker * 18,
+          y + 31,
+          x - 11 + marker * 18,
+          y + 38,
+        );
+        graphics.lineBetween(
+          x - 11 + marker * 18,
+          y + 38,
+          x - 4 + marker * 18,
+          y + 31,
+        );
+      }
+    }
+
+    if (enemy.spectral) {
+      const spectralPulse = animated ? Math.sin(tick * 0.22) * 3 : 0;
+      graphics.lineStyle(4, 0xa8f0d0, 0.9);
+      graphics.strokeCircle(x, y, (largeEnemy ? 42 : 28) + spectralPulse);
+      graphics.fillStyle(0xd8fff0, 0.92);
+      for (let marker = 0; marker < 4; marker += 1) {
+        const angle = (Math.PI * 2 * marker) / 4;
+        const markerX = x + Math.cos(angle) * 32;
+        const markerY = y + Math.sin(angle) * 32;
+        graphics.fillTriangle(
+          markerX,
+          markerY - 5,
+          markerX - 4,
+          markerY,
+          markerX,
+          markerY + 5,
+        );
+        graphics.fillTriangle(
+          markerX,
+          markerY - 5,
+          markerX + 4,
+          markerY,
+          markerX,
+          markerY + 5,
+        );
+      }
+    }
+
     if (
       !enemy.wardConsumed &&
       definition.traits?.some((trait) => trait.kind === "first-hit-ward")
     ) {
-      const shieldRadius = definition.boss ? 38 : 27;
+      const shieldRadius = largeEnemy ? 38 : 27;
       graphics.lineStyle(4, 0x8be7ff, 0.88);
       graphics.strokeCircle(x, y, shieldRadius);
       graphics.lineStyle(2, 0xe7fbff, 0.65);
@@ -1415,39 +1687,16 @@ class BattleScene extends Phaser.Scene {
 
     if (enemy.slowUntilTick > tick) {
       graphics.lineStyle(2, 0x7de8ff, 0.85);
-      graphics.strokeCircle(x, y, definition.boss ? 33 : 23);
+      graphics.strokeCircle(x, y, largeEnemy ? 33 : 23);
       graphics.fillStyle(0x7de8ff, 0.9);
       graphics.fillTriangle(x, y - 30, x - 5, y - 23, x + 5, y - 23);
       graphics.fillTriangle(x, y - 18, x - 5, y - 25, x + 5, y - 25);
     }
 
-    const radius = definition.boss
-      ? 29
-      : enemy.enemyId === "tax-troll"
-        ? 22
-        : 18;
-    const barWidth = definition.boss
-      ? 66
-      : enemy.enemyId === "tax-troll"
-        ? 44
-        : 36;
+    const radius = largeEnemy ? 29 : enemy.enemyId === "tax-troll" ? 22 : 18;
+    const barWidth = largeEnemy ? 66 : enemy.enemyId === "tax-troll" ? 44 : 36;
     graphics.fillStyle(0x1a1118, 0.95);
     graphics.fillRoundedRect(x - barWidth / 2, y - radius - 12, barWidth, 6, 3);
-    const bossPhases =
-      definition.bossPhases ??
-      (definition.bossPhase ? [definition.bossPhase] : []);
-    const activeBossPhase =
-      enemy.bossPhaseIndex > 0
-        ? bossPhases[enemy.bossPhaseIndex - 1]
-        : undefined;
-    const phaseMaxHealth = activeBossPhase
-      ? Math.max(
-          1,
-          Math.floor(
-            (enemy.maxHealth * activeBossPhase.healthThresholdPercent) / 100,
-          ),
-        )
-      : enemy.maxHealth;
     graphics.fillStyle(enemy.bossPhase ? 0xffb454 : 0x7ee081);
     graphics.fillRoundedRect(
       x - barWidth / 2,
@@ -1455,7 +1704,8 @@ class BattleScene extends Phaser.Scene {
       Math.max(
         2,
         Math.round(
-          (barWidth * Math.min(enemy.health, phaseMaxHealth)) / phaseMaxHealth,
+          (barWidth * Math.min(enemy.health, enemy.maxHealth)) /
+            enemy.maxHealth,
         ),
       ),
       6,
@@ -1727,6 +1977,23 @@ class BattleScene extends Phaser.Scene {
             variant: 0,
           };
         }
+      } else if (event.type === "enemy-referred") {
+        const referred = state.enemies.find(
+          (enemy) => enemy.id === event.referredInstanceId,
+        );
+        const position = referred
+          ? this.simulation.getEnemyPosition(referred)
+          : this.enemySnapshots.get(event.originalInstanceId);
+        if (position) {
+          effect = {
+            x: position.x,
+            y: position.y,
+            kind: "referral",
+            color: 0xa8f0d0,
+            startedAtTick: state.tick,
+            variant: 0,
+          };
+        }
       } else if (event.type === "ability-activated") {
         const target = state.enemies.find(
           (enemy) => enemy.id === event.targetInstanceId,
@@ -1794,14 +2061,19 @@ class BattleScene extends Phaser.Scene {
           Math.max(8, effect.x) - 2 + progress * 12,
           effect.y + 5,
         );
-      } else if (effect.kind === "boss-phase") {
-        this.effectsGraphics.lineStyle(6 - progress * 3, 0xffb454, alpha);
+      } else if (effect.kind === "boss-phase" || effect.kind === "referral") {
+        const color = effect.kind === "referral" ? 0xa8f0d0 : 0xffb454;
+        this.effectsGraphics.lineStyle(6 - progress * 3, color, alpha);
         this.effectsGraphics.strokeCircle(
           effect.x,
           effect.y,
           28 + progress * 74,
         );
-        this.effectsGraphics.lineStyle(3, 0xfff0a8, alpha * 0.8);
+        this.effectsGraphics.lineStyle(
+          3,
+          effect.kind === "referral" ? 0xe0fff4 : 0xfff0a8,
+          alpha * 0.8,
+        );
         this.effectsGraphics.strokeCircle(
           effect.x,
           effect.y,

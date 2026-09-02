@@ -1,21 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 import { levelDefinitions } from "./content.js";
-import { referenceStrategies, runReferenceStrategy } from "./balance.js";
+import {
+  referenceStrategies,
+  representativeStrategyIdsByLevel,
+  runReferenceStrategy,
+} from "./balance.js";
 import type { ActOneLevelId } from "./balance.js";
 
 describe("Act I balance references", () => {
   it.each(Object.keys(levelDefinitions))(
     "%s supports distinct deterministic compositions",
     (levelId) => {
+      const [firstStrategyId, secondStrategyId] =
+        representativeStrategyIdsByLevel[levelId as ActOneLevelId];
       const bladeAndMagic = runReferenceStrategy(
         levelId as ActOneLevelId,
-        referenceStrategies["blade-and-magic"],
+        referenceStrategies[firstStrategyId],
       );
 
       const bladeAndSong = runReferenceStrategy(
         levelId as ActOneLevelId,
-        referenceStrategies["blade-and-song"],
+        referenceStrategies[secondStrategyId],
       );
 
       expect(bladeAndMagic.result).toBe("victory");
@@ -49,13 +55,16 @@ describe("Act I balance references", () => {
     ["frozen-assets", 15, 20],
     ["department-of-unnecessary-bridges", 15, 20],
     ["siege-and-desist", 15, 20],
+    ["lava-lamp-district", 15, 20],
+    ["necromancers-networking-event", 15, 20],
+    ["quarterly-dragon-review", 18, 22],
   ] as const)(
     "%s meets its representative first-clear duration without excessive on-screen load",
     (levelId, minimumMinutes, maximumMinutes) => {
-      const reports = [
-        referenceStrategies["blade-and-magic"],
-        referenceStrategies["blade-and-song"],
-      ].map((strategy) => runReferenceStrategy(levelId, strategy));
+      const reports = [...representativeStrategyIdsByLevel[levelId]].map(
+        (strategyId) =>
+          runReferenceStrategy(levelId, referenceStrategies[strategyId]),
+      );
       for (const report of reports) {
         expect(report.representativeMinutes).toBeGreaterThanOrEqual(
           minimumMinutes,
@@ -79,6 +88,36 @@ describe("Act I balance references", () => {
       );
     },
   );
+
+  it("rejects the two-max-rank-Knight Frozen Assets build", () => {
+    const report = runReferenceStrategy(
+      "frozen-assets",
+      referenceStrategies["two-knight-table-service"],
+    );
+
+    expect(
+      referenceStrategies["two-knight-table-service"].initialPlacements,
+    ).toEqual([
+      { towerId: "fork-knight", padId: "frost-perch", level: 4 },
+      { towerId: "fork-knight", padId: "floe-crossing", level: 4 },
+    ]);
+    expect(report.towers).toBe(2);
+    expect(report.result === "defeat" || report.lives <= 3).toBe(true);
+    for (const strategyId of representativeStrategyIdsByLevel[
+      "frozen-assets"
+    ]) {
+      const mixed = runReferenceStrategy(
+        "frozen-assets",
+        referenceStrategies[strategyId],
+      );
+      expect(mixed.result).toBe("victory");
+      expect(
+        Object.values(mixed.contributionByTowerId).filter(
+          (contribution) => contribution.attacks > 0,
+        ).length,
+      ).toBeGreaterThanOrEqual(2);
+    }
+  });
 
   it("keeps every authored mastery feasible across specialized references", () => {
     const muddyAccounting = runReferenceStrategy(
@@ -129,7 +168,7 @@ describe("Act I balance references", () => {
 
     const frozenBalanced = runReferenceStrategy(
       "frozen-assets",
-      referenceStrategies["royal-accounting"],
+      referenceStrategies["budget-party"],
     );
     const frozenThinIce = runReferenceStrategy(
       "frozen-assets",
@@ -179,6 +218,32 @@ describe("Act I balance references", () => {
     expect(siegeClean.splitSpawns).toBe(52);
     expect(siegeClean.completedMasteryIds).not.toContain(
       "authorized-splits-only",
+    );
+
+    const lavaSafe = runReferenceStrategy(
+      "lava-lamp-district",
+      referenceStrategies["volcanic-detour"],
+    );
+    const networkingCompact = runReferenceStrategy(
+      "necromancers-networking-event",
+      referenceStrategies["six-degree-defense"],
+    );
+    const executiveBudget = runReferenceStrategy(
+      "quarterly-dragon-review",
+      referenceStrategies["executive-budget"],
+    );
+    expect(lavaSafe.result).toBe("victory");
+    expect(lavaSafe.completedMasteryIds).toEqual(
+      expect.arrayContaining(["eruption-proof", "respect-the-rope"]),
+    );
+    expect(networkingCompact.result).toBe("victory");
+    expect(networkingCompact.completedMasteryIds).toEqual(
+      expect.arrayContaining(["short-reference", "six-degrees"]),
+    );
+    expect(executiveBudget.result).toBe("victory");
+    expect(executiveBudget.spentGold).toBeLessThanOrEqual(1_650);
+    expect(executiveBudget.completedMasteryIds).toEqual(
+      expect.arrayContaining(["clean-quarter", "under-budget-review"]),
     );
   });
 

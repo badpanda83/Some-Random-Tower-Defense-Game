@@ -149,22 +149,38 @@ describe("campaign progress", () => {
     );
   });
 
-  it("derives rewards from a recovered recent victory", () => {
+  it("materializes progress and rewards from a recovered recent victory", () => {
     const save = createFreshSave();
     save.campaign.recentResults = [
       {
         levelId: "mimic-market",
         seed: 8,
         contentVersion: 2,
-        modifierIds: [],
+        modifierIds: ["rain-check"],
         result: "victory",
         score: 2800,
-        completedMasteryIds: [],
+        completedMasteryIds: ["no-refunds"],
         completedAt: "2026-08-31T12:08:00.000Z",
       },
     ];
 
-    expect(unlockedRewardIds(normalizeSaveProgress(save))).toContain(
+    const recovered = normalizeSaveProgress(save);
+    expect(recovered.campaign.levels["mimic-market"]).toEqual({
+      bestScore: 2800,
+      victories: 1,
+      completedMasteryIds: ["no-refunds"],
+      completedModifierIds: ["rain-check"],
+    });
+    expect(unlockedRewardIds(recovered)).toContain("fork-table-service");
+
+    const afterDisplayHistoryExpires = normalizeSaveProgress({
+      ...recovered,
+      campaign: { ...recovered.campaign, recentResults: [] },
+    });
+    expect(afterDisplayHistoryExpires.campaign.levels["mimic-market"]).toEqual(
+      recovered.campaign.levels["mimic-market"],
+    );
+    expect(unlockedRewardIds(afterDisplayHistoryExpires)).toContain(
       "fork-table-service",
     );
   });
@@ -228,5 +244,71 @@ describe("campaign progress", () => {
     expect(abandoned.campaign).toEqual(prior.campaign);
     expect(abandoned.settings).toEqual(prior.settings);
     expect(abandoned.contentVersion).toBe(prior.contentVersion);
+  });
+
+  it("unlocks Act III sequentially, never on defeat, and persists the finale", () => {
+    const save = createFreshSave();
+    for (const levelId of [
+      "muddy-moat",
+      "mimic-market",
+      "troll-tollway",
+      "castle-hassle",
+      "frozen-assets",
+      "department-of-unnecessary-bridges",
+      "siege-and-desist",
+      "lava-lamp-district",
+      "necromancers-networking-event",
+    ]) {
+      save.campaign.levels[levelId] = {
+        bestScore: 1,
+        victories: 1,
+        completedMasteryIds: [],
+        completedModifierIds: [],
+      };
+    }
+    const ready = normalizeSaveProgress(save);
+    expect(ready.campaign.unlockedNodeIds).toContain("quarterly-dragon-review");
+
+    const defeated = withBattleResult(ready, {
+      levelId: "quarterly-dragon-review",
+      seed: 90,
+      contentVersion: 3,
+      modifierIds: ["executive-mandate"],
+      result: "defeat",
+      score: 900,
+      completedMasteryIds: ["clean-quarter"],
+      completedAt: "2026-09-02T12:00:00.000Z",
+    });
+    expect(defeated.campaign.levels["quarterly-dragon-review"]).toMatchObject({
+      victories: 0,
+      completedMasteryIds: [],
+      completedModifierIds: [],
+    });
+    expect(unlockedRewardIds(defeated)).not.toContain("campaign-epilogue");
+
+    const victorious = withBattleResult(defeated, {
+      levelId: "quarterly-dragon-review",
+      seed: 91,
+      contentVersion: 3,
+      modifierIds: ["executive-mandate"],
+      result: "victory",
+      score: 12_000,
+      completedMasteryIds: ["clean-quarter", "executive-mandate"],
+      completedAt: "2026-09-02T12:20:00.000Z",
+    });
+    expect(victorious.campaign.levels["quarterly-dragon-review"]).toMatchObject(
+      {
+        victories: 1,
+        bestScore: 12_000,
+        completedModifierIds: ["executive-mandate"],
+      },
+    );
+    expect(unlockedRewardIds(victorious)).toEqual(
+      expect.arrayContaining([
+        "campaign-epilogue",
+        "completion-crest",
+        "executive-palette",
+      ]),
+    );
   });
 });

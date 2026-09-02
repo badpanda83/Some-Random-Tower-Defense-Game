@@ -63,7 +63,7 @@ describe("local save writer", () => {
 
     const loaded = parseLocalSaveData(legacy);
 
-    expect(loaded.contentVersion).toBe(2);
+    expect(loaded.contentVersion).toBe(3);
     expect(loaded.campaign.unlockedNodeIds).toEqual([
       "muddy-moat",
       "mimic-market",

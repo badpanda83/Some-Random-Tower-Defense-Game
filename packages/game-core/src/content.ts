@@ -58,11 +58,10 @@ export const towerDefinitions = {
       { damage: 38, range: 138, cooldownTicks: 14, upgradeCost: 85 },
       { damage: 58, range: 152, cooldownTicks: 12, upgradeCost: 140 },
       {
-        damage: 58,
+        damage: 72,
         range: 152,
-        cooldownTicks: 12,
+        cooldownTicks: 11,
         upgradeCost: null,
-        pierceCount: 1,
       },
     ],
   },
@@ -158,6 +157,22 @@ export const enemyDefinitions = {
     lifeDamage: 2,
     boss: false,
   },
+  "frozen-auditor": {
+    id: "frozen-auditor",
+    name: "Frozen Asset Auditor",
+    description:
+      "An ice-plated specialist that shrugs off Fork Knight strikes but cracks under arcane or sonic coverage.",
+    color: 0x9fe0f2,
+    maxHealth: 245,
+    speed: 37,
+    armor: 8,
+    reward: 4,
+    lifeDamage: 2,
+    boss: false,
+    traits: [
+      { kind: "damage-resistance", damageType: "physical", percent: 40 },
+    ],
+  },
   "dragon-intern": {
     id: "dragon-intern",
     name: "Unionized Dragon Intern",
@@ -169,7 +184,8 @@ export const enemyDefinitions = {
     armor: 6,
     reward: 50,
     lifeDamage: 5,
-    boss: true,
+    encounterRole: "miniboss",
+    boss: false,
     bossPhase: {
       healthThresholdPercent: 50,
       speedMultiplierPercent: 155,
@@ -299,6 +315,88 @@ export const enemyDefinitions = {
       { kind: "split-on-defeat", intoEnemyId: "basic-goblin", count: 2 },
     ],
   },
+  "grand-till-mimic": {
+    id: "grand-till-mimic",
+    name: "Grand Till Mimic",
+    description:
+      "The market's warded master register opens wide, marks everything down, and calls express checkout.",
+    color: 0xffc857,
+    maxHealth: 1_350,
+    speed: 38,
+    armor: 4,
+    reward: 70,
+    lifeDamage: 6,
+    boss: true,
+    traits: [{ kind: "first-hit-ward" }],
+    initialBossStage: {
+      id: "locked-register",
+      name: "Locked Register",
+      description: "A visible brass ward seals the till at entry.",
+    },
+    bossPhases: [
+      {
+        id: "clearance-rush",
+        name: "Clearance Rush",
+        description:
+          "At 60% health, the register accelerates through the aisle.",
+        healthThresholdPercent: 60,
+        speedMultiplierPercent: 125,
+        removesWard: true,
+      },
+      {
+        id: "express-checkout",
+        name: "Express Checkout",
+        description:
+          "At 25% health, three Express Mimics answer the final bell.",
+        healthThresholdPercent: 25,
+        speedMultiplierPercent: 165,
+        escort: { enemyId: "fast-mimic", count: 3 },
+        reinforcementCallId: "express-checkout",
+      },
+    ],
+  },
+  "lava-lamp-landlord": {
+    id: "lava-lamp-landlord",
+    name: "Lava Lamp Landlord",
+    description:
+      "The district's molten landlord rises after the final eruption, hardens its shell, and serves one last eviction notice.",
+    color: 0xff6b35,
+    maxHealth: 2_650,
+    speed: 29,
+    armor: 7,
+    reward: 130,
+    lifeDamage: 8,
+    boss: true,
+    traits: [{ kind: "first-hit-ward" }],
+    initialBossStage: {
+      id: "molten-lease",
+      name: "Molten Lease",
+      description: "A diamond-shaped heat ward and one manager open the lease.",
+      escort: { enemyId: "middle-manager-mage", count: 1 },
+    },
+    bossPhases: [
+      {
+        id: "hardened-shell",
+        name: "Hardened Shell",
+        description:
+          "At 65% health, cooled plates add armor as the ward breaks.",
+        healthThresholdPercent: 65,
+        speedMultiplierPercent: 100,
+        armorBonus: 5,
+        removesWard: true,
+      },
+      {
+        id: "liquidation",
+        name: "Liquidation",
+        description:
+          "At 28% health, the landlord surges forward and calls split cleanup.",
+        healthThresholdPercent: 28,
+        speedMultiplierPercent: 165,
+        escort: { enemyId: "refund-slime", count: 4 },
+        reinforcementCallId: "final-eviction",
+      },
+    ],
+  },
   "queen-of-pending-litigation": {
     id: "queen-of-pending-litigation",
     name: "Queen of Pending Litigation",
@@ -322,6 +420,47 @@ export const enemyDefinitions = {
         healthThresholdPercent: 20,
         speedMultiplierPercent: 180,
         removesWard: true,
+      },
+    ],
+  },
+  "chief-executive-dragon": {
+    id: "chief-executive-dragon",
+    name: "Chief Executive Dragon",
+    description:
+      "Arrives behind a severance ward, conducts an armored review, then rages through one final reinforcement call.",
+    color: 0xb3263e,
+    maxHealth: 4_200,
+    speed: 25,
+    armor: 8,
+    reward: 220,
+    lifeDamage: 12,
+    boss: true,
+    traits: [{ kind: "first-hit-ward" }],
+    initialBossStage: {
+      id: "severance-ward",
+      name: "Severance Ward",
+      description: "A visible ward and two retained escorts open the review.",
+      escort: { enemyId: "bog-guard", count: 2 },
+    },
+    bossPhases: [
+      {
+        id: "armored-review",
+        name: "Armored Main Review",
+        description: "At 70% health, the executive plates lock into place.",
+        healthThresholdPercent: 70,
+        speedMultiplierPercent: 100,
+        armorBonus: 8,
+        removesWard: true,
+      },
+      {
+        id: "rage-reforecast",
+        name: "Rage Reforecast",
+        description:
+          "At 32% health, the dragon accelerates and makes one final call.",
+        healthThresholdPercent: 32,
+        speedMultiplierPercent: 165,
+        escort: { enemyId: "middle-manager-mage", count: 3 },
+        reinforcementCallId: "final-reinforcement",
       },
     ],
   },
@@ -377,6 +516,36 @@ export const modifierDefinitions = {
     spawnIntervalPercent: 100,
     padShutdownExtraTicks: 50,
   },
+  "hot-seat": {
+    id: "hot-seat",
+    name: "Hot Seat",
+    description:
+      "Eruptions linger 45 ticks longer and the district opens 20 gold short.",
+    startingGoldDelta: -20,
+    enemyHealthPercent: 100,
+    spawnIntervalPercent: 100,
+    padShutdownExtraTicks: 45,
+  },
+  "referral-only": {
+    id: "referral-only",
+    name: "Referral Only",
+    description:
+      "Every arrival has 8% more health and networking starts 8% sooner.",
+    startingGoldDelta: 0,
+    enemyHealthPercent: 108,
+    spawnIntervalPercent: 92,
+    padShutdownExtraTicks: 0,
+  },
+  "executive-mandate": {
+    id: "executive-mandate",
+    name: "Executive Mandate",
+    description:
+      "Quarterly targets cut the opening budget by 35 and raise enemy health by 6%.",
+    startingGoldDelta: -35,
+    enemyHealthPercent: 106,
+    spawnIntervalPercent: 100,
+    padShutdownExtraTicks: 0,
+  },
 } as const satisfies Record<string, ModifierDefinition>;
 
 export const rewardDefinitions = {
@@ -385,7 +554,7 @@ export const rewardDefinitions = {
     id: "fork-table-service",
     name: "Table Service",
     description:
-      "Fork Knight rank IV: strikes now pierce through to a second target.",
+      "Fork Knight rank IV: a focused 72-damage strike on an 11-tick cadence, preserving its single-target role.",
     towerId: "fork-knight",
     unlockedLevel: 4,
   },
@@ -415,6 +584,50 @@ export const rewardDefinitions = {
     towerId: "bardbarian",
     unlockedLevel: 4,
   },
+  "hot-seat-challenge": {
+    kind: "modifier-unlock",
+    id: "hot-seat-challenge",
+    name: "Hot Seat",
+    description: "Unlocks the Hot Seat challenge for Lava Lamp District.",
+    modifierId: "hot-seat",
+  },
+  "referral-only-challenge": {
+    kind: "modifier-unlock",
+    id: "referral-only-challenge",
+    name: "Referral Only",
+    description:
+      "Unlocks the Referral Only challenge for the Necromancers' Networking Event.",
+    modifierId: "referral-only",
+  },
+  "executive-mandate-challenge": {
+    kind: "modifier-unlock",
+    id: "executive-mandate-challenge",
+    name: "Executive Mandate",
+    description:
+      "Unlocks the Executive Mandate challenge for Quarterly Dragon Review.",
+    modifierId: "executive-mandate",
+  },
+  "campaign-epilogue": {
+    kind: "campaign",
+    id: "campaign-epilogue",
+    name: "Campaign Epilogue",
+    description: "Unlocks the campaign epilogue after the final review.",
+    featureId: "epilogue",
+  },
+  "completion-crest": {
+    kind: "cosmetic",
+    id: "completion-crest",
+    name: "Completion Crest",
+    description: "A crest for completing all ten campaign missions.",
+    cosmeticType: "crest",
+  },
+  "executive-palette": {
+    kind: "cosmetic",
+    id: "executive-palette",
+    name: "Executive Palette",
+    description: "A campaign-completion crimson and gold palette.",
+    cosmeticType: "palette",
+  },
 } as const satisfies Record<string, RewardDefinition>;
 
 export const muddyMoatLevel: LevelDefinition = {
@@ -425,7 +638,7 @@ export const muddyMoatLevel: LevelDefinition = {
   order: 1,
   estimatedMinutes: 12,
   threatSummary:
-    "Goblin filler, sprinting mimics, armored tax trolls, and a rage-phase dragon intern boss.",
+    "Goblin filler, sprinting mimics, armored tax trolls, and a rage-phase Dragon Intern miniboss.",
   mechanicSummary:
     "Tutorial pacing: no restrictions, just economy, splash, and slow fundamentals.",
   environment: {
@@ -567,7 +780,7 @@ export const mimicMarketLevel: LevelDefinition = {
   order: 2,
   estimatedMinutes: 18,
   threatSummary:
-    "Warded coupon squires soak an opening hit; sprinting mimics keep restocking the aisles.",
+    "Warded Coupon Squires and sprinting mimics build toward the Grand Till Mimic's warded, phased closing rush.",
   mechanicSummary:
     "The register desk and kiosk stall are too cramped and awning-covered for the Discount Wizard's arcane blasts; every Coupon Squire shrugs off its first hit.",
   environment: {
@@ -699,9 +912,9 @@ export const mimicMarketLevel: LevelDefinition = {
       ),
     },
     {
-      name: "Closing Time",
+      name: "Grand Till Closing",
       preview:
-        "The shutters descend through seven continuous formations: crowds, armor, wards, and one final express checkout.",
+        "Boss: the warded Grand Till Mimic enters after six formations, then accelerates and calls three Express Mimics at final checkout.",
       spawns: wave(
         group("basic-goblin", 36, 13),
         group("fast-mimic", 20, 24, 220),
@@ -709,7 +922,8 @@ export const mimicMarketLevel: LevelDefinition = {
         group("tax-troll", 9, 72, 900),
         group("bog-guard", 14, 40, 1_200),
         group("basic-goblin", 36, 12, 1_500),
-        group("fast-mimic", 26, 20, 1_820),
+        group("grand-till-mimic", 1, 1, 1_820),
+        group("fast-mimic", 12, 22, 1_840),
       ),
     },
   ],
@@ -1145,9 +1359,9 @@ export const frozenAssetsLevel: LevelDefinition = {
   order: 5,
   estimatedMinutes: 15,
   threatSummary:
-    "Armored trolls, slow-immune queue jumpers, warded coupon squires, and a new arcane-resistant Warranty Wraith cross two icy shores toward the vault.",
+    "Physical-resistant Frozen Asset Auditors, slow-immune Queue Jumpers, warded Coupon Squires, and arcane-resistant Warranty Wraiths cross two icy shores toward the vault.",
   mechanicSummary:
-    "Two routes hug opposite shores of a frozen lake and merge at the vault; the three merge-adjacent pads sit on thin ice that rejects Fork Knights outright, and a marked mid-lake stretch on both shores speeds enemies up.",
+    "Two routes hug opposite shores of a frozen lake and merge at the vault; the lane-center and merge-adjacent pads sit on thin ice that rejects Fork Knights, while each shore keeps one safe Fork pad and a marked speed stretch.",
   environment: {
     theme: "frozen-lake",
     decorIds: ["ice-cracks", "frozen-reeds", "snow-drifts"],
@@ -1215,6 +1429,7 @@ export const frozenAssetsLevel: LevelDefinition = {
       id: "iceberg-shelf",
       position: { x: 330, y: 180 },
       laneId: "north-shore",
+      deniedTowerIds: ["fork-knight"],
     },
     {
       id: "floe-crossing",
@@ -1225,6 +1440,7 @@ export const frozenAssetsLevel: LevelDefinition = {
       id: "cold-storage-dock",
       position: { x: 330, y: 360 },
       laneId: "south-shore",
+      deniedTowerIds: ["fork-knight"],
     },
     {
       id: "vault-approach-north",
@@ -1279,10 +1495,10 @@ export const frozenAssetsLevel: LevelDefinition = {
         "Armored auditors anchor the south shore while mimics keep probing the north.",
       spawns: wave(
         group("basic-goblin", 22, 16),
-        group("tax-troll", 6, 92, 260, "south-shore"),
+        group("frozen-auditor", 6, 92, 260, "south-shore"),
         group("fast-mimic", 12, 28, 620),
         group("basic-goblin", 22, 14, 980),
-        group("tax-troll", 5, 84, 1_320),
+        group("frozen-auditor", 5, 84, 1_320),
       ),
     },
     {
@@ -1293,7 +1509,7 @@ export const frozenAssetsLevel: LevelDefinition = {
         group("queue-jumper", 14, 30),
         group("queue-jumper", 14, 29, 40, "south-shore"),
         group("basic-goblin", 22, 15, 480),
-        group("tax-troll", 6, 86, 860, "south-shore"),
+        group("frozen-auditor", 6, 86, 860, "south-shore"),
         group("fast-mimic", 12, 26, 1_220),
       ),
     },
@@ -1305,7 +1521,7 @@ export const frozenAssetsLevel: LevelDefinition = {
         group("coupon-squire", 10, 42),
         group("coupon-squire", 10, 40, 30, "south-shore"),
         group("queue-jumper", 14, 28, 460),
-        group("tax-troll", 6, 82, 820),
+        group("frozen-auditor", 6, 82, 820),
         group("fast-mimic", 14, 25, 1_180),
         group("basic-goblin", 20, 14, 1_500),
       ),
@@ -1320,7 +1536,7 @@ export const frozenAssetsLevel: LevelDefinition = {
         group("queue-jumper", 14, 27, 520),
         group("coupon-squire", 10, 38, 900),
         group("basic-goblin", 22, 14, 1_260),
-        group("tax-troll", 6, 78, 1_620),
+        group("frozen-auditor", 6, 78, 1_620),
       ),
     },
     {
@@ -1328,8 +1544,8 @@ export const frozenAssetsLevel: LevelDefinition = {
       preview:
         "Every threat crosses at once, converging hard on the three thin-ice merge pads.",
       spawns: wave(
-        group("tax-troll", 7, 78),
-        group("tax-troll", 6, 76, 30, "south-shore"),
+        group("frozen-auditor", 7, 78),
+        group("frozen-auditor", 6, 76, 30, "south-shore"),
         group("warranty-wraith", 8, 42, 420),
         group("queue-jumper", 16, 25, 780, "south-shore"),
         group("coupon-squire", 10, 36, 1_140),
@@ -1343,11 +1559,11 @@ export const frozenAssetsLevel: LevelDefinition = {
         "A last full-roster surge splits between shores before the vault finally opens.",
       spawns: wave(
         group("warranty-wraith", 10, 40),
-        group("tax-troll", 7, 74, 30, "south-shore"),
+        group("frozen-auditor", 7, 74, 30, "south-shore"),
         group("queue-jumper", 16, 25, 420),
         group("coupon-squire", 12, 34, 780, "south-shore"),
         group("fast-mimic", 16, 23, 1_140),
-        group("tax-troll", 7, 70, 1_480, "south-shore"),
+        group("frozen-auditor", 7, 70, 1_480, "south-shore"),
         group("basic-goblin", 24, 13, 1_820),
       ),
     },
@@ -1870,6 +2086,722 @@ export const siegeAndDesistLevel: LevelDefinition = {
   rewardIds: ["bardbarian-power-chord"],
 };
 
+export const lavaLampDistrictLevel: LevelDefinition = {
+  id: "lava-lamp-district",
+  name: "Lava Lamp District",
+  subtitle: "Act III opens where the road itself is having a hot flash.",
+  act: 3,
+  order: 8,
+  estimatedMinutes: 15,
+  threatSummary:
+    "Queue Jumpers, Warranty Wraiths, Middle Managers, and Refund Slimes recombine around three lava pools before the warded Lava Lamp Landlord hardens and calls split cleanup.",
+  mechanicSummary:
+    "A tight S-route has deterministic, telegraphed eruptions. Each eruption exposes authored pads and activates a marked hot-road speed zone.",
+  environment: {
+    theme: "lava-lamp-district",
+    decorIds: ["lava-pool-west", "lava-pool-center", "lava-pool-east"],
+    palette: { primary: 0x34213f, secondary: 0xd84a35, accent: 0xffc857 },
+  },
+  width: 960,
+  height: 540,
+  startingLives: 16,
+  startingGold: 360,
+  path: [
+    { x: -36, y: 440 },
+    { x: 190, y: 440 },
+    { x: 190, y: 120 },
+    { x: 430, y: 120 },
+    { x: 430, y: 420 },
+    { x: 680, y: 420 },
+    { x: 680, y: 120 },
+    { x: 996, y: 120 },
+  ],
+  speedZones: [
+    {
+      id: "west-hot-road",
+      routeId: "main",
+      fromPercent: 18,
+      toPercent: 31,
+      speedPercent: 145,
+      activationHazardId: "west-eruption",
+    },
+    {
+      id: "center-hot-road",
+      routeId: "main",
+      fromPercent: 45,
+      toPercent: 58,
+      speedPercent: 145,
+      activationHazardId: "center-eruption",
+    },
+    {
+      id: "final-center-hot-road",
+      routeId: "main",
+      fromPercent: 45,
+      toPercent: 58,
+      speedPercent: 145,
+      activationHazardId: "final-center-eruption",
+    },
+    {
+      id: "east-hot-road",
+      routeId: "main",
+      fromPercent: 72,
+      toPercent: 86,
+      speedPercent: 145,
+      activationHazardId: "east-eruption",
+    },
+  ],
+  environmentHazards: [
+    {
+      id: "west-eruption",
+      kind: "eruption",
+      name: "West Pool Eruption",
+      description: "The west bend flashes before lava crosses the road.",
+      waveIndex: 2,
+      telegraphFromTick: 110,
+      activeFromTick: 190,
+      activeToTick: 510,
+      exposedPadIds: ["west-inside", "west-outside"],
+      speedZoneIds: ["west-hot-road"],
+    },
+    {
+      id: "center-eruption",
+      kind: "eruption",
+      name: "Central Pool Eruption",
+      description: "The central switchback glows before it erupts.",
+      waveIndex: 4,
+      telegraphFromTick: 170,
+      activeFromTick: 250,
+      activeToTick: 590,
+      exposedPadIds: ["center-inside", "center-outside"],
+      speedZoneIds: ["center-hot-road"],
+    },
+    {
+      id: "east-eruption",
+      kind: "eruption",
+      name: "East Pool Eruption",
+      description: "The final bend signals its eruption in advance.",
+      waveIndex: 6,
+      telegraphFromTick: 220,
+      activeFromTick: 300,
+      activeToTick: 650,
+      exposedPadIds: ["east-inside", "east-outside"],
+      speedZoneIds: ["east-hot-road"],
+    },
+    {
+      id: "final-center-eruption",
+      kind: "eruption",
+      name: "Central Encore",
+      description: "The central pool repeats its learned warning pattern.",
+      waveIndex: 7,
+      telegraphFromTick: 500,
+      activeFromTick: 580,
+      activeToTick: 900,
+      exposedPadIds: ["center-inside", "center-outside"],
+      speedZoneIds: ["final-center-hot-road"],
+    },
+  ],
+  pads: [
+    {
+      id: "west-inside",
+      position: { x: 245, y: 365 },
+      laneId: "main",
+      clusterId: "west-pool",
+    },
+    {
+      id: "west-outside",
+      position: { x: 120, y: 270 },
+      laneId: "main",
+      clusterId: "west-pool",
+    },
+    {
+      id: "center-inside",
+      position: { x: 365, y: 205 },
+      laneId: "main",
+      clusterId: "center-pool",
+    },
+    {
+      id: "center-outside",
+      position: { x: 500, y: 265 },
+      laneId: "main",
+      clusterId: "center-pool",
+    },
+    {
+      id: "east-inside",
+      position: { x: 615, y: 350 },
+      laneId: "main",
+      clusterId: "east-pool",
+    },
+    {
+      id: "east-outside",
+      position: { x: 745, y: 275 },
+      laneId: "main",
+      clusterId: "east-pool",
+    },
+    { id: "entry-bend", position: { x: 90, y: 485 }, laneId: "main" },
+    { id: "exit-bend", position: { x: 825, y: 75 }, laneId: "main" },
+  ],
+  waves: [
+    {
+      name: "Warm Reception",
+      preview: "Goblin files and Queue Jumpers learn the S-bends.",
+      spawns: pacedWave(
+        157,
+        group("basic-goblin", 30, 18),
+        group("queue-jumper", 12, 30, 280),
+        group("basic-goblin", 22, 14, 650),
+      ),
+    },
+    {
+      name: "Warranty Heat",
+      preview: "Wraiths screen a fast second column.",
+      spawns: pacedWave(
+        157,
+        group("warranty-wraith", 10, 42),
+        group("queue-jumper", 18, 27, 280),
+        group("basic-goblin", 26, 14, 680),
+      ),
+    },
+    {
+      name: "West Pool Warning",
+      preview:
+        "The west eruption is telegraphed before exposed pads close and the road runs hot.",
+      spawns: pacedWave(
+        157,
+        group("coupon-squire", 12, 34),
+        group("queue-jumper", 20, 25, 300),
+        group("warranty-wraith", 10, 38, 690),
+      ),
+    },
+    {
+      name: "Management Melt",
+      preview: "Middle Manager auras pull armored Trolls through the bends.",
+      spawns: pacedWave(
+        157,
+        group("middle-manager-mage", 7, 62),
+        group("tax-troll", 10, 66, 180),
+        group("basic-goblin", 30, 13, 650),
+      ),
+    },
+    {
+      name: "Central Boil",
+      preview:
+        "Refund Slimes reach the central eruption and split into cleanup traffic.",
+      spawns: pacedWave(
+        157,
+        group("refund-slime", 10, 43),
+        group("warranty-wraith", 10, 39, 260),
+        group("queue-jumper", 20, 23, 610),
+      ),
+    },
+    {
+      name: "Claims Conveyor",
+      preview: "Wraith resistance and Slime splits alternate down the S.",
+      spawns: pacedWave(
+        157,
+        group("warranty-wraith", 14, 36),
+        group("refund-slime", 12, 39, 260),
+        group("tax-troll", 9, 62, 650),
+      ),
+    },
+    {
+      name: "East Pool Rush",
+      preview:
+        "Aura-supported Queue Jumpers foreground the final hot-road counter.",
+      spawns: pacedWave(
+        157,
+        group("middle-manager-mage", 8, 54),
+        group("queue-jumper", 28, 21, 170),
+        group("coupon-squire", 14, 31, 690),
+      ),
+    },
+    {
+      name: "Landlord's Liquidation",
+      preview:
+        "Boss: haste and aura lead into the warded Lava Lamp Landlord, whose hardened shell breaks into a fast final eviction with split reinforcements.",
+      spawns: pacedWave(
+        157,
+        group("middle-manager-mage", 7, 50),
+        group("queue-jumper", 24, 22, 120),
+        group("tax-troll", 10, 60, 520),
+        group("refund-slime", 10, 38, 800),
+        group("lava-lamp-landlord", 1, 1, 1_120),
+      ),
+    },
+  ],
+  mastery: [
+    {
+      id: "eruption-proof",
+      name: "Eruption Proof",
+      description: "Win with no leaks during an active eruption window.",
+      rule: { kind: "no-leaks-during-environment-hazards" },
+    },
+    {
+      id: "respect-the-rope",
+      name: "Respect the Rope",
+      description: "Win without occupying a pad while it is exposed.",
+      rule: { kind: "no-exposed-pad-uses" },
+    },
+    {
+      id: "hot-seat",
+      name: "Hot Seat",
+      description: "Win under the Hot Seat challenge.",
+      rule: { kind: "victory-under-modifier", modifierId: "hot-seat" },
+    },
+  ],
+  availableModifierIds: ["hot-seat"],
+  rewardIds: ["hot-seat-challenge"],
+};
+
+export const necromancersNetworkingEventLevel: LevelDefinition = {
+  id: "necromancers-networking-event",
+  name: "Necromancers' Networking Event",
+  subtitle: "Every introduction comes with one follow-up.",
+  act: 3,
+  order: 9,
+  estimatedMinutes: 16,
+  threatSummary:
+    "Marked waves refer their first defeated non-boss back at half health; referred Trolls and Warranty Wraiths headline the final mixer under Middle Manager support.",
+  mechanicSummary:
+    "Two opposite-corner routes cross visually through a no-build ballroom, then merge near the exit. Referrals are spectral, one-shot, and cannot refer themselves.",
+  environment: {
+    theme: "necromancer-ballroom",
+    decorIds: ["no-build-dance-floor", "spectral-banners", "exit-coat-check"],
+    palette: { primary: 0x241c38, secondary: 0x694f8e, accent: 0xa8f0d0 },
+  },
+  width: 960,
+  height: 540,
+  startingLives: 16,
+  startingGold: 620,
+  path: [
+    { x: -36, y: -30 },
+    { x: 180, y: 90 },
+    { x: 390, y: 270 },
+    { x: 650, y: 270 },
+    { x: 790, y: 400 },
+    { x: 996, y: 400 },
+  ],
+  routes: [
+    {
+      id: "northwest-invite",
+      path: [
+        { x: -36, y: -30 },
+        { x: 180, y: 90 },
+        { x: 390, y: 270 },
+        { x: 650, y: 270 },
+        { x: 790, y: 400 },
+        { x: 996, y: 400 },
+      ],
+    },
+    {
+      id: "southwest-plus-one",
+      path: [
+        { x: -36, y: 570 },
+        { x: 180, y: 450 },
+        { x: 390, y: 270 },
+        { x: 650, y: 270 },
+        { x: 790, y: 400 },
+        { x: 996, y: 400 },
+      ],
+    },
+  ],
+  pads: [
+    {
+      id: "north-door",
+      position: { x: 115, y: 55 },
+      laneId: "northwest-invite",
+    },
+    {
+      id: "south-door",
+      position: { x: 115, y: 485 },
+      laneId: "southwest-plus-one",
+    },
+    {
+      id: "north-band",
+      position: { x: 275, y: 105 },
+      laneId: "northwest-invite",
+    },
+    {
+      id: "south-band",
+      position: { x: 275, y: 435 },
+      laneId: "southwest-plus-one",
+    },
+    { id: "coat-check", position: { x: 690, y: 350 }, laneId: "shared" },
+    { id: "last-handshake", position: { x: 825, y: 325 }, laneId: "shared" },
+    {
+      id: "north-wall",
+      position: { x: 500, y: 120 },
+      laneId: "northwest-invite",
+    },
+    {
+      id: "south-wall",
+      position: { x: 500, y: 420 },
+      laneId: "southwest-plus-one",
+    },
+  ],
+  waves: [
+    {
+      name: "Name Tags",
+      preview: "Two ordinary goblin guest lists cross the ballroom.",
+      spawns: pacedWave(
+        170,
+        group("basic-goblin", 28, 18, 0, "northwest-invite"),
+        group("basic-goblin", 28, 18, 20, "southwest-plus-one"),
+      ),
+    },
+    {
+      name: "Speed Networking",
+      preview: "Mimics and Queue Jumpers trade opposite corners.",
+      spawns: pacedWave(
+        170,
+        group("fast-mimic", 18, 28, 0, "northwest-invite"),
+        group("queue-jumper", 18, 28, 20, "southwest-plus-one"),
+        group("basic-goblin", 24, 14, 650),
+      ),
+    },
+    {
+      name: "First Referral",
+      preview:
+        "Marked: the first defeated non-boss returns once at half health.",
+      referral: { reviveHealthPercent: 50 },
+      spawns: pacedWave(
+        170,
+        group("coupon-squire", 14, 36, 0, "northwest-invite"),
+        group("warranty-wraith", 10, 44, 30, "southwest-plus-one"),
+        group("queue-jumper", 18, 25, 620),
+      ),
+    },
+    {
+      name: "Management Circle",
+      preview: "Middle Managers accelerate mirrored Troll formations.",
+      spawns: pacedWave(
+        170,
+        group("middle-manager-mage", 6, 58, 0, "northwest-invite"),
+        group("tax-troll", 9, 70, 120, "northwest-invite"),
+        group("middle-manager-mage", 6, 58, 20, "southwest-plus-one"),
+        group("tax-troll", 9, 70, 140, "southwest-plus-one"),
+      ),
+    },
+    {
+      name: "Claims Follow-Up",
+      preview: "Marked: Slimes split while one first defeat also returns.",
+      referral: { reviveHealthPercent: 50 },
+      spawns: pacedWave(
+        170,
+        group("refund-slime", 12, 42, 0, "northwest-invite"),
+        group("refund-slime", 12, 42, 20, "southwest-plus-one"),
+        group("warranty-wraith", 12, 38, 610),
+      ),
+    },
+    {
+      name: "Crossed Calendars",
+      preview:
+        "Wraiths and warded guards swap lanes across the no-build floor.",
+      spawns: pacedWave(
+        170,
+        group("warranty-wraith", 15, 38, 0, "northwest-invite"),
+        group("bog-guard", 14, 40, 20, "southwest-plus-one"),
+        group("queue-jumper", 22, 23, 620),
+      ),
+    },
+    {
+      name: "Executive Introduction",
+      preview: "Marked: armored guests meet a dense aura-supported merge.",
+      referral: { reviveHealthPercent: 50 },
+      spawns: pacedWave(
+        170,
+        group("middle-manager-mage", 8, 52, 0, "northwest-invite"),
+        group("tax-troll", 12, 62, 100, "northwest-invite"),
+        group("coupon-squire", 18, 31, 20, "southwest-plus-one"),
+        group("queue-jumper", 22, 22, 650, "southwest-plus-one"),
+      ),
+    },
+    {
+      name: "Open Mixer",
+      preview: "Every resistance profile reaches the shared coat check.",
+      spawns: pacedWave(
+        170,
+        group("warranty-wraith", 16, 36, 0, "northwest-invite"),
+        group("refund-slime", 14, 38, 20, "southwest-plus-one"),
+        group("tax-troll", 12, 60, 420),
+        group("middle-manager-mage", 8, 48, 700, "southwest-plus-one"),
+      ),
+    },
+    {
+      name: "Referral Capstone",
+      preview:
+        "Marked: the first Troll or Wraith defeat returns once while Middle Managers support both routes.",
+      referral: { reviveHealthPercent: 50 },
+      spawns: pacedWave(
+        170,
+        group("tax-troll", 14, 58, 0, "northwest-invite"),
+        group("warranty-wraith", 16, 35, 20, "southwest-plus-one"),
+        group("middle-manager-mage", 10, 46, 300),
+        group("middle-manager-mage", 10, 46, 320, "southwest-plus-one"),
+        group("queue-jumper", 24, 21, 760),
+      ),
+    },
+  ],
+  mastery: [
+    {
+      id: "short-reference",
+      name: "Short Reference",
+      description: "Defeat every referred enemy before it reaches halfway.",
+      rule: { kind: "no-referred-enemy-reaches-halfway" },
+    },
+    {
+      id: "six-degrees",
+      name: "Six Degrees",
+      description: "Win having placed at most six towers.",
+      rule: { kind: "max-towers-placed", maxTowers: 6 },
+    },
+    {
+      id: "referral-only",
+      name: "Referral Only",
+      description: "Win under the Referral Only challenge.",
+      rule: { kind: "victory-under-modifier", modifierId: "referral-only" },
+    },
+  ],
+  availableModifierIds: ["referral-only"],
+  rewardIds: ["referral-only-challenge"],
+};
+
+export const quarterlyDragonReviewLevel: LevelDefinition = {
+  id: "quarterly-dragon-review",
+  name: "Quarterly Dragon Review",
+  subtitle: "The final gate has three entrances and one very senior reviewer.",
+  act: 3,
+  order: 10,
+  estimatedMinutes: 18,
+  threatSummary:
+    "Warehouse, courtyard, and executive-tunnel formations exercise every roster role before the Dragon Intern and the three-stage Chief Executive Dragon.",
+  mechanicSummary:
+    "Three routes converge at one final gate. Waves 7-9 foreground armor, speed/control resistance, and aura/split counters before wave 10 combines those readable roles.",
+  environment: {
+    theme: "quarterly-review-campus",
+    decorIds: [
+      "warehouse",
+      "review-courtyard",
+      "executive-tunnel",
+      "final-gate",
+    ],
+    palette: { primary: 0x263044, secondary: 0x783f4f, accent: 0xf2c14e },
+  },
+  width: 960,
+  height: 540,
+  startingLives: 18,
+  startingGold: 760,
+  path: [
+    { x: -36, y: 90 },
+    { x: 260, y: 90 },
+    { x: 440, y: 270 },
+    { x: 720, y: 270 },
+    { x: 840, y: 360 },
+    { x: 996, y: 360 },
+  ],
+  routes: [
+    {
+      id: "warehouse",
+      path: [
+        { x: -36, y: 90 },
+        { x: 260, y: 90 },
+        { x: 440, y: 270 },
+        { x: 720, y: 270 },
+        { x: 840, y: 360 },
+        { x: 996, y: 360 },
+      ],
+    },
+    {
+      id: "courtyard",
+      path: [
+        { x: -36, y: 450 },
+        { x: 260, y: 450 },
+        { x: 440, y: 270 },
+        { x: 720, y: 270 },
+        { x: 840, y: 360 },
+        { x: 996, y: 360 },
+      ],
+    },
+    {
+      id: "executive-tunnel",
+      path: [
+        { x: -36, y: 270 },
+        { x: 170, y: 270 },
+        { x: 170, y: -36 },
+        { x: 360, y: -36 },
+        { x: 360, y: 150 },
+        { x: 520, y: 270 },
+        { x: 720, y: 270 },
+        { x: 840, y: 360 },
+        { x: 996, y: 360 },
+      ],
+    },
+  ],
+  pads: [
+    { id: "warehouse-door", position: { x: 100, y: 145 }, laneId: "warehouse" },
+    { id: "warehouse-rack", position: { x: 270, y: 155 }, laneId: "warehouse" },
+    { id: "courtyard-door", position: { x: 100, y: 395 }, laneId: "courtyard" },
+    { id: "courtyard-dais", position: { x: 270, y: 385 }, laneId: "courtyard" },
+    {
+      id: "tunnel-desk",
+      position: { x: 420, y: 65 },
+      laneId: "executive-tunnel",
+    },
+    {
+      id: "tunnel-lamp",
+      position: { x: 485, y: 180 },
+      laneId: "executive-tunnel",
+    },
+    { id: "review-left", position: { x: 520, y: 350 }, laneId: "shared" },
+    { id: "review-right", position: { x: 650, y: 190 }, laneId: "shared" },
+    { id: "gate-north", position: { x: 785, y: 250 }, laneId: "shared" },
+    { id: "gate-south", position: { x: 870, y: 430 }, laneId: "shared" },
+  ],
+  waves: [
+    {
+      name: "Attendance",
+      preview: "Basic staff enter through all three review routes.",
+      spawns: pacedWave(
+        220,
+        group("basic-goblin", 24, 18, 0, "warehouse"),
+        group("basic-goblin", 24, 18, 20, "courtyard"),
+        group("basic-goblin", 20, 20, 40, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Expedited Agenda",
+      preview: "Mimics and Queue Jumpers test speed coverage lane by lane.",
+      spawns: pacedWave(
+        220,
+        group("fast-mimic", 18, 27, 0, "warehouse"),
+        group("queue-jumper", 18, 27, 20, "courtyard"),
+        group("coupon-squire", 14, 34, 40, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Protected Statements",
+      preview: "Wards and magic-resistant Wraiths demand mixed damage.",
+      spawns: pacedWave(
+        220,
+        group("coupon-squire", 16, 34, 0, "warehouse"),
+        group("warranty-wraith", 14, 38, 20, "courtyard"),
+        group("bog-guard", 12, 42, 40, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Audited Inventory",
+      preview:
+        "Ordinary Tax Trolls and physical-resistant Frozen Asset Auditors split the warehouse and courtyard.",
+      spawns: pacedWave(
+        220,
+        group("tax-troll", 12, 64, 0, "warehouse"),
+        group("frozen-auditor", 12, 64, 20, "courtyard"),
+        group("queue-jumper", 20, 23, 300, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Delegated Momentum",
+      preview: "Middle Manager auras accelerate three readable formations.",
+      spawns: pacedWave(
+        220,
+        group("middle-manager-mage", 7, 54, 0, "warehouse"),
+        group("basic-goblin", 28, 14, 100, "warehouse"),
+        group("middle-manager-mage", 7, 54, 20, "courtyard"),
+        group("queue-jumper", 22, 22, 120, "courtyard"),
+        group("warranty-wraith", 12, 36, 400, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Refund Forecast",
+      preview: "Refund Slimes make splash cleanup the foreground concern.",
+      spawns: pacedWave(
+        220,
+        group("refund-slime", 14, 38, 0, "warehouse"),
+        group("refund-slime", 14, 38, 20, "courtyard"),
+        group("warranty-wraith", 14, 36, 320, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Armor Counter: Intern Review",
+      preview:
+        "Foreground counter: armor answers the warehouse while the returning Dragon Intern arrives early as a miniboss.",
+      spawns: pacedWave(
+        220,
+        group("tax-troll", 15, 58, 0, "warehouse"),
+        group("dragon-intern", 1, 1, 420, "courtyard"),
+        group("middle-manager-mage", 8, 48, 200, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Control Counter: Fast Track",
+      preview:
+        "Foreground counter: slow-immune Queue Jumpers and Wraith resistance require coverage and physical answers.",
+      spawns: pacedWave(
+        220,
+        group("queue-jumper", 30, 20, 0, "warehouse"),
+        group("warranty-wraith", 18, 34, 20, "courtyard"),
+        group("coupon-squire", 18, 29, 200, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Density Counter: Reforecast",
+      preview:
+        "Foreground counter: aura-supported Slime splits reward splash and disciplined merge coverage.",
+      spawns: pacedWave(
+        220,
+        group("middle-manager-mage", 10, 46, 0, "warehouse"),
+        group("refund-slime", 18, 34, 120, "warehouse"),
+        group("middle-manager-mage", 10, 46, 20, "courtyard"),
+        group("refund-slime", 18, 34, 140, "courtyard"),
+        group("tax-troll", 12, 56, 500, "executive-tunnel"),
+      ),
+    },
+    {
+      name: "Chief Executive Dragon",
+      preview:
+        "All readable roles combine without hidden inflation, including physical-resistant auditors. The Chief opens warded with escorts, enters an armored main review, then rages and calls exactly one final reinforcement.",
+      spawns: pacedWave(
+        220,
+        group("frozen-auditor", 10, 58, 0, "warehouse"),
+        group("warranty-wraith", 12, 34, 20, "courtyard"),
+        group("queue-jumper", 20, 21, 180, "executive-tunnel"),
+        group("refund-slime", 12, 34, 450, "warehouse"),
+        group("middle-manager-mage", 8, 46, 580, "courtyard"),
+        group("chief-executive-dragon", 1, 1, 900, "executive-tunnel"),
+      ),
+    },
+  ],
+  mastery: [
+    {
+      id: "clean-quarter",
+      name: "Clean Quarter",
+      description: "Win without a single leak.",
+      rule: { kind: "no-leaks" },
+    },
+    {
+      id: "under-budget-review",
+      name: "Under Budget Review",
+      description: "Win while spending no more than 1,650 gold.",
+      rule: { kind: "max-spent-gold", maxGold: 1_650 },
+    },
+    {
+      id: "executive-mandate",
+      name: "Executive Mandate",
+      description: "Win under the Executive Mandate challenge.",
+      rule: {
+        kind: "victory-under-modifier",
+        modifierId: "executive-mandate",
+      },
+    },
+  ],
+  availableModifierIds: ["executive-mandate"],
+  rewardIds: [
+    "executive-mandate-challenge",
+    "campaign-epilogue",
+    "completion-crest",
+    "executive-palette",
+  ],
+};
+
 export const levelDefinitions = {
   "muddy-moat": muddyMoatLevel,
   "mimic-market": mimicMarketLevel,
@@ -1878,6 +2810,9 @@ export const levelDefinitions = {
   "frozen-assets": frozenAssetsLevel,
   "department-of-unnecessary-bridges": departmentOfUnnecessaryBridgesLevel,
   "siege-and-desist": siegeAndDesistLevel,
+  "lava-lamp-district": lavaLampDistrictLevel,
+  "necromancers-networking-event": necromancersNetworkingEventLevel,
+  "quarterly-dragon-review": quarterlyDragonReviewLevel,
 } as const satisfies Record<string, LevelDefinition>;
 
 export const campaignNodes: readonly CampaignNodeDefinition[] = [
@@ -1982,42 +2917,49 @@ export const campaignNodes: readonly CampaignNodeDefinition[] = [
     rewardIds: ["bardbarian-power-chord"],
   },
   {
-    id: "act-three-preview-one",
-    levelId: null,
-    name: "Act III · Chapter I",
-    description: "Not yet available. Act III is still in development.",
+    id: "lava-lamp-district",
+    levelId: "lava-lamp-district",
+    name: "Lava Lamp District",
+    description: "Three pools, one S-road, and a very literal hot seat.",
     position: { x: 12, y: 90 },
     act: 3,
     order: 8,
     unlock: "victory",
-    unlockSourceId: null,
-    unlockConditions: [],
-    rewardIds: [],
+    unlockSourceId: "siege-and-desist",
+    unlockConditions: [{ kind: "victory", levelId: "siege-and-desist" }],
+    rewardIds: ["hot-seat-challenge"],
   },
   {
-    id: "act-three-preview-two",
-    levelId: null,
-    name: "Act III · Chapter II",
-    description: "Not yet available. Act III is still in development.",
+    id: "necromancers-networking-event",
+    levelId: "necromancers-networking-event",
+    name: "Necromancers' Networking Event",
+    description: "The first follow-up is always spectral.",
     position: { x: 12, y: 80 },
     act: 3,
     order: 9,
     unlock: "victory",
-    unlockSourceId: null,
-    unlockConditions: [],
-    rewardIds: [],
+    unlockSourceId: "lava-lamp-district",
+    unlockConditions: [{ kind: "victory", levelId: "lava-lamp-district" }],
+    rewardIds: ["referral-only-challenge"],
   },
   {
-    id: "act-three-preview-three",
-    levelId: null,
-    name: "Act III · Chapter III",
-    description: "Not yet available. Act III is still in development.",
+    id: "quarterly-dragon-review",
+    levelId: "quarterly-dragon-review",
+    name: "Quarterly Dragon Review",
+    description: "Three routes converge on one final performance review.",
     position: { x: 12, y: 70 },
     act: 3,
     order: 10,
     unlock: "victory",
-    unlockSourceId: null,
-    unlockConditions: [],
-    rewardIds: [],
+    unlockSourceId: "necromancers-networking-event",
+    unlockConditions: [
+      { kind: "victory", levelId: "necromancers-networking-event" },
+    ],
+    rewardIds: [
+      "executive-mandate-challenge",
+      "campaign-epilogue",
+      "completion-crest",
+      "executive-palette",
+    ],
   },
 ];

@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   isLegacySaveData,
+  isPreviousSaveData,
+  migrateSaveDataToV3,
   migrateSaveDataV1ToV2,
   parseSaveDataWithMigration,
 } from "./migration.js";
 import {
   CONTENT_VERSION,
   LEGACY_CONTENT_VERSION,
+  PREVIOUS_CONTENT_VERSION,
   battleCheckpointSchema,
   gameCommandSchema,
   saveDataSchema,
   saveDataSchemaV1,
+  saveDataSchemaV2,
 } from "./schemas.js";
 
 function freshCampaign() {
@@ -108,6 +112,33 @@ describe("protocol schemas", () => {
     ).not.toThrow();
   });
 
+  it("accepts optional Act III cumulative checkpoint metrics", () => {
+    const save = battleCheckpointSchema.parse({
+      levelId: "necromancers-networking-event",
+      seed: 1,
+      modifierIds: [],
+      tick: 900,
+      nextWave: 4,
+      lives: 12,
+      gold: 200,
+      score: 800,
+      spawnedEnemies: 50,
+      placements: [],
+      metrics: {
+        spentGold: 400,
+        leakedEnemies: 0,
+        soldTowers: 0,
+        usedTowerIds: ["fork-knight"],
+        leaksDuringEnvironmentHazards: 0,
+        exposedPadUses: 2,
+        referredEnemiesReachedHalfway: 1,
+        referredWaveIndices: [2],
+        bossReinforcementCalls: { "final-reinforcement": 1 },
+      },
+    });
+    expect(save.metrics.referredWaveIndices).toEqual([2]);
+  });
+
   it("rejects saves from an unknown content version", () => {
     expect(() =>
       saveDataSchema.parse({
@@ -119,7 +150,7 @@ describe("protocol schemas", () => {
     ).toThrow();
   });
 
-  it("rejects a v1 envelope against the current v2 schema", () => {
+  it("rejects a v1 envelope against the current v3 schema", () => {
     expect(() =>
       saveDataSchema.parse({
         contentVersion: LEGACY_CONTENT_VERSION,
@@ -131,7 +162,7 @@ describe("protocol schemas", () => {
   });
 });
 
-describe("v1 to v2 migration", () => {
+describe("legacy v1 migration", () => {
   const v1Save = {
     contentVersion: LEGACY_CONTENT_VERSION,
     campaign: {
@@ -177,7 +208,7 @@ describe("v1 to v2 migration", () => {
     ).toBe(false);
   });
 
-  it("migrates v1 data to a v2-valid save without dropping progress", () => {
+  it("migrates v1 data to a v3-valid save without dropping progress", () => {
     const migrated = migrateSaveDataV1ToV2(v1Save);
 
     expect(() => saveDataSchema.parse(migrated)).not.toThrow();
@@ -217,7 +248,7 @@ describe("v1 to v2 migration", () => {
     expect(parseSaveDataWithMigration(current)).toEqual(current);
   });
 
-  it("throws for data matching neither the v1 nor v2 schema", () => {
+  it("throws for data matching no supported save schema", () => {
     expect(() => migrateSaveDataV1ToV2({ nonsense: true })).toThrow();
   });
 
@@ -260,5 +291,73 @@ describe("v1 to v2 migration", () => {
 
     const twice = migrateSaveDataV1ToV2(migrated);
     expect(twice).toEqual(migrated);
+  });
+});
+
+describe("v1/v2/v3 migration", () => {
+  const envelope = {
+    campaign: {
+      unlockedNodeIds: ["muddy-moat", "lava-lamp-district"],
+      levels: {
+        "lava-lamp-district": {
+          bestScore: 5000,
+          victories: 1,
+          completedMasteryIds: ["eruption-proof"],
+          completedModifierIds: [],
+        },
+      },
+      recentResults: [
+        {
+          levelId: "lava-lamp-district",
+          seed: 77,
+          contentVersion: PREVIOUS_CONTENT_VERSION,
+          modifierIds: [],
+          result: "victory" as const,
+          score: 5000,
+          completedMasteryIds: ["eruption-proof"],
+          completedAt: "2026-09-02T00:00:00.000Z",
+        },
+      ],
+      recordedAttemptIds: ["preserved-attempt"],
+    },
+    settings: {
+      muted: true,
+      reducedMotion: true,
+      lowEffects: false,
+      gameSpeed: 2 as const,
+    },
+    checkpoint: null,
+  };
+
+  it("migrates v2 to v3 without changing progress, settings, or results", () => {
+    const v2 = saveDataSchemaV2.parse({
+      ...envelope,
+      contentVersion: PREVIOUS_CONTENT_VERSION,
+    });
+    expect(isPreviousSaveData(v2)).toBe(true);
+    const migrated = migrateSaveDataToV3(v2);
+    expect(migrated.contentVersion).toBe(CONTENT_VERSION);
+    expect(migrated.campaign).toEqual(v2.campaign);
+    expect(migrated.settings).toEqual(v2.settings);
+  });
+
+  it("accepts v1, v2, and v3 battle-result versions after migration", () => {
+    for (const version of [
+      LEGACY_CONTENT_VERSION,
+      PREVIOUS_CONTENT_VERSION,
+      CONTENT_VERSION,
+    ]) {
+      const migrated = migrateSaveDataToV3({
+        ...envelope,
+        contentVersion: version,
+        campaign: {
+          ...envelope.campaign,
+          recentResults: [
+            { ...envelope.campaign.recentResults[0]!, contentVersion: version },
+          ],
+        },
+      });
+      expect(migrated.campaign.recentResults[0]?.contentVersion).toBe(version);
+    }
   });
 });
