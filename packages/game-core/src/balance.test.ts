@@ -46,6 +46,9 @@ describe("Act I balance references", () => {
     ["mimic-market", 15, 20],
     ["troll-tollway", 15, 20],
     ["castle-hassle", 15, 20],
+    ["frozen-assets", 15, 20],
+    ["department-of-unnecessary-bridges", 15, 20],
+    ["siege-and-desist", 15, 20],
   ] as const)(
     "%s meets its representative first-clear duration without excessive on-screen load",
     (levelId, minimumMinutes, maximumMinutes) => {
@@ -122,6 +125,60 @@ describe("Act I balance references", () => {
         "skeleton-crew",
         "before-the-bell",
       ]),
+    );
+
+    const frozenBalanced = runReferenceStrategy(
+      "frozen-assets",
+      referenceStrategies["royal-accounting"],
+    );
+    const frozenThinIce = runReferenceStrategy(
+      "frozen-assets",
+      referenceStrategies["blade-and-magic"],
+      ["thin-ice"],
+    );
+    const bridgesDefault = runReferenceStrategy(
+      "department-of-unnecessary-bridges",
+      referenceStrategies["blade-and-magic"],
+    );
+    const bridgesBudget = runReferenceStrategy(
+      "department-of-unnecessary-bridges",
+      referenceStrategies["royal-accounting"],
+    );
+    const siegeClean = runReferenceStrategy(
+      "siege-and-desist",
+      referenceStrategies["blade-and-magic"],
+    );
+    const siegeCompact = runReferenceStrategy(
+      "siege-and-desist",
+      referenceStrategies["royal-accounting"],
+    );
+    const controlledClaims = runReferenceStrategy(
+      "siege-and-desist",
+      referenceStrategies["claims-control"],
+    );
+
+    expect(frozenBalanced.completedMasteryIds).toEqual(
+      expect.arrayContaining(["full-defense-roster", "warranty-void"]),
+    );
+    expect(frozenThinIce.completedMasteryIds).toEqual(
+      expect.arrayContaining(["warranty-void", "skate-on-thin-ice"]),
+    );
+    expect(bridgesDefault.completedMasteryIds).toEqual(
+      expect.arrayContaining(["no-tea-time", "management-review"]),
+    );
+    expect(bridgesBudget.completedMasteryIds).toContain(
+      "authorized-expenditure",
+    );
+    expect(siegeClean.completedMasteryIds).toContain("no-leaks-at-the-gate");
+    expect(siegeCompact.completedMasteryIds).toContain("skeleton-siege");
+    expect(controlledClaims.result).toBe("victory");
+    expect(controlledClaims.splitSpawns).toBe(50);
+    expect(controlledClaims.completedMasteryIds).toContain(
+      "authorized-splits-only",
+    );
+    expect(siegeClean.splitSpawns).toBe(52);
+    expect(siegeClean.completedMasteryIds).not.toContain(
+      "authorized-splits-only",
     );
   });
 

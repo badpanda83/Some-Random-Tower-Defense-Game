@@ -316,6 +316,9 @@ describe("game simulation", () => {
     "mimic-market",
     "troll-tollway",
     "castle-hassle",
+    "frozen-assets",
+    "department-of-unnecessary-bridges",
+    "siege-and-desist",
   ] as const)("starts and restores %s deterministically", (levelId) => {
     const simulation = createSimulation({ levelId, seed: 17 });
     const checkpoint = simulation.createCheckpoint();
@@ -330,6 +333,9 @@ describe("game simulation", () => {
     "mimic-market",
     "troll-tollway",
     "castle-hassle",
+    "frozen-assets",
+    "department-of-unnecessary-bridges",
+    "siege-and-desist",
   ] as const)(
     "has a deterministic first-clear reference build for %s",
     (levelId) => {
@@ -401,6 +407,31 @@ describe("game simulation", () => {
         },
       }),
     ).toThrow(/not allowed on pad/i);
+
+    const frozenCheckpoint = createSimulation({
+      levelId: "frozen-assets",
+      seed: 12,
+    }).createCheckpoint()!;
+    expect(() =>
+      createSimulation({
+        checkpoint: {
+          ...frozenCheckpoint,
+          placements: [
+            {
+              id: "tower-1",
+              towerId: "fork-knight",
+              padId: "vault-gate",
+              level: 1,
+            },
+          ],
+          metrics: {
+            ...frozenCheckpoint.metrics,
+            spentGold: towerDefinitions["fork-knight"].cost,
+            usedTowerIds: ["fork-knight"],
+          },
+        },
+      }),
+    ).toThrow(/denied on pad/i);
   });
 
   it("never allows negative lives or gold during a complete unassisted battle", () => {

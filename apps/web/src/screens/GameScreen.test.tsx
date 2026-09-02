@@ -117,10 +117,49 @@ describe("mission abandonment", () => {
   });
   afterEach(cleanup);
 
+  describe("wave launch action", () => {
+    it("uses a readable numbered label and threat context, then hides during combat", () => {
+      renderGame();
+
+      const launch = screen.getByRole("button", { name: "Start Wave 1" });
+      expect(launch).toHaveTextContent("Start Wave 1");
+      expect(launch).toHaveTextContent("Next: Orientation Day");
+      expect(launch).toHaveClass("is-pulsing");
+
+      fireEvent.click(launch);
+      expect(
+        screen.queryByRole("button", { name: "Start Wave 1" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("disables the ready pulse for the in-game reduced-motion setting", () => {
+      render(
+        <GameScreen
+          levelId="muddy-moat"
+          seed={7}
+          modifierIds={[]}
+          unlockedRewardIds={[]}
+          checkpoint={null}
+          settings={{ ...settings, reducedMotion: true }}
+          synchronizationBlocked={false}
+          onCheckpoint={vi.fn()}
+          onComplete={vi.fn().mockResolvedValue(undefined)}
+          onRetry={vi.fn()}
+          onAbandon={vi.fn().mockResolvedValue(undefined)}
+          onSettings={vi.fn()}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: "Start Wave 1" }),
+      ).not.toHaveClass("is-pulsing");
+    });
+  });
+
   describe("earned battlefield abilities", () => {
     it("reveals Emergency Tea Break and requires explicit cast confirmation", () => {
       renderGame(null, {}, ["emergency-tea-break"]);
-      fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+      fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
       act(() => battlefieldTest.advance?.(1));
 
       fireEvent.change(
@@ -137,7 +176,7 @@ describe("mission abandonment", () => {
 
     it("requires abilities to be armed again after an intermission", () => {
       renderGame();
-      fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+      fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
       act(() => battlefieldTest.advance?.(240));
       fireEvent.click(screen.getByRole("button", { name: "Arm Forkfall" }));
       expect(
@@ -211,7 +250,7 @@ describe("mission abandonment", () => {
 
       function reachVictory(overrides: Parameters<typeof renderGame>[1] = {}) {
         const callbacks = renderGame(finalWaveCheckpoint(), overrides);
-        fireEvent.click(screen.getByRole("button", { name: "Start wave 6" }));
+        fireEvent.click(screen.getByRole("button", { name: "Start Wave 6" }));
         act(() => battlefieldTest.advance?.(10_000));
         expect(
           screen.getByRole("heading", {
@@ -286,7 +325,7 @@ describe("mission abandonment", () => {
           usedTowerIds: [],
         },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Start wave 3" }));
+      fireEvent.click(screen.getByRole("button", { name: "Start Wave 3" }));
       act(() => battlefieldTest.advance?.(1));
 
       fireEvent.click(screen.getByRole("button", { name: "Arm Forkfall" }));
@@ -308,7 +347,7 @@ describe("mission abandonment", () => {
 
   it("cancels with Escape and restores a running wave", () => {
     const callbacks = renderGame();
-    fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Leave mission" }));
     expect(battlefieldTest.setPaused).toHaveBeenLastCalledWith(true);
@@ -336,7 +375,7 @@ describe("mission abandonment", () => {
 
   it("does not unpause a wave that was already paused", () => {
     renderGame();
-    fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
     fireEvent.click(screen.getByRole("button", { name: "Pause battle" }));
     battlefieldTest.setPaused.mockClear();
 
@@ -370,7 +409,7 @@ describe("mission abandonment", () => {
       />
     );
     const view = render(game(false));
-    fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
     fireEvent.click(screen.getByRole("button", { name: "Leave mission" }));
 
     view.rerender(game(true));
@@ -383,7 +422,7 @@ describe("mission abandonment", () => {
 
   it("confirms abandonment during an active wave without recording a result", () => {
     const callbacks = renderGame();
-    fireEvent.click(screen.getByRole("button", { name: "Start wave 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
     fireEvent.click(screen.getByRole("button", { name: "Leave mission" }));
     fireEvent.click(screen.getByRole("button", { name: "Abandon mission" }));
 

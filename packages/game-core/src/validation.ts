@@ -2,6 +2,7 @@ import type { BattleCheckpoint, SaveData } from "@srtg/protocol";
 
 import {
   campaignNodes,
+  enemyDefinitions,
   levelDefinitions,
   modifierDefinitions,
   towerDefinitions,
@@ -45,6 +46,10 @@ export function validateCheckpointContent(
       errors.push(
         `Checkpoint tower ${tower.id} is not allowed on pad: ${placement.padId}`,
       );
+    } else if (tower && pad.deniedTowerIds?.includes(tower.id)) {
+      errors.push(
+        `Checkpoint tower ${tower.id} is denied on pad: ${placement.padId}`,
+      );
     }
     if (instanceIds.has(placement.id)) {
       errors.push(`Duplicate checkpoint tower id: ${placement.id}`);
@@ -66,6 +71,30 @@ export function validateCheckpointContent(
   for (const towerId of checkpoint.metrics.usedTowerIds) {
     if (!Object.hasOwn(towerDefinitions, towerId)) {
       errors.push(`Unknown used tower: ${towerId}`);
+    }
+  }
+  for (const enemyId of Object.keys(checkpoint.metrics.leakedByEnemyId ?? {})) {
+    if (!Object.hasOwn(enemyDefinitions, enemyId)) {
+      errors.push(`Unknown leaked enemy: ${enemyId}`);
+    }
+  }
+  for (const enemyId of Object.keys(
+    checkpoint.metrics.lastEnemyClearedTick ?? {},
+  )) {
+    if (!Object.hasOwn(enemyDefinitions, enemyId)) {
+      errors.push(`Unknown cleared-tick enemy: ${enemyId}`);
+    }
+  }
+  for (const waveIndexKey of Object.keys(
+    checkpoint.metrics.leakedByWaveIndex ?? {},
+  )) {
+    const waveIndex = Number.parseInt(waveIndexKey, 10);
+    if (
+      !Number.isInteger(waveIndex) ||
+      waveIndex < 0 ||
+      waveIndex >= level.waves.length
+    ) {
+      errors.push(`Unknown leaked-by-wave index: ${waveIndexKey}`);
     }
   }
 

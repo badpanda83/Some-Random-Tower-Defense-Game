@@ -13,7 +13,7 @@ import {
   towerDefinitions,
 } from "./content.js";
 import { evaluateMasteryRule, type MasteryContext } from "./mastery.js";
-import { pointAlongPath, preparePath } from "./path.js";
+import { pointAlongPath, preparePath, type PreparedPath } from "./path.js";
 import { SeededRandom } from "./rng.js";
 import {
   EMERGENCY_TEA_BREAK_SLOW_TICKS,
@@ -21,6 +21,7 @@ import {
   ROYAL_FORKFALL_DAMAGE,
   TICK_MS,
   type BossEscortDefinition,
+  type BossPhaseDefinition,
   type EnemyDefinition,
   type EnemyState,
   type GameEvent,
@@ -30,6 +31,7 @@ import {
   type SimulationOptions,
   type StepResult,
   type TowerDefinition,
+  type TowerLevelDefinition,
   type TowerPadDefinition,
   type TowerState,
 } from "./types.js";
@@ -39,10 +41,14 @@ interface MutableMetrics {
   spentGold: number;
   leakedEnemies: number;
   leakedByEnemyId: Record<string, number>;
+  leakedByWaveIndex: Record<string, number>;
   soldTowers: number;
   usedTowerIds: string[];
   maxTowersPlaced: number;
   bossDefeatPathPercent: number | null;
+  splitSpawns: number;
+  abilityActivations: Record<string, number>;
+  lastEnemyClearedTick: Record<string, number>;
 }
 
 interface MutableState {
@@ -109,6 +115,9 @@ function deepState(state: MutableState): GameState {
       ...state.metrics,
       usedTowerIds: [...state.metrics.usedTowerIds],
       leakedByEnemyId: { ...state.metrics.leakedByEnemyId },
+      leakedByWaveIndex: { ...state.metrics.leakedByWaveIndex },
+      abilityActivations: { ...state.metrics.abilityActivations },
+      lastEnemyClearedTick: { ...state.metrics.lastEnemyClearedTick },
     },
     completedMasteryIds: [...state.completedMasteryIds],
   };
@@ -125,7 +134,8 @@ function fnv1a(value: string): string {
 
 class GameSimulation implements Simulation {
   private readonly level;
-  private readonly path;
+  private readonly routePaths: ReadonlyMap<string, PreparedPath>;
+  private readonly defaultRouteId: string;
   private readonly random;
   private readonly unlockedRewardIds: ReadonlySet<string>;
   private mutableState: MutableState;
@@ -162,7 +172,11 @@ class GameSimulation implements Simulation {
     }
 
     this.level = level;
-    this.path = preparePath(level.path);
+    const routeDefs = level.routes ?? [{ id: "main", path: level.path }];
+    this.routePaths = new Map(
+      routeDefs.map((route) => [route.id, preparePath(route.path)]),
+    );
+    this.defaultRouteId = routeDefs[0]!.id;
     this.random = new SeededRandom(seed);
     this.unlockedRewardIds = new Set(options.unlockedRewardIds ?? []);
     if (options.checkpoint) {
@@ -230,6 +244,9 @@ class GameSimulation implements Simulation {
             spentGold: checkpoint.metrics.spentGold,
             leakedEnemies: checkpoint.metrics.leakedEnemies,
             leakedByEnemyId: { ...(checkpoint.metrics.leakedByEnemyId ?? {}) },
+            leakedByWaveIndex: {
+              ...(checkpoint.metrics.leakedByWaveIndex ?? {}),
+            },
             soldTowers: checkpoint.metrics.soldTowers,
             usedTowerIds: [...checkpoint.metrics.usedTowerIds],
             maxTowersPlaced: Math.max(
@@ -238,15 +255,26 @@ class GameSimulation implements Simulation {
             ),
             bossDefeatPathPercent:
               checkpoint.metrics.bossDefeatPathPercent ?? null,
+            splitSpawns: checkpoint.metrics.splitSpawns ?? 0,
+            abilityActivations: {
+              ...(checkpoint.metrics.abilityActivations ?? {}),
+            },
+            lastEnemyClearedTick: {
+              ...(checkpoint.metrics.lastEnemyClearedTick ?? {}),
+            },
           }
         : {
             spentGold: 0,
             leakedEnemies: 0,
             leakedByEnemyId: {},
+            leakedByWaveIndex: {},
             soldTowers: 0,
             usedTowerIds: [],
             maxTowersPlaced: towers.length,
             bossDefeatPathPercent: null,
+            splitSpawns: 0,
+            abilityActivations: {},
+            lastEnemyClearedTick: {},
           },
       completedMasteryIds: [],
     };
@@ -306,7 +334,10 @@ class GameSimulation implements Simulation {
   }
 
   public getEnemyPosition(enemy: EnemyState): Point {
-    return pointAlongPath(this.path, enemy.pathDistanceMilli);
+    const preparedPath =
+      this.routePaths.get(enemy.routeId) ??
+      this.routePaths.get(this.defaultRouteId)!;
+    return pointAlongPath(preparedPath, enemy.pathDistanceMilli);
   }
 
   public getTowerMaxLevel(towerId: string): number {
@@ -348,10 +379,14 @@ class GameSimulation implements Simulation {
         spentGold: state.metrics.spentGold,
         leakedEnemies: state.metrics.leakedEnemies,
         leakedByEnemyId: { ...state.metrics.leakedByEnemyId },
+        leakedByWaveIndex: { ...state.metrics.leakedByWaveIndex },
         soldTowers: state.metrics.soldTowers,
         usedTowerIds: [...state.metrics.usedTowerIds],
         maxTowersPlaced: state.metrics.maxTowersPlaced,
         bossDefeatPathPercent: state.metrics.bossDefeatPathPercent,
+        splitSpawns: state.metrics.splitSpawns,
+        abilityActivations: { ...state.metrics.abilityActivations },
+        lastEnemyClearedTick: { ...state.metrics.lastEnemyClearedTick },
       },
     };
   }
@@ -393,6 +428,9 @@ class GameSimulation implements Simulation {
       throw new Error(`Unknown tower pad: ${padId}`);
     }
     if (pad.allowedTowerIds && !pad.allowedTowerIds.includes(towerId)) {
+      throw new Error(`Tower ${towerId} cannot be placed on pad ${padId}`);
+    }
+    if (pad.deniedTowerIds?.includes(towerId)) {
       throw new Error(`Tower ${towerId} cannot be placed on pad ${padId}`);
     }
     if (this.isPadShutDown(pad)) {
@@ -493,6 +531,11 @@ class GameSimulation implements Simulation {
     }
   }
 
+  private recordAbilityActivation(abilityId: AbilityId): void {
+    const activations = this.mutableState.metrics.abilityActivations;
+    activations[abilityId] = (activations[abilityId] ?? 0) + 1;
+  }
+
   private activateRoyalForkfall(events: GameEvent[]): void {
     const state = this.mutableState;
     if (state.phase !== "active") {
@@ -511,10 +554,11 @@ class GameSimulation implements Simulation {
     }
 
     const healthBefore = target.health;
-    this.damageEnemy(target.id, ROYAL_FORKFALL_DAMAGE, "arcane", events);
+    this.damageEnemy(target.id, ROYAL_FORKFALL_DAMAGE, "arcane", false, events);
     const healthAfter =
       state.enemies.find((enemy) => enemy.id === target.id)?.health ?? 0;
     state.abilityChargeTicks = 0;
+    this.recordAbilityActivation("royal-forkfall");
     events.push({
       type: "ability-activated",
       targetInstanceId: target.id,
@@ -550,6 +594,7 @@ class GameSimulation implements Simulation {
     }
 
     state.teaBreakUsedThisWave = true;
+    this.recordAbilityActivation("emergency-tea-break");
     affected.sort();
     events.push({ type: "tea-break-activated", affectedInstanceIds: affected });
   }
@@ -733,12 +778,21 @@ class GameSimulation implements Simulation {
         break;
       }
 
-      this.spawnEnemyInstance(spawn.enemyId, events);
+      this.spawnEnemyInstance(
+        spawn.enemyId,
+        spawn.routeId ?? this.defaultRouteId,
+        events,
+      );
       state.nextSpawnIndex += 1;
     }
   }
 
-  private spawnEnemyInstance(enemyId: string, events: GameEvent[]): void {
+  private spawnEnemyInstance(
+    enemyId: string,
+    routeId: string,
+    events: GameEvent[],
+    startDistanceMilli = 0,
+  ): void {
     const state = this.mutableState;
     const definition =
       enemyDefinitions[enemyId as keyof typeof enemyDefinitions];
@@ -764,10 +818,12 @@ class GameSimulation implements Simulation {
       enemyId,
       health: maxHealth,
       maxHealth,
-      pathDistanceMilli: 0,
+      pathDistanceMilli: startDistanceMilli,
       slowUntilTick: 0,
       variant: this.random.int(3),
+      routeId,
       bossPhase: false,
+      bossPhaseIndex: 0,
       wardConsumed: false,
     });
     events.push({
@@ -777,9 +833,13 @@ class GameSimulation implements Simulation {
     });
   }
 
-  private spawnEscort(escort: BossEscortDefinition, events: GameEvent[]): void {
+  private spawnEscort(
+    escort: BossEscortDefinition,
+    routeId: string,
+    events: GameEvent[],
+  ): void {
     for (let index = 0; index < escort.count; index += 1) {
-      this.spawnEnemyInstance(escort.enemyId, events);
+      this.spawnEnemyInstance(escort.enemyId, routeId, events);
     }
   }
 
@@ -808,11 +868,12 @@ class GameSimulation implements Simulation {
         continue;
       }
 
+      const range = this.effectiveRange(level);
       const targets = state.enemies
         .filter(
           (enemy) =>
             squaredDistance(pad.position, this.getEnemyPosition(enemy)) <=
-            level.range * level.range,
+            range * range,
         )
         .sort(
           (left, right) =>
@@ -826,15 +887,17 @@ class GameSimulation implements Simulation {
         continue;
       }
 
+      const splashRadius =
+        level.splashRadiusOverride ?? definition.splashRadius;
       const affectedIds = new Set<string>();
       for (const primary of primaryTargets) {
         affectedIds.add(primary.id);
-        if (definition.splashRadius > 0) {
+        if (splashRadius > 0) {
           const primaryPosition = this.getEnemyPosition(primary);
           for (const enemy of state.enemies) {
             if (
               squaredDistance(primaryPosition, this.getEnemyPosition(enemy)) <=
-              definition.splashRadius * definition.splashRadius
+              splashRadius * splashRadius
             ) {
               affectedIds.add(enemy.id);
             }
@@ -850,7 +913,13 @@ class GameSimulation implements Simulation {
       let defeatedCount = 0;
       for (const enemy of affected) {
         const healthBefore = enemy.health;
-        this.damageEnemy(enemy.id, level.damage, definition.damageType, events);
+        this.damageEnemy(
+          enemy.id,
+          level.damage,
+          definition.damageType,
+          Boolean(level.ignoresArmor),
+          events,
+        );
         const healthAfter =
           state.enemies.find((candidate) => candidate.id === enemy.id)
             ?.health ?? 0;
@@ -878,10 +947,39 @@ class GameSimulation implements Simulation {
     }
   }
 
+  private isSupportPulseActive(pulse: {
+    readonly periodTicks: number;
+    readonly activeTicks: number;
+  }): boolean {
+    return this.mutableState.tick % pulse.periodTicks < pulse.activeTicks;
+  }
+
+  private effectiveRange(level: TowerLevelDefinition): number {
+    if (!level.supportPulse) {
+      return level.range;
+    }
+    return (
+      level.range +
+      (this.isSupportPulseActive(level.supportPulse)
+        ? level.supportPulse.rangeBonus
+        : 0)
+    );
+  }
+
+  private bossPhasesFor(
+    definition: EnemyDefinition,
+  ): readonly BossPhaseDefinition[] {
+    if (definition.bossPhases) {
+      return definition.bossPhases;
+    }
+    return definition.bossPhase ? [definition.bossPhase] : [];
+  }
+
   private damageEnemy(
     instanceId: string,
     rawDamage: number,
     damageType: "physical" | "arcane" | "sonic",
+    ignoresArmor: boolean,
     events: GameEvent[],
   ): void {
     const state = this.mutableState;
@@ -901,40 +999,70 @@ class GameSimulation implements Simulation {
       return;
     }
 
-    const ignoredArmor =
-      damageType === "arcane"
+    const resistancePercent =
+      definition.traits?.reduce((percent, trait) => {
+        if (
+          trait.kind !== "damage-resistance" ||
+          trait.damageType !== damageType
+        ) {
+          return percent;
+        }
+        return Math.floor((percent * trait.percent) / 100);
+      }, 100) ?? 100;
+    const modifiedRawDamage = Math.max(
+      1,
+      Math.floor((rawDamage * resistancePercent) / 100),
+    );
+
+    const ignoredArmor = ignoresArmor
+      ? definition.armor
+      : damageType === "arcane"
         ? Math.ceil(definition.armor / 2)
         : damageType === "sonic"
           ? definition.armor
           : 0;
-    const damage = Math.max(1, rawDamage - definition.armor + ignoredArmor);
+    const damage = Math.max(
+      1,
+      modifiedRawDamage - definition.armor + ignoredArmor,
+    );
     let health = Math.max(0, enemy.health - damage);
-    let bossPhase = enemy.bossPhase;
+    let bossPhaseIndex = enemy.bossPhaseIndex;
+    let wardConsumed = enemy.wardConsumed;
 
-    const phaseConfig = definition.bossPhase;
-    if (phaseConfig && !bossPhase) {
+    const phases = this.bossPhasesFor(definition);
+    while (bossPhaseIndex < phases.length) {
+      const phase = phases[bossPhaseIndex]!;
       const threshold = Math.floor(
-        (enemy.maxHealth * phaseConfig.healthThresholdPercent) / 100,
+        (enemy.maxHealth * phase.healthThresholdPercent) / 100,
       );
-      if (health <= threshold) {
-        health = threshold;
-        bossPhase = true;
-        events.push({ type: "boss-phase", instanceId });
-        if (phaseConfig.escort) {
-          this.spawnEscort(phaseConfig.escort, events);
-        }
+      if (health > threshold) {
+        break;
+      }
+      health = threshold;
+      bossPhaseIndex += 1;
+      events.push({ type: "boss-phase", instanceId });
+      if (phase.escort) {
+        this.spawnEscort(phase.escort, enemy.routeId, events);
+      }
+      if (phase.removesWard) {
+        wardConsumed = true;
       }
     }
+    const bossPhase = bossPhaseIndex > 0;
 
     if (health <= 0) {
+      const preparedPath =
+        this.routePaths.get(enemy.routeId) ??
+        this.routePaths.get(this.defaultRouteId)!;
       if (definition.boss) {
         state.metrics.bossDefeatPathPercent = Math.min(
           100,
           Math.floor(
-            (enemy.pathDistanceMilli / this.path.totalDistanceMilli) * 100,
+            (enemy.pathDistanceMilli / preparedPath.totalDistanceMilli) * 100,
           ),
         );
       }
+      state.metrics.lastEnemyClearedTick[enemy.enemyId] = state.tick;
       state.enemies.splice(index, 1);
       state.gold += definition.reward;
       state.score += definition.maxHealth + definition.reward * 10;
@@ -943,10 +1071,31 @@ class GameSimulation implements Simulation {
         instanceId,
         reward: definition.reward,
       });
+
+      const splitTrait = definition.traits?.find(
+        (trait) => trait.kind === "split-on-defeat",
+      );
+      if (splitTrait && splitTrait.kind === "split-on-defeat") {
+        state.metrics.splitSpawns += splitTrait.count;
+        for (let split = 0; split < splitTrait.count; split += 1) {
+          this.spawnEnemyInstance(
+            splitTrait.intoEnemyId,
+            enemy.routeId,
+            events,
+            enemy.pathDistanceMilli,
+          );
+        }
+      }
       return;
     }
 
-    state.enemies[index] = { ...enemy, health, bossPhase };
+    state.enemies[index] = {
+      ...enemy,
+      health,
+      bossPhase,
+      bossPhaseIndex,
+      wardConsumed,
+    };
   }
 
   private cooldownFor(tower: TowerState, baseCooldown: number): number {
@@ -969,11 +1118,12 @@ class GameSimulation implements Simulation {
       );
       const supportDefinition = towerDefinitions.bardbarian;
       const supportLevel = supportDefinition.levels[supportTower.level - 1];
+      const supportRange = supportLevel ? this.effectiveRange(supportLevel) : 0;
       if (
         supportPad &&
         supportLevel &&
         squaredDistance(towerPad.position, supportPad.position) <=
-          supportLevel.range * supportLevel.range
+          supportRange * supportRange
       ) {
         supportPercent = Math.max(
           supportPercent,
@@ -988,30 +1138,104 @@ class GameSimulation implements Simulation {
     );
   }
 
+  private auraSpeedPercentFor(
+    enemy: EnemyState,
+    position: Point,
+    allEnemies: readonly EnemyState[],
+  ): number {
+    let percent = 100;
+    for (const other of allEnemies) {
+      if (other.id === enemy.id) {
+        continue;
+      }
+      const otherDefinition = enemyDefinition(other.enemyId);
+      const aura = otherDefinition.traits?.find(
+        (trait) => trait.kind === "speed-aura",
+      );
+      if (!aura || aura.kind !== "speed-aura") {
+        continue;
+      }
+      const otherPosition = this.getEnemyPosition(other);
+      if (
+        squaredDistance(position, otherPosition) <=
+        aura.radius * aura.radius
+      ) {
+        percent = Math.max(percent, aura.speedPercent);
+      }
+    }
+    return percent;
+  }
+
+  private speedZonePercentFor(enemy: EnemyState): number {
+    const zones = this.level.speedZones;
+    if (!zones || zones.length === 0) {
+      return 100;
+    }
+    const preparedPath =
+      this.routePaths.get(enemy.routeId) ??
+      this.routePaths.get(this.defaultRouteId)!;
+    if (preparedPath.totalDistanceMilli <= 0) {
+      return 100;
+    }
+    const progressPercent =
+      (enemy.pathDistanceMilli / preparedPath.totalDistanceMilli) * 100;
+    let percent = 100;
+    for (const zone of zones) {
+      if (zone.routeId !== enemy.routeId) {
+        continue;
+      }
+      if (
+        progressPercent >= zone.fromPercent &&
+        progressPercent <= zone.toPercent
+      ) {
+        percent = Math.max(percent, zone.speedPercent);
+      }
+    }
+    return percent;
+  }
+
   private moveEnemies(events: GameEvent[]): void {
     const state = this.mutableState;
     const survivors: EnemyState[] = [];
+    const enemiesBeforeMove = state.enemies;
 
-    for (const enemy of state.enemies) {
+    for (const enemy of enemiesBeforeMove) {
       const definition = enemyDefinition(enemy.enemyId);
-      const speedPercent =
+      const slowPercent =
         enemy.slowUntilTick > state.tick
           ? 100 - towerDefinitions.bardbarian.slowPercent
           : 100;
-      const bossPercent = enemy.bossPhase
-        ? (definition.bossPhase?.speedMultiplierPercent ?? 100)
-        : 100;
+      const phases = this.bossPhasesFor(definition);
+      const bossPercent =
+        enemy.bossPhaseIndex > 0
+          ? (phases[enemy.bossPhaseIndex - 1]?.speedMultiplierPercent ?? 100)
+          : 100;
+      const position = this.getEnemyPosition(enemy);
+      const auraPercent = this.auraSpeedPercentFor(
+        enemy,
+        position,
+        enemiesBeforeMove,
+      );
+      const zonePercent = this.speedZonePercentFor(enemy);
+      const speedPercent = Math.floor(
+        (slowPercent * auraPercent * zonePercent) / 10_000,
+      );
       const distance =
         enemy.pathDistanceMilli +
         Math.floor(
           (definition.speed * TICK_MS * speedPercent * bossPercent) / 10_000,
         );
 
-      if (distance >= this.path.totalDistanceMilli) {
+      const preparedPath =
+        this.routePaths.get(enemy.routeId) ??
+        this.routePaths.get(this.defaultRouteId)!;
+      if (distance >= preparedPath.totalDistanceMilli) {
         state.lives = Math.max(0, state.lives - definition.lifeDamage);
         state.metrics.leakedEnemies += 1;
         state.metrics.leakedByEnemyId[enemy.enemyId] =
           (state.metrics.leakedByEnemyId[enemy.enemyId] ?? 0) + 1;
+        state.metrics.leakedByWaveIndex[String(state.waveIndex)] =
+          (state.metrics.leakedByWaveIndex[String(state.waveIndex)] ?? 0) + 1;
         events.push({
           type: "enemy-leaked",
           instanceId: enemy.id,
@@ -1032,6 +1256,7 @@ class GameSimulation implements Simulation {
       modifierIds: state.modifierIds,
       finalGold: state.gold,
       totalTowerTypeCount: Object.keys(towerDefinitions).length,
+      finalTick: state.tick,
     };
 
     return this.level.mastery

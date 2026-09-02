@@ -1,17 +1,43 @@
-import { levelDefinitions, towerDefinitions } from "./content.js";
+import {
+  campaignNodes,
+  levelDefinitions,
+  towerDefinitions,
+} from "./content.js";
 import { createSimulation } from "./simulation.js";
 import { ROYAL_FORKFALL_CHARGE_TICKS, TICK_RATE } from "./types.js";
 import type { GameEvent } from "./types.js";
 
 type TowerId = keyof typeof towerDefinitions;
-export type ActOneLevelId =
-  "muddy-moat" | "mimic-market" | "troll-tollway" | "castle-hassle";
+/** Any campaign level id currently defined in content, across all acts. */
+export type CampaignLevelId = keyof typeof levelDefinitions;
+/** @deprecated retained for existing imports; equivalent to `CampaignLevelId`. */
+export type ActOneLevelId = CampaignLevelId;
+
+/**
+ * Reward ids granted by every campaign node strictly before `levelId` in
+ * authored order, mirroring real campaign progression (a fresh save that
+ * has beaten every earlier mission once). Generic over the full campaign
+ * node list rather than any hardcoded level id.
+ */
+function unlockedRewardIdsUpTo(levelId: string): readonly string[] {
+  const node = campaignNodes.find((candidate) => candidate.levelId === levelId);
+  if (!node) {
+    return [];
+  }
+  return campaignNodes
+    .filter((candidate) => candidate.levelId && candidate.order < node.order)
+    .flatMap((candidate) => candidate.rewardIds);
+}
 
 export interface ReferenceStrategy {
   readonly id: string;
   readonly towerPattern: readonly TowerId[];
   readonly maxTowers?: number;
   readonly spendingLimit?: number;
+  readonly vacateBeforeWaves?: readonly {
+    readonly waveIndex: number;
+    readonly padIds: readonly string[];
+  }[];
 }
 
 export interface TowerContribution {
@@ -51,6 +77,7 @@ export interface MissionBalanceReport {
   readonly lives: number;
   readonly gold: number;
   readonly leakedByEnemyId: Readonly<Record<string, number>>;
+  readonly splitSpawns: number;
   readonly towers: number;
   readonly peakEnemies: number;
   readonly completedMasteryIds: readonly string[];
@@ -104,6 +131,25 @@ export const referenceStrategies = {
     maxTowers: 5,
     spendingLimit: 620,
   },
+  "claims-control": {
+    id: "claims-control",
+    towerPattern: ["fork-knight", "discount-wizard"],
+    vacateBeforeWaves: [
+      {
+        waveIndex: 5,
+        padIds: [
+          "siege-ladder-west",
+          "west-parapet",
+          "siege-ladder-east",
+          "east-parapet",
+          "east-rampart",
+          "keep-drawbridge",
+          "keep-barbican",
+          "keep-standing-stone",
+        ],
+      },
+    ],
+  },
 } as const satisfies Record<string, ReferenceStrategy>;
 
 export const referencePlanningModel = {
@@ -117,17 +163,15 @@ function roundedMinutes(ticks: number): number {
 }
 
 export function runReferenceStrategy(
-  levelId: ActOneLevelId,
+  levelId: CampaignLevelId,
   strategy: ReferenceStrategy,
   modifierIds: readonly string[] = [],
 ): MissionBalanceReport {
   const level = levelDefinitions[levelId];
   if (!level) {
-    throw new Error(`Unknown Act I level: ${levelId}`);
+    throw new Error(`Unknown campaign level: ${levelId}`);
   }
-  const unlockedRewardIds = ["troll-tollway", "castle-hassle"].includes(levelId)
-    ? ["fork-table-service"]
-    : [];
+  const unlockedRewardIds = unlockedRewardIdsUpTo(levelId);
   const simulation = createSimulation({
     levelId,
     seed: 123,
@@ -170,11 +214,31 @@ export function runReferenceStrategy(
   ) {
     safety += 1;
     if (simulation.state.phase === "preparing") {
+      const vacatedPadIds = new Set(
+        strategy.vacateBeforeWaves
+          ?.filter(
+            (schedule) => schedule.waveIndex === simulation.state.waveIndex,
+          )
+          .flatMap((schedule) => schedule.padIds) ?? [],
+      );
+      for (const tower of [...simulation.state.towers]) {
+        if (!vacatedPadIds.has(tower.padId)) {
+          continue;
+        }
+        recordEvents(
+          simulation.dispatch({
+            type: "sell-tower",
+            instanceId: tower.id,
+          }).events,
+        );
+        planningActions += 1;
+      }
       const towerLimit = strategy.maxTowers ?? level.pads.length;
       for (let padIndex = 0; padIndex < level.pads.length; padIndex += 1) {
         const pad = level.pads[padIndex];
         if (
           !pad ||
+          vacatedPadIds.has(pad.id) ||
           simulation.state.towers.length >= towerLimit ||
           simulation.state.towers.some((tower) => tower.padId === pad.id)
         ) {
@@ -190,7 +254,8 @@ export function runReferenceStrategy(
           );
         const towerId = candidates.find(
           (candidate) =>
-            !pad.allowedTowerIds || pad.allowedTowerIds.includes(candidate),
+            (!pad.allowedTowerIds || pad.allowedTowerIds.includes(candidate)) &&
+            !pad.deniedTowerIds?.includes(candidate),
         );
         if (
           towerId &&
@@ -319,6 +384,7 @@ export function runReferenceStrategy(
     lives: simulation.state.lives,
     gold: simulation.state.gold,
     leakedByEnemyId: simulation.state.metrics.leakedByEnemyId,
+    splitSpawns: simulation.state.metrics.splitSpawns,
     towers: simulation.state.towers.length,
     peakEnemies,
     completedMasteryIds: simulation.state.completedMasteryIds,

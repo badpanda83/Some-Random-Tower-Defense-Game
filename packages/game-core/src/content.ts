@@ -13,10 +13,12 @@ function group(
   count: number,
   everyTicks: number,
   startTick = 0,
+  routeId?: string,
 ): SpawnDefinition[] {
   return Array.from({ length: count }, (_, index) => ({
     enemyId,
     atTick: startTick + index * everyTicks,
+    ...(routeId ? { routeId } : {}),
   }));
 }
 
@@ -80,7 +82,15 @@ export const towerDefinitions = {
     levels: [
       { damage: 27, range: 156, cooldownTicks: 34, upgradeCost: 76 },
       { damage: 43, range: 169, cooldownTicks: 31, upgradeCost: 119 },
-      { damage: 68, range: 184, cooldownTicks: 27, upgradeCost: null },
+      { damage: 68, range: 184, cooldownTicks: 27, upgradeCost: 165 },
+      {
+        damage: 68,
+        range: 184,
+        cooldownTicks: 27,
+        upgradeCost: null,
+        splashRadiusOverride: 84,
+        ignoresArmor: true,
+      },
     ],
   },
   bardbarian: {
@@ -99,7 +109,14 @@ export const towerDefinitions = {
     levels: [
       { damage: 32, range: 136, cooldownTicks: 40, upgradeCost: 66 },
       { damage: 48, range: 149, cooldownTicks: 36, upgradeCost: 105 },
-      { damage: 68, range: 164, cooldownTicks: 32, upgradeCost: null },
+      { damage: 68, range: 164, cooldownTicks: 32, upgradeCost: 150 },
+      {
+        damage: 68,
+        range: 164,
+        cooldownTicks: 32,
+        upgradeCost: null,
+        supportPulse: { periodTicks: 100, activeTicks: 40, rangeBonus: 70 },
+      },
     ],
   },
 } as const satisfies Record<string, TowerDefinition>;
@@ -217,6 +234,97 @@ export const enemyDefinitions = {
       escort: { enemyId: "bog-guard", count: 2 },
     },
   },
+  "warranty-wraith": {
+    id: "warranty-wraith",
+    name: "Warranty Wraith",
+    description:
+      "A translucent claims adjuster. Spellwork slides right off; a solid whack still lands.",
+    color: 0x8fd8e8,
+    maxHealth: 210,
+    speed: 46,
+    armor: 3,
+    reward: 5,
+    lifeDamage: 2,
+    boss: false,
+    traits: [
+      { kind: "damage-resistance", damageType: "arcane", percent: 50 },
+      { kind: "damage-resistance", damageType: "physical", percent: 150 },
+    ],
+  },
+  "middle-manager-mage": {
+    id: "middle-manager-mage",
+    name: "Middle Manager Mage",
+    description:
+      "Casts a visible motivational aura that makes every nearby coworker walk faster.",
+    color: 0xe8955a,
+    maxHealth: 165,
+    speed: 44,
+    armor: 1,
+    reward: 4,
+    lifeDamage: 2,
+    boss: false,
+    traits: [{ kind: "speed-aura", radius: 110, speedPercent: 130 }],
+  },
+  "comptroller-general": {
+    id: "comptroller-general",
+    name: "Comptroller General",
+    description:
+      "An armored auditor-troll who calls in a queue-jumping escort the moment the budget looks tight.",
+    color: 0x9a7a4a,
+    maxHealth: 980,
+    speed: 34,
+    armor: 9,
+    reward: 40,
+    lifeDamage: 4,
+    boss: true,
+    bossPhase: {
+      healthThresholdPercent: 50,
+      speedMultiplierPercent: 150,
+      escort: { enemyId: "queue-jumper", count: 3 },
+    },
+  },
+  "refund-slime": {
+    id: "refund-slime",
+    name: "Refund Slime",
+    description:
+      "Denies every claim, then splits into two smaller claims the instant it's defeated.",
+    color: 0x7de08a,
+    maxHealth: 150,
+    speed: 42,
+    armor: 0,
+    reward: 2,
+    lifeDamage: 1,
+    boss: false,
+    traits: [
+      { kind: "split-on-defeat", intoEnemyId: "basic-goblin", count: 2 },
+    ],
+  },
+  "queen-of-pending-litigation": {
+    id: "queen-of-pending-litigation",
+    name: "Queen of Pending Litigation",
+    description:
+      "Warded by procedure, backed by management, and considerably faster once the paperwork runs out.",
+    color: 0xd23d63,
+    maxHealth: 2_400,
+    speed: 30,
+    armor: 8,
+    reward: 120,
+    lifeDamage: 8,
+    boss: true,
+    traits: [{ kind: "first-hit-ward" }],
+    bossPhases: [
+      {
+        healthThresholdPercent: 50,
+        speedMultiplierPercent: 100,
+        escort: { enemyId: "middle-manager-mage", count: 2 },
+      },
+      {
+        healthThresholdPercent: 20,
+        speedMultiplierPercent: 180,
+        removesWard: true,
+      },
+    ],
+  },
 } as const satisfies Record<string, EnemyDefinition>;
 
 export const modifierDefinitions = {
@@ -249,6 +357,26 @@ export const modifierDefinitions = {
     spawnIntervalPercent: 100,
     padShutdownExtraTicks: 40,
   },
+  "thin-ice": {
+    id: "thin-ice",
+    name: "Thin Ice",
+    description:
+      "Begin with 15 less gold; the frost creeps in slightly faster and everything hits a touch harder.",
+    startingGoldDelta: -15,
+    enemyHealthPercent: 104,
+    spawnIntervalPercent: 95,
+    padShutdownExtraTicks: 0,
+  },
+  "red-tape": {
+    id: "red-tape",
+    name: "Red Tape",
+    description:
+      "Begin with 15 less gold; every telegraphed permit shutdown runs 50 ticks longer.",
+    startingGoldDelta: -15,
+    enemyHealthPercent: 100,
+    spawnIntervalPercent: 100,
+    padShutdownExtraTicks: 50,
+  },
 } as const satisfies Record<string, ModifierDefinition>;
 
 export const rewardDefinitions = {
@@ -268,6 +396,24 @@ export const rewardDefinitions = {
     description:
       "Active ability: once per wave, slow every non-boss enemy for 4 seconds.",
     abilityId: "emergency-tea-break",
+  },
+  "wizard-actual-certification": {
+    kind: "tower-rank",
+    id: "wizard-actual-certification",
+    name: "Actual Certification",
+    description:
+      "Discount Wizard rank IV: notarized at last, with a larger blast radius that bypasses armor entirely.",
+    towerId: "discount-wizard",
+    unlockedLevel: 4,
+  },
+  "bardbarian-power-chord": {
+    kind: "tower-rank",
+    id: "bardbarian-power-chord",
+    name: "Power Chord",
+    description:
+      "Bardbarian rank IV: a periodic power chord extends allied haste and control coverage.",
+    towerId: "bardbarian",
+    unlockedLevel: 4,
   },
 } as const satisfies Record<string, RewardDefinition>;
 
@@ -991,11 +1137,747 @@ export const castleHassleLevel: LevelDefinition = {
   rewardIds: ["emergency-tea-break"],
 };
 
+export const frozenAssetsLevel: LevelDefinition = {
+  id: "frozen-assets",
+  name: "Frozen Assets",
+  subtitle: "Act II opens on a lake that legally isn't liquid.",
+  act: 2,
+  order: 5,
+  estimatedMinutes: 15,
+  threatSummary:
+    "Armored trolls, slow-immune queue jumpers, warded coupon squires, and a new arcane-resistant Warranty Wraith cross two icy shores toward the vault.",
+  mechanicSummary:
+    "Two routes hug opposite shores of a frozen lake and merge at the vault; the three merge-adjacent pads sit on thin ice that rejects Fork Knights outright, and a marked mid-lake stretch on both shores speeds enemies up.",
+  environment: {
+    theme: "frozen-lake",
+    decorIds: ["ice-cracks", "frozen-reeds", "snow-drifts"],
+    palette: { primary: 0x1d3a52, secondary: 0x11202f, accent: 0x9fe0f2 },
+  },
+  width: 960,
+  height: 540,
+  startingLives: 14,
+  startingGold: 420,
+  path: [
+    { x: -36, y: 120 },
+    { x: 200, y: 120 },
+    { x: 200, y: 260 },
+    { x: 420, y: 260 },
+    { x: 420, y: 90 },
+    { x: 680, y: 90 },
+    { x: 680, y: 270 },
+    { x: 996, y: 270 },
+  ],
+  routes: [
+    {
+      id: "north-shore",
+      path: [
+        { x: -36, y: 120 },
+        { x: 200, y: 120 },
+        { x: 200, y: 260 },
+        { x: 420, y: 260 },
+        { x: 420, y: 90 },
+        { x: 680, y: 90 },
+        { x: 680, y: 270 },
+        { x: 996, y: 270 },
+      ],
+    },
+    {
+      id: "south-shore",
+      path: [
+        { x: -36, y: 420 },
+        { x: 200, y: 420 },
+        { x: 200, y: 280 },
+        { x: 420, y: 280 },
+        { x: 420, y: 450 },
+        { x: 680, y: 450 },
+        { x: 680, y: 270 },
+        { x: 996, y: 270 },
+      ],
+    },
+  ],
+  speedZones: [
+    {
+      routeId: "north-shore",
+      fromPercent: 40,
+      toPercent: 72,
+      speedPercent: 128,
+    },
+    {
+      routeId: "south-shore",
+      fromPercent: 40,
+      toPercent: 72,
+      speedPercent: 128,
+    },
+  ],
+  pads: [
+    { id: "frost-perch", position: { x: 150, y: 60 }, laneId: "north-shore" },
+    {
+      id: "iceberg-shelf",
+      position: { x: 330, y: 180 },
+      laneId: "north-shore",
+    },
+    {
+      id: "floe-crossing",
+      position: { x: 150, y: 480 },
+      laneId: "south-shore",
+    },
+    {
+      id: "cold-storage-dock",
+      position: { x: 330, y: 360 },
+      laneId: "south-shore",
+    },
+    {
+      id: "vault-approach-north",
+      position: { x: 560, y: 90 },
+      laneId: "shared",
+      deniedTowerIds: ["fork-knight"],
+    },
+    {
+      id: "vault-approach-south",
+      position: { x: 560, y: 450 },
+      laneId: "shared",
+      deniedTowerIds: ["fork-knight"],
+    },
+    {
+      id: "vault-gate",
+      position: { x: 800, y: 190 },
+      laneId: "shared",
+      deniedTowerIds: ["fork-knight"],
+    },
+    {
+      id: "counting-house-ledge",
+      position: { x: 900, y: 340 },
+      laneId: "north-shore",
+    },
+  ],
+  waves: [
+    {
+      name: "Ice Breakers",
+      preview:
+        "Both shores send steady goblin files to test which route the defense favors.",
+      spawns: wave(
+        group("basic-goblin", 24, 17),
+        group("basic-goblin", 24, 17, 40, "south-shore"),
+        group("basic-goblin", 22, 15, 820),
+      ),
+    },
+    {
+      name: "Chest on Ice",
+      preview:
+        "Express mimics sprint the marked mid-lake ice while goblin files keep both shores busy.",
+      spawns: wave(
+        group("basic-goblin", 22, 16),
+        group("basic-goblin", 20, 16, 30, "south-shore"),
+        group("fast-mimic", 10, 32, 460),
+        group("fast-mimic", 10, 30, 500, "south-shore"),
+        group("basic-goblin", 20, 14, 900),
+      ),
+    },
+    {
+      name: "Audit on Ice",
+      preview:
+        "Armored auditors anchor the south shore while mimics keep probing the north.",
+      spawns: wave(
+        group("basic-goblin", 22, 16),
+        group("tax-troll", 6, 92, 260, "south-shore"),
+        group("fast-mimic", 12, 28, 620),
+        group("basic-goblin", 22, 14, 980),
+        group("tax-troll", 5, 84, 1_320),
+      ),
+    },
+    {
+      name: "Cutting the Line",
+      preview:
+        "Slow-proof jumpers weave both shores at once, daring any single-lane defense.",
+      spawns: wave(
+        group("queue-jumper", 14, 30),
+        group("queue-jumper", 14, 29, 40, "south-shore"),
+        group("basic-goblin", 22, 15, 480),
+        group("tax-troll", 6, 86, 860, "south-shore"),
+        group("fast-mimic", 12, 26, 1_220),
+      ),
+    },
+    {
+      name: "Layaway Plan",
+      preview:
+        "Warded squires screen both merges while jumpers and mimics keep the shores honest.",
+      spawns: wave(
+        group("coupon-squire", 10, 42),
+        group("coupon-squire", 10, 40, 30, "south-shore"),
+        group("queue-jumper", 14, 28, 460),
+        group("tax-troll", 6, 82, 820),
+        group("fast-mimic", 14, 25, 1_180),
+        group("basic-goblin", 20, 14, 1_500),
+      ),
+    },
+    {
+      name: "Cold Claims",
+      preview:
+        "The Warranty Wraiths debut, sliding arcane fire off entirely while a solid hit still lands.",
+      spawns: wave(
+        group("warranty-wraith", 8, 46),
+        group("warranty-wraith", 8, 44, 40, "south-shore"),
+        group("queue-jumper", 14, 27, 520),
+        group("coupon-squire", 10, 38, 900),
+        group("basic-goblin", 22, 14, 1_260),
+        group("tax-troll", 6, 78, 1_620),
+      ),
+    },
+    {
+      name: "Vault Rush",
+      preview:
+        "Every threat crosses at once, converging hard on the three thin-ice merge pads.",
+      spawns: wave(
+        group("tax-troll", 7, 78),
+        group("tax-troll", 6, 76, 30, "south-shore"),
+        group("warranty-wraith", 8, 42, 420),
+        group("queue-jumper", 16, 25, 780, "south-shore"),
+        group("coupon-squire", 10, 36, 1_140),
+        group("fast-mimic", 14, 24, 1_480),
+        group("basic-goblin", 22, 13, 1_820),
+      ),
+    },
+    {
+      name: "The Thaw",
+      preview:
+        "A last full-roster surge splits between shores before the vault finally opens.",
+      spawns: wave(
+        group("warranty-wraith", 10, 40),
+        group("tax-troll", 7, 74, 30, "south-shore"),
+        group("queue-jumper", 16, 25, 420),
+        group("coupon-squire", 12, 34, 780, "south-shore"),
+        group("fast-mimic", 16, 23, 1_140),
+        group("tax-troll", 7, 70, 1_480, "south-shore"),
+        group("basic-goblin", 24, 13, 1_820),
+      ),
+    },
+  ],
+  mastery: [
+    {
+      id: "full-defense-roster",
+      name: "Full Defense Roster",
+      description: "Deploy all three tower types and win.",
+      rule: { kind: "use-all-tower-types" },
+    },
+    {
+      id: "warranty-void",
+      name: "Warranty Void",
+      description: "Win without letting a single Warranty Wraith leak.",
+      rule: { kind: "no-leaks-of", enemyId: "warranty-wraith" },
+    },
+    {
+      id: "skate-on-thin-ice",
+      name: "Skate on Thin Ice",
+      description: "Win a battle fought under Thin Ice.",
+      rule: { kind: "victory-under-modifier", modifierId: "thin-ice" },
+    },
+  ],
+  availableModifierIds: ["thin-ice"],
+  rewardIds: ["wizard-actual-certification"],
+};
+
+export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
+  id: "department-of-unnecessary-bridges",
+  name: "Department of Unnecessary Bridges",
+  subtitle: "Two identical routes, three redundant islands, zero permits.",
+  act: 2,
+  order: 6,
+  estimatedMinutes: 15,
+  threatSummary:
+    "A new Middle Manager Mage grants a visible speed aura to anyone nearby, while a miniboss Comptroller General hastens at half health behind a Queue Jumper escort.",
+  mechanicSummary:
+    "Two parallel routes cross three bridge islands and reconverge; the two central island pads are shared by both routes and telegraph scheduled permit shutdowns well before they close.",
+  environment: {
+    theme: "bureaucratic-bridges",
+    decorIds: ["permit-booths", "bridge-piers", "filing-cabinets"],
+    palette: { primary: 0x4c525c, secondary: 0x2c3037, accent: 0xd23d3d },
+  },
+  width: 960,
+  height: 540,
+  startingLives: 14,
+  startingGold: 410,
+  path: [
+    { x: -36, y: 140 },
+    { x: 300, y: 140 },
+    { x: 300, y: 260 },
+    { x: 560, y: 260 },
+    { x: 560, y: 120 },
+    { x: 820, y: 120 },
+    { x: 820, y: 260 },
+    { x: 996, y: 260 },
+  ],
+  routes: [
+    {
+      id: "north-route",
+      path: [
+        { x: -36, y: 140 },
+        { x: 300, y: 140 },
+        { x: 300, y: 260 },
+        { x: 560, y: 260 },
+        { x: 560, y: 120 },
+        { x: 820, y: 120 },
+        { x: 820, y: 260 },
+        { x: 996, y: 260 },
+      ],
+    },
+    {
+      id: "south-route",
+      path: [
+        { x: -36, y: 400 },
+        { x: 300, y: 400 },
+        { x: 300, y: 280 },
+        { x: 560, y: 280 },
+        { x: 560, y: 420 },
+        { x: 820, y: 420 },
+        { x: 820, y: 260 },
+        { x: 996, y: 260 },
+      ],
+    },
+  ],
+  pads: [
+    {
+      id: "north-tollgate",
+      position: { x: 150, y: 90 },
+      laneId: "north-route",
+    },
+    {
+      id: "north-catwalk",
+      position: { x: 420, y: 150 },
+      laneId: "north-route",
+    },
+    {
+      id: "north-overlook",
+      position: { x: 900, y: 90 },
+      laneId: "north-route",
+    },
+    {
+      id: "south-tollgate",
+      position: { x: 150, y: 470 },
+      laneId: "south-route",
+    },
+    {
+      id: "south-catwalk",
+      position: { x: 420, y: 470 },
+      laneId: "south-route",
+    },
+    {
+      id: "island-permit-office",
+      position: { x: 560, y: 190 },
+      laneId: "shared",
+      clusterId: "bridge-islands",
+      shutdowns: [
+        { waveIndex: 2, fromTick: 20, toTick: 75 },
+        { waveIndex: 6, fromTick: 20, toTick: 75 },
+      ],
+    },
+    {
+      id: "island-checkpoint",
+      position: { x: 690, y: 340 },
+      laneId: "shared",
+      clusterId: "bridge-islands",
+      shutdowns: [
+        { waveIndex: 4, fromTick: 20, toTick: 75 },
+        { waveIndex: 7, fromTick: 20, toTick: 75 },
+      ],
+    },
+  ],
+  waves: [
+    {
+      name: "Ticket Booth Line",
+      preview: "Both identical routes fill with orderly commuter files.",
+      spawns: wave(
+        group("basic-goblin", 18, 22),
+        group("basic-goblin", 18, 22, 30, "south-route"),
+        group("basic-goblin", 16, 19, 820),
+      ),
+    },
+    {
+      name: "Full Toll",
+      preview:
+        "Armored auditors anchor the south route while commuters keep the north busy.",
+      spawns: wave(
+        group("basic-goblin", 16, 20),
+        group("tax-troll", 5, 108, 300, "south-route"),
+        group("fast-mimic", 8, 34, 720),
+        group("basic-goblin", 16, 18, 1_060),
+      ),
+    },
+    {
+      name: "Detour",
+      preview:
+        "The permit office posts its first telegraphed closure as jumpers weave both routes.",
+      spawns: wave(
+        group("queue-jumper", 10, 36),
+        group("queue-jumper", 10, 35, 30, "south-route"),
+        group("tax-troll", 5, 102, 520),
+        group("basic-goblin", 16, 18, 900),
+        group("fast-mimic", 9, 32, 1_260),
+      ),
+    },
+    {
+      name: "Middle Management",
+      preview:
+        "The Middle Manager Mage debuts, visibly hastening every coworker who walks near it.",
+      spawns: wave(
+        group("middle-manager-mage", 4, 76),
+        group("middle-manager-mage", 4, 74, 30, "south-route"),
+        group("basic-goblin", 16, 19, 440),
+        group("queue-jumper", 10, 33, 820),
+        group("tax-troll", 5, 98, 1_220),
+      ),
+    },
+    {
+      name: "Bridge Traffic",
+      preview:
+        "The checkpoint island closes on schedule while both routes push mixed convoys.",
+      spawns: wave(
+        group("basic-goblin", 16, 19),
+        group("middle-manager-mage", 4, 70, 30, "south-route"),
+        group("tax-troll", 5, 96, 480),
+        group("fast-mimic", 10, 31, 840),
+        group("queue-jumper", 10, 32, 1_200),
+      ),
+    },
+    {
+      name: "Overlapping Shifts",
+      preview:
+        "Both routes surge at once, deliberately overlapping their pressure windows.",
+      spawns: wave(
+        group("queue-jumper", 12, 32),
+        group("coupon-squire", 8, 48, 30, "south-route"),
+        group("tax-troll", 5, 94, 460),
+        group("basic-goblin", 16, 18, 820),
+        group("fast-mimic", 10, 30, 1_180),
+        group("queue-jumper", 12, 30, 1_520, "south-route"),
+      ),
+    },
+    {
+      name: "Red Tape Review",
+      preview:
+        "The permit office closes again as auditors cross both routes together.",
+      spawns: wave(
+        group("tax-troll", 5, 92),
+        group("tax-troll", 4, 90, 30, "south-route"),
+        group("queue-jumper", 12, 31, 480),
+        group("basic-goblin", 18, 17, 840),
+        group("fast-mimic", 11, 29, 1_200),
+      ),
+    },
+    {
+      name: "Audit Trail",
+      preview:
+        "The checkpoint island closes a final time behind a dense mixed formation.",
+      spawns: wave(
+        group("coupon-squire", 8, 46),
+        group("tax-troll", 5, 90, 30, "south-route"),
+        group("queue-jumper", 12, 30, 460),
+        group("fast-mimic", 11, 28, 820),
+        group("basic-goblin", 18, 17, 1_180),
+      ),
+    },
+    {
+      name: "The Comptroller General",
+      preview:
+        "The Comptroller General advances behind auditors, then hastens with a Queue Jumper escort at half health.",
+      spawns: wave(
+        group("basic-goblin", 18, 17),
+        group("tax-troll", 5, 88, 340, "south-route"),
+        group("queue-jumper", 12, 30, 720),
+        group("coupon-squire", 8, 44, 1_060),
+        group("comptroller-general", 1, 1, 1_400),
+        group("fast-mimic", 11, 27, 1_420, "south-route"),
+      ),
+    },
+  ],
+  mastery: [
+    {
+      id: "no-tea-time",
+      name: "No Tea Time",
+      description: "Win without ever using Emergency Tea Break.",
+      rule: { kind: "no-ability-used", abilityId: "emergency-tea-break" },
+    },
+    {
+      id: "authorized-expenditure",
+      name: "Authorized Expenditure",
+      description: "Win after spending no more than 780 gold.",
+      rule: { kind: "max-spent-gold", maxGold: 780 },
+    },
+    {
+      id: "management-review",
+      name: "Management Review",
+      description:
+        "Defeat every Middle Manager Mage before the battle reaches its halfway point.",
+      rule: {
+        kind: "enemy-cleared-before-half-battle",
+        enemyId: "middle-manager-mage",
+      },
+    },
+  ],
+  availableModifierIds: ["red-tape"],
+  rewardIds: [],
+};
+
+export const siegeAndDesistLevel: LevelDefinition = {
+  id: "siege-and-desist",
+  name: "Siege and Desist",
+  subtitle: "The Act II finale. Cease, or don't.",
+  act: 2,
+  order: 7,
+  estimatedMinutes: 16,
+  threatSummary:
+    "A full veteran roster plus a new Refund Slime that splits into two goblins on defeat, capped by a warded Queen who summons Middle Managers at half health before an unwarded, unleashed final phase.",
+  mechanicSummary:
+    "Left and right flanks wrap the keep and merge at the drawbridge; the three contested keep pads share coverage of both flanks and telegraph a cluster shutdown on select later waves.",
+  environment: {
+    theme: "siege-keep",
+    decorIds: ["siege-towers", "banner-poles", "catapults"],
+    palette: { primary: 0x5a4a2e, secondary: 0x2f271a, accent: 0xd4af37 },
+  },
+  width: 960,
+  height: 540,
+  startingLives: 14,
+  startingGold: 330,
+  path: [
+    { x: -36, y: 150 },
+    { x: 300, y: 150 },
+    { x: 300, y: 400 },
+    { x: 560, y: 400 },
+    { x: 560, y: 150 },
+    { x: 760, y: 150 },
+    { x: 760, y: 270 },
+    { x: 996, y: 270 },
+  ],
+  routes: [
+    {
+      id: "left-flank",
+      path: [
+        { x: -36, y: 150 },
+        { x: 300, y: 150 },
+        { x: 300, y: 400 },
+        { x: 560, y: 400 },
+        { x: 560, y: 150 },
+        { x: 760, y: 150 },
+        { x: 760, y: 270 },
+        { x: 996, y: 270 },
+      ],
+    },
+    {
+      id: "right-flank",
+      path: [
+        { x: -36, y: 420 },
+        { x: 300, y: 420 },
+        { x: 300, y: 170 },
+        { x: 560, y: 170 },
+        { x: 560, y: 420 },
+        { x: 760, y: 420 },
+        { x: 760, y: 270 },
+        { x: 996, y: 270 },
+      ],
+    },
+  ],
+  pads: [
+    {
+      id: "siege-ladder-west",
+      position: { x: 150, y: 90 },
+      laneId: "left-flank",
+    },
+    {
+      id: "west-parapet",
+      position: { x: 430, y: 330 },
+      laneId: "left-flank",
+    },
+    {
+      id: "west-rampart",
+      position: { x: 630, y: 90 },
+      laneId: "left-flank",
+    },
+    {
+      id: "siege-ladder-east",
+      position: { x: 150, y: 480 },
+      laneId: "right-flank",
+    },
+    {
+      id: "east-parapet",
+      position: { x: 430, y: 250 },
+      laneId: "right-flank",
+    },
+    {
+      id: "east-rampart",
+      position: { x: 630, y: 480 },
+      laneId: "right-flank",
+    },
+    {
+      id: "keep-drawbridge",
+      position: { x: 850, y: 180 },
+      laneId: "shared",
+      clusterId: "keep-cluster",
+      shutdowns: [
+        { waveIndex: 3, fromTick: 20, toTick: 70 },
+        { waveIndex: 5, fromTick: 20, toTick: 70 },
+        { waveIndex: 7, fromTick: 20, toTick: 70 },
+      ],
+    },
+    {
+      id: "keep-barbican",
+      position: { x: 880, y: 330 },
+      laneId: "shared",
+      clusterId: "keep-cluster",
+      shutdowns: [
+        { waveIndex: 3, fromTick: 20, toTick: 70 },
+        { waveIndex: 5, fromTick: 20, toTick: 70 },
+        { waveIndex: 7, fromTick: 20, toTick: 70 },
+      ],
+    },
+    {
+      id: "keep-standing-stone",
+      position: { x: 940, y: 150 },
+      laneId: "shared",
+      clusterId: "keep-cluster",
+      shutdowns: [
+        { waveIndex: 3, fromTick: 20, toTick: 70 },
+        { waveIndex: 5, fromTick: 20, toTick: 70 },
+        { waveIndex: 7, fromTick: 20, toTick: 70 },
+      ],
+    },
+  ],
+  waves: [
+    {
+      name: "Ladders Up",
+      preview: "Both flanks scale the walls with steady opening companies.",
+      spawns: wave(
+        group("basic-goblin", 24, 17),
+        group("basic-goblin", 24, 17, 30, "right-flank"),
+        group("basic-goblin", 20, 15, 820),
+      ),
+    },
+    {
+      name: "Siege Engines",
+      preview: "Auditor trolls anchor the west while mimics probe the east.",
+      spawns: wave(
+        group("basic-goblin", 22, 16),
+        group("tax-troll", 7, 88, 260),
+        group("fast-mimic", 12, 27, 620, "right-flank"),
+        group("basic-goblin", 22, 14, 1_000),
+      ),
+    },
+    {
+      name: "Flanking Maneuvers",
+      preview: "Slow-proof jumpers press both flanks at the same tempo.",
+      spawns: wave(
+        group("queue-jumper", 14, 29),
+        group("queue-jumper", 14, 28, 30, "right-flank"),
+        group("tax-troll", 6, 82, 480),
+        group("basic-goblin", 22, 14, 860),
+      ),
+    },
+    {
+      name: "Warded Vanguard",
+      preview:
+        "Warded squires and guards lead as the keep cluster posts its first telegraphed shutdown.",
+      spawns: wave(
+        group("coupon-squire", 10, 40),
+        group("bog-guard", 8, 46, 30, "right-flank"),
+        group("queue-jumper", 14, 26, 460),
+        group("tax-troll", 6, 78, 820),
+        group("basic-goblin", 22, 13, 1_180),
+      ),
+    },
+    {
+      name: "Cold Reinforcements",
+      preview:
+        "Veteran Warranty Wraiths and a Middle Manager Mage return from prior campaigns.",
+      spawns: wave(
+        group("warranty-wraith", 8, 44),
+        group("middle-manager-mage", 5, 56, 30, "right-flank"),
+        group("queue-jumper", 14, 25, 440),
+        group("coupon-squire", 10, 36, 800),
+        group("tax-troll", 6, 74, 1_160),
+      ),
+    },
+    {
+      name: "Refund Department",
+      preview:
+        "Refund Slimes debut, splitting into weaker goblins the instant they fall, as the keep cluster closes again.",
+      spawns: wave(
+        group("refund-slime", 5, 46),
+        group("refund-slime", 5, 44, 30, "right-flank"),
+        group("warranty-wraith", 8, 40, 460),
+        group("bog-guard", 8, 42, 820, "right-flank"),
+        group("basic-goblin", 22, 13, 1_180),
+      ),
+    },
+    {
+      name: "Full Muster",
+      preview: "Every prior threat crosses at once in a dense mixed formation.",
+      spawns: wave(
+        group("tax-troll", 7, 74),
+        group("middle-manager-mage", 5, 50, 30, "right-flank"),
+        group("queue-jumper", 16, 24, 420),
+        group("refund-slime", 5, 42, 780),
+        group("coupon-squire", 10, 34, 1_100, "right-flank"),
+        group("fast-mimic", 14, 22, 1_420),
+      ),
+    },
+    {
+      name: "The Last Wall",
+      preview:
+        "The keep cluster shuts down a final time behind the heaviest formation yet.",
+      spawns: wave(
+        group("warranty-wraith", 8, 38),
+        group("tax-troll", 7, 70, 30, "right-flank"),
+        group("refund-slime", 5, 40, 420),
+        group("queue-jumper", 16, 23, 780, "right-flank"),
+        group("middle-manager-mage", 5, 46, 1_120),
+        group("basic-goblin", 24, 12, 1_420),
+      ),
+    },
+    {
+      name: "Queen of Pending Litigation",
+      preview:
+        "The warded Queen advances behind a veteran escort, summons Middle Managers at half health, then sheds her ward for a fast final phase.",
+      spawns: wave(
+        group("bog-guard", 10, 44),
+        group("tax-troll", 7, 70, 300, "right-flank"),
+        group("refund-slime", 6, 38, 660),
+        group("queue-jumper", 16, 22, 1_020, "right-flank"),
+        group("queen-of-pending-litigation", 1, 1, 1_360),
+      ),
+    },
+  ],
+  mastery: [
+    {
+      id: "no-leaks-at-the-gate",
+      name: "No Leaks at the Gate",
+      description:
+        "Win without letting a single enemy leak during the boss wave.",
+      rule: { kind: "no-leaks-in-wave", waveIndex: 8 },
+    },
+    {
+      id: "authorized-splits-only",
+      name: "Authorized Splits Only",
+      description:
+        "Allow no more than 50 child claims to emerge from defeated Refund Slimes.",
+      rule: { kind: "max-split-spawns", maxSplits: 50 },
+    },
+    {
+      id: "skeleton-siege",
+      name: "Skeleton Siege",
+      description: "Win having placed no more than six towers.",
+      rule: { kind: "max-towers-placed", maxTowers: 6 },
+    },
+  ],
+  availableModifierIds: [],
+  rewardIds: ["bardbarian-power-chord"],
+};
+
 export const levelDefinitions = {
-  [muddyMoatLevel.id]: muddyMoatLevel,
-  [mimicMarketLevel.id]: mimicMarketLevel,
-  [trollTollwayLevel.id]: trollTollwayLevel,
-  [castleHassleLevel.id]: castleHassleLevel,
+  "muddy-moat": muddyMoatLevel,
+  "mimic-market": mimicMarketLevel,
+  "troll-tollway": trollTollwayLevel,
+  "castle-hassle": castleHassleLevel,
+  "frozen-assets": frozenAssetsLevel,
+  "department-of-unnecessary-bridges": departmentOfUnnecessaryBridgesLevel,
+  "siege-and-desist": siegeAndDesistLevel,
 } as const satisfies Record<string, LevelDefinition>;
 
 export const campaignNodes: readonly CampaignNodeDefinition[] = [
@@ -1057,5 +1939,85 @@ export const campaignNodes: readonly CampaignNodeDefinition[] = [
     unlockSourceId: "troll-tollway",
     unlockConditions: [{ kind: "victory", levelId: "troll-tollway" }],
     rewardIds: ["emergency-tea-break"],
+  },
+  {
+    id: "frozen-assets",
+    levelId: "frozen-assets",
+    name: "Frozen Assets",
+    description: "Act II opens on a lake that legally isn't liquid.",
+    position: { x: 78, y: 70 },
+    act: 2,
+    order: 5,
+    unlock: "victory",
+    unlockSourceId: "castle-hassle",
+    unlockConditions: [{ kind: "victory", levelId: "castle-hassle" }],
+    rewardIds: ["wizard-actual-certification"],
+  },
+  {
+    id: "department-of-unnecessary-bridges",
+    levelId: "department-of-unnecessary-bridges",
+    name: "Department of Unnecessary Bridges",
+    description: "Two identical routes, three redundant islands, zero permits.",
+    position: { x: 55, y: 82 },
+    act: 2,
+    order: 6,
+    unlock: "victory",
+    unlockSourceId: "frozen-assets",
+    unlockConditions: [{ kind: "victory", levelId: "frozen-assets" }],
+    rewardIds: [],
+  },
+  {
+    id: "siege-and-desist",
+    levelId: "siege-and-desist",
+    name: "Siege and Desist",
+    description: "The Act II finale. Cease, or don't.",
+    position: { x: 30, y: 78 },
+    act: 2,
+    order: 7,
+    unlock: "victory",
+    unlockSourceId: "department-of-unnecessary-bridges",
+    unlockConditions: [
+      { kind: "victory", levelId: "department-of-unnecessary-bridges" },
+    ],
+    rewardIds: ["bardbarian-power-chord"],
+  },
+  {
+    id: "act-three-preview-one",
+    levelId: null,
+    name: "Act III · Chapter I",
+    description: "Not yet available. Act III is still in development.",
+    position: { x: 12, y: 90 },
+    act: 3,
+    order: 8,
+    unlock: "victory",
+    unlockSourceId: null,
+    unlockConditions: [],
+    rewardIds: [],
+  },
+  {
+    id: "act-three-preview-two",
+    levelId: null,
+    name: "Act III · Chapter II",
+    description: "Not yet available. Act III is still in development.",
+    position: { x: 12, y: 80 },
+    act: 3,
+    order: 9,
+    unlock: "victory",
+    unlockSourceId: null,
+    unlockConditions: [],
+    rewardIds: [],
+  },
+  {
+    id: "act-three-preview-three",
+    levelId: null,
+    name: "Act III · Chapter III",
+    description: "Not yet available. Act III is still in development.",
+    position: { x: 12, y: 70 },
+    act: 3,
+    order: 10,
+    unlock: "victory",
+    unlockSourceId: null,
+    unlockConditions: [],
+    rewardIds: [],
   },
 ];

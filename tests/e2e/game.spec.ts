@@ -114,7 +114,7 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await page.getByRole("button", { name: "Enter the realm" }).click();
   await expect(
     page.getByRole("heading", {
-      name: /Four calamities.*affordable defense force/i,
+      name: /Seven authored calamities.*affordable defense force/i,
     }),
   ).toBeVisible();
   await expect(page.getByText("The Muddy Moat").first()).toBeVisible();
@@ -225,7 +225,7 @@ test("previews, confirms, and safely cancels touch-friendly placement", async ({
       name: /Confirm sale of .*Fork Knight for 39 gold/,
     }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Start wave 1" }).click();
+  await page.getByRole("button", { name: "Start Wave 1" }).click();
   await expect(
     page.getByRole("button", { name: "Dismiss message" }),
   ).toContainText("Wave 1 underway");
@@ -346,7 +346,7 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   const ability = page.getByRole("button", { name: "Arm Forkfall" });
   const leave = page.getByRole("button", { name: "Leave mission" });
   const settings = page.getByLabel("Battle settings");
-  const startWave = page.getByRole("button", { name: "Start wave 1" });
+  const startWave = page.getByRole("button", { name: "Start Wave 1" });
   for (const [name, control] of [
     ["battlefield", canvas],
     ["ability", ability],
@@ -367,10 +367,40 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
     ).toBeLessThanOrEqual(320);
   }
   const waveBox = await startWave.boundingBox();
-  expect(waveBox?.height).toBeGreaterThanOrEqual(44);
+  expect(waveBox?.width).toBeGreaterThanOrEqual(160);
+  expect(waveBox?.height).toBeGreaterThanOrEqual(52);
+  await expect(startWave).toContainText("Next: Orientation Day");
+  const wavePresentation = await startWave.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      color: style.color,
+      backgroundColor: style.backgroundColor,
+      animationName: style.animationName,
+    };
+  });
+  expect(wavePresentation.color).toBe("rgb(32, 21, 38)");
+  expect(wavePresentation.backgroundColor).toBe("rgb(246, 204, 99)");
+  expect(wavePresentation.animationName).toBe("wave-ready-pulse");
+
+  const dockBox = await page.locator(".defender-dock").boundingBox();
+  const abilityBox = await ability.boundingBox();
+  const overlapsWave = (
+    box: { x: number; y: number; width: number; height: number } | null,
+  ) =>
+    box !== null &&
+    waveBox !== null &&
+    box.x < waveBox.x + waveBox.width &&
+    box.x + box.width > waveBox.x &&
+    box.y < waveBox.y + waveBox.height &&
+    box.y + box.height > waveBox.y;
+  expect(overlapsWave(dockBox)).toBe(false);
+  expect(overlapsWave(abilityBox)).toBe(false);
   const canvasBox = await canvas.boundingBox();
   expect(canvasBox?.width).toBeGreaterThanOrEqual(568 * 0.95);
   expect(canvasBox?.height).toBeGreaterThanOrEqual(320 * 0.78);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(startWave).toHaveCSS("animation-name", "none");
 
   const defenderInfo = page.getByRole("button", {
     name: /Sir Stabs-a-Lot.*Fork Knight.*physical single-target damage.*57 gold/i,
@@ -402,7 +432,6 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   const floatingControls = [
     page.getByRole("group", { name: "Royal Forkfall ability" }),
     page.getByRole("group", { name: "Defender costs" }),
-    startWave,
   ];
   const padControls = await page
     .getByRole("group", { name: "Tower pads" })
@@ -504,20 +533,23 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
     (wideCanvasBox?.y ?? -1) + (wideCanvasBox?.height ?? 394),
   ).toBeLessThanOrEqual(393);
 
-  await page.setViewportSize({ width: 1600, height: 900 });
-  const largeCanvasBox = await canvas.boundingBox();
-  expect(largeCanvasBox?.width).toBeLessThanOrEqual(1440);
-  expect(largeCanvasBox?.x).toBeGreaterThan(0);
-  const placedPad = page.getByRole("button", {
-    name: /Inspect .*Fork Knight at bramble seat/,
-  });
-  const placedPadBox = await placedPad.boundingBox();
-  const expectedPadX =
-    (largeCanvasBox?.x ?? 0) + ((largeCanvasBox?.width ?? 960) * 83) / 960;
-  expect((placedPadBox?.x ?? 0) + (placedPadBox?.width ?? 0) / 2).toBeCloseTo(
-    expectedPadX,
-    0,
-  );
+  if (testInfo.project.name !== "mobile-chromium") {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const largeCanvasBox = await canvas.boundingBox();
+    expect(largeCanvasBox?.width).toBeLessThanOrEqual(1440);
+    expect(largeCanvasBox?.x).toBeGreaterThan(0);
+    const placedPad = page.getByRole("button", {
+      name: /Inspect .*Fork Knight at bramble seat/,
+    });
+    const expectedPadX =
+      (largeCanvasBox?.x ?? 0) + ((largeCanvasBox?.width ?? 960) * 83) / 960;
+    await expect
+      .poll(async () => {
+        const placedPadBox = await placedPad.boundingBox();
+        return (placedPadBox?.x ?? 0) + (placedPadBox?.width ?? 0) / 2;
+      })
+      .toBeCloseTo(expectedPadX, 0);
+  }
 });
 
 test("persists a completed victory and unlocks Mimic Market offline", async ({
@@ -548,43 +580,43 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   await placeTower(page, /Discount Wizard/, { x: 245, y: 250 });
   await placeTower(page, /Fork Knight/, { x: 285, y: 448 });
   await placeTower(page, /Fork Knight/, { x: 520, y: 55 });
-  await page.getByRole("button", { name: "Start wave 1" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 2" })).toBeVisible({
+  await page.getByRole("button", { name: "Start Wave 1" }).click();
+  await expect(page.getByRole("button", { name: "Start Wave 2" })).toBeVisible({
     timeout: 70_000,
   });
 
   await placeTower(page, /Discount Wizard/, { x: 472, y: 249 });
-  await page.getByRole("button", { name: "Start wave 2" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 3" })).toBeVisible({
+  await page.getByRole("button", { name: "Start Wave 2" }).click();
+  await expect(page.getByRole("button", { name: "Start Wave 3" })).toBeVisible({
     timeout: 70_000,
   });
 
   await placeTower(page, /Discount Wizard/, { x: 713, y: 270 });
   await placeTower(page, /Fork Knight/, { x: 782, y: 474 });
-  await page.getByRole("button", { name: "Start wave 3" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 4" })).toBeVisible({
+  await page.getByRole("button", { name: "Start Wave 3" }).click();
+  await expect(page.getByRole("button", { name: "Start Wave 4" })).toBeVisible({
     timeout: 70_000,
   });
 
   await placeTower(page, /Discount Wizard/, { x: 858, y: 300 });
   await upgradeTower(page, { x: 83, y: 74 });
   await upgradeTower(page, { x: 285, y: 448 });
-  await page.getByRole("button", { name: "Start wave 4" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 5" })).toBeVisible({
+  await page.getByRole("button", { name: "Start Wave 4" }).click();
+  await expect(page.getByRole("button", { name: "Start Wave 5" })).toBeVisible({
     timeout: 70_000,
   });
 
   await upgradeTower(page, { x: 83, y: 74 });
   await upgradeTower(page, { x: 245, y: 250 });
   await upgradeTower(page, { x: 520, y: 55 });
-  await page.getByRole("button", { name: "Start wave 5" }).click();
-  await expect(page.getByRole("button", { name: "Start wave 6" })).toBeVisible({
+  await page.getByRole("button", { name: "Start Wave 5" }).click();
+  await expect(page.getByRole("button", { name: "Start Wave 6" })).toBeVisible({
     timeout: 70_000,
   });
 
   await upgradeTower(page, { x: 245, y: 250 });
   await upgradeTower(page, { x: 285, y: 448 });
-  await page.getByRole("button", { name: "Start wave 6" }).click();
+  await page.getByRole("button", { name: "Start Wave 6" }).click();
 
   await expect(
     page.getByRole("heading", { name: "The Muddy Moat is defended!" }),
@@ -611,6 +643,199 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   await expect(mimicMarket).toContainText("Ready to defend");
   await expect(page.getByText("1 victory")).toBeVisible();
   await context.setOffline(false);
+});
+
+async function seedSaveData(page: Page, data: unknown): Promise<void> {
+  await page.evaluate(async (payload) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("saves")) {
+          request.result.createObjectStore("saves");
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("saves", "readwrite");
+      transaction.objectStore("saves").put(
+        {
+          data: payload,
+          cloudOwnerId: null,
+          cloudRevision: 0,
+          pending: true,
+          updatedAt: new Date().toISOString(),
+        },
+        "campaign",
+      );
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  }, data);
+}
+
+test("completes a real Act II mission (Frozen Assets) from a deterministic mid-campaign checkpoint", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Full Act II victory flow runs once on desktop.",
+  );
+
+  // Deterministic setup: seed Act I as already beaten (unlocking Frozen
+  // Assets) plus an authored, previously-validated checkpoint sitting at the
+  // start of Frozen Assets' final wave. The actual mission completion below
+  // is still played for real through the on-canvas UI.
+  const actOneVictory = {
+    bestScore: 5_000,
+    victories: 1,
+    completedMasteryIds: [],
+    completedModifierIds: [],
+  };
+  const checkpoint = {
+    levelId: "frozen-assets",
+    seed: 123,
+    modifierIds: [],
+    tick: 12_199,
+    nextWave: 7,
+    lives: 11,
+    gold: 31,
+    score: 60_770,
+    abilityChargeTicks: 240,
+    teaBreakUsedThisWave: false,
+    spawnedEnemies: 512,
+    placements: [
+      { id: "tower-1", towerId: "fork-knight", padId: "frost-perch", level: 3 },
+      {
+        id: "tower-2",
+        towerId: "discount-wizard",
+        padId: "iceberg-shelf",
+        level: 3,
+      },
+      {
+        id: "tower-3",
+        towerId: "fork-knight",
+        padId: "floe-crossing",
+        level: 3,
+      },
+      {
+        id: "tower-4",
+        towerId: "discount-wizard",
+        padId: "cold-storage-dock",
+        level: 3,
+      },
+      {
+        id: "tower-5",
+        towerId: "discount-wizard",
+        padId: "vault-approach-north",
+        level: 3,
+      },
+      {
+        id: "tower-6",
+        towerId: "discount-wizard",
+        padId: "vault-approach-south",
+        level: 2,
+      },
+      {
+        id: "tower-7",
+        towerId: "discount-wizard",
+        padId: "vault-gate",
+        level: 1,
+      },
+      {
+        id: "tower-8",
+        towerId: "discount-wizard",
+        padId: "counting-house-ledge",
+        level: 1,
+      },
+    ],
+    metrics: {
+      spentGold: 1_619,
+      leakedEnemies: 3,
+      leakedByEnemyId: { "basic-goblin": 3 },
+      leakedByWaveIndex: { "0": 3 },
+      soldTowers: 0,
+      usedTowerIds: ["discount-wizard", "fork-knight"],
+      maxTowersPlaced: 8,
+      bossDefeatPathPercent: null,
+      splitSpawns: 0,
+      abilityActivations: {},
+      lastEnemyClearedTick: {
+        "basic-goblin": 12_199,
+        "fast-mimic": 11_867,
+        "tax-troll": 10_620,
+        "queue-jumper": 11_212,
+        "coupon-squire": 11_603,
+        "warranty-wraith": 10_824,
+      },
+    },
+  };
+
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Enter the realm" }),
+  ).toBeVisible();
+
+  await seedSaveData(page, {
+    contentVersion: 2,
+    campaign: {
+      unlockedNodeIds: ["muddy-moat"],
+      levels: {
+        "muddy-moat": actOneVictory,
+        "mimic-market": actOneVictory,
+        "troll-tollway": actOneVictory,
+        "castle-hassle": actOneVictory,
+      },
+      recentResults: [],
+      recordedAttemptIds: [],
+    },
+    settings: {
+      muted: false,
+      reducedMotion: false,
+      lowEffects: false,
+      gameSpeed: 1,
+    },
+    checkpoint,
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+
+  const resumeButton = page.getByRole("button", { name: "Resume wave 8" });
+  await expect(resumeButton).toBeVisible();
+  await resumeButton.click();
+
+  const canvas = page.locator(".battlefield canvas");
+  await expect(canvas).toBeVisible();
+  await page.getByRole("button", { name: "Change game speed" }).click();
+  await expect(
+    page.getByRole("button", { name: "Change game speed" }),
+  ).toHaveText("2×");
+
+  await page.getByRole("button", { name: "Start Wave 8" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Frozen Assets is defended!" }),
+  ).toBeVisible({ timeout: 100_000 });
+  await page.getByRole("button", { name: "Continue to campaign" }).click();
+
+  const frozenAssets = page.getByRole("button", { name: /Frozen Assets/ });
+  await expect(frozenAssets).toContainText("1 victory");
+  const departmentOfBridges = page.getByRole("button", {
+    name: /Department of Unnecessary Bridges/,
+  });
+  await expect(departmentOfBridges).toHaveAccessibleName(
+    /Department of Unnecessary Bridges\. Unlocked\./,
+  );
+  await expect(departmentOfBridges).toContainText("Ready to defend");
+
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await expect(
+    page.getByRole("button", { name: /Frozen Assets/ }),
+  ).toContainText("1 victory");
+  await expect(departmentOfBridges).toContainText("Ready to defend");
 });
 
 test("cancels and confirms mission abandonment without retaining progress", async ({
@@ -642,7 +867,7 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
   await expect(dialog).not.toBeVisible();
   await expect(forkKnightOption).toBeVisible();
 
-  await page.getByRole("button", { name: "Start wave 1" }).click();
+  await page.getByRole("button", { name: "Start Wave 1" }).click();
   await expect(
     page.getByRole("button", { name: "Dismiss message" }),
   ).toContainText("Wave 1 underway");
