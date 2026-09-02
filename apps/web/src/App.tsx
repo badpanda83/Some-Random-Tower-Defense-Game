@@ -37,6 +37,12 @@ import {
   withoutBattleCheckpoint,
 } from "./save.js";
 import { reconcileCompletedSync } from "./sync-state.js";
+import {
+  prepareBattleRetry,
+  randomAttemptId,
+  randomSeed,
+  type BattleSetup,
+} from "./battle-setup.js";
 
 const GameScreen = lazy(async () => {
   const module = await import("./screens/GameScreen.js");
@@ -45,21 +51,6 @@ const GameScreen = lazy(async () => {
 
 type Screen = "title" | "campaign" | "game";
 type SyncStatus = "local" | "syncing" | "synced" | "offline" | "conflict";
-
-interface BattleSetup {
-  readonly levelId: string;
-  readonly seed: number;
-  readonly modifierIds: readonly string[];
-  readonly unlockedRewardIds: readonly string[];
-  readonly checkpoint: BattleCheckpoint | null;
-  readonly key: number;
-}
-
-function randomSeed(): number {
-  const values = new Uint32Array(1);
-  crypto.getRandomValues(values);
-  return ((values[0] ?? 1) % 2_147_483_646) + 1;
-}
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("title");
@@ -243,6 +234,13 @@ export function App() {
         ? unlockedRewardIds(recordRef.current.data)
         : [],
       checkpoint,
+      attemptId: checkpoint?.attemptId ?? randomAttemptId(),
+      loadoutSnapshot: checkpoint?.loadoutSnapshot ??
+        recordRef.current?.data.loadouts ?? {
+          "fork-knight": { weapon: null, armor: null, charm: null },
+          "discount-wizard": { weapon: null, armor: null, charm: null },
+          bardbarian: { weapon: null, armor: null, charm: null },
+        },
       key: Date.now(),
     });
     setScreen("game");
@@ -410,6 +408,8 @@ export function App() {
               modifierIds={battle.modifierIds}
               unlockedRewardIds={battle.unlockedRewardIds}
               checkpoint={battle.checkpoint}
+              attemptId={battle.attemptId}
+              loadoutSnapshot={battle.loadoutSnapshot}
               settings={record.data.settings}
               synchronizationBlocked={Boolean(conflict)}
               onCheckpoint={(checkpoint) => {
@@ -428,7 +428,14 @@ export function App() {
                 setScreen("campaign");
                 setBattle(null);
               }}
-              onRetry={() => beginBattle(battle.levelId, battle.modifierIds)}
+              onRetry={async () => {
+                const retry = await prepareBattleRetry(
+                  battle,
+                  recordRef.current!.data,
+                  commit,
+                );
+                setBattle(retry);
+              }}
               onAbandon={async () => {
                 await commit(withoutBattleCheckpoint(recordRef.current!.data));
                 setScreen("campaign");

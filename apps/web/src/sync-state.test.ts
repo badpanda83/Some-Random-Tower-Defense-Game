@@ -150,6 +150,7 @@ describe("concurrent save synchronization", () => {
       cloudRevision: 2,
       pending: false,
       data: {
+        ...submitted.data,
         checkpoint: {
           metrics: {
             usedTowerIds: [],
@@ -169,9 +170,6 @@ describe("concurrent save synchronization", () => {
           seed: 7,
           levelId: "muddy-moat",
         },
-        settings: submitted.data.settings,
-        campaign: submitted.data.campaign,
-        contentVersion: submitted.data.contentVersion,
       },
     };
 

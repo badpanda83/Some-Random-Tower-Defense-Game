@@ -1,4 +1,12 @@
-import type { BattleCheckpoint, GameCommand } from "@srtg/protocol";
+import type {
+  BattleCheckpoint,
+  EquipmentContribution,
+  EquipmentProcState,
+  GameCommand,
+  LoadoutSnapshot,
+} from "@srtg/protocol";
+
+import type { EnemyStatusState } from "./status.js";
 
 export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
@@ -368,6 +376,12 @@ export interface LevelDefinition {
   readonly rewardIds: readonly string[];
 }
 
+export interface FullBossEncounterDefinition {
+  readonly levelId: string;
+  readonly enemyId: string;
+  readonly cadence: "regular" | "act-finale-exception";
+}
+
 export type CampaignUnlockCondition =
   | { readonly kind: "start" }
   | { readonly kind: "victory"; readonly levelId: string }
@@ -423,10 +437,14 @@ export interface EnemyState {
   readonly referredReachedHalfway: boolean;
   /** Stable UI stage id, including the initial boss stage when authored. */
   readonly activeBossStageId: string | null;
+  /** Equipment control state; absent only in pre-v4 test fixtures. */
+  readonly status?: EnemyStatusState;
 }
 
 export interface BattleMetrics {
   readonly spentGold: number;
+  /** Authored prices before equipment discounts, used by budget masteries. */
+  readonly authoredSpentGold: number;
   readonly leakedEnemies: number;
   readonly leakedByEnemyId: Readonly<Record<string, number>>;
   /** Leaked enemy count keyed by wave index (as a string), for masteries
@@ -451,14 +469,23 @@ export interface BattleMetrics {
   readonly referredEnemiesReachedHalfway: number;
   readonly referredWaveIndices: readonly number[];
   readonly bossReinforcementCalls: Readonly<Record<string, number>>;
+  readonly defeatedBossEnemyIds: readonly string[];
+  readonly equipment: Readonly<Record<string, EquipmentContribution>>;
 }
 
 export type BattlePhase = "preparing" | "active" | "victory" | "defeat";
 
 export interface GameState {
   readonly levelId: string;
+  readonly attemptId: string;
   readonly seed: number;
   readonly modifierIds: readonly string[];
+  readonly loadoutSnapshot: LoadoutSnapshot;
+  readonly rngState: {
+    readonly spawn: number;
+    readonly combat: number;
+  };
+  readonly equipmentProcState: EquipmentProcState;
   readonly tick: number;
   readonly phase: BattlePhase;
   readonly waveIndex: number;
@@ -550,6 +577,15 @@ export type GameEvent =
       readonly type: "battle-complete";
       readonly result: "victory" | "defeat";
       readonly completedMasteryIds: readonly string[];
+    }
+  | {
+      readonly type: "equipment-effect";
+      readonly itemId: string;
+      readonly effectId: string;
+      readonly sourceInstanceId: string;
+      readonly targetInstanceId: string | null;
+      readonly outcome: "applied" | "converted" | "immune" | "rejected";
+      readonly message: string;
     };
 
 export interface StepResult {
@@ -559,9 +595,11 @@ export interface StepResult {
 
 export interface SimulationOptions {
   readonly levelId?: string;
+  readonly attemptId?: string;
   readonly seed?: number;
   readonly modifierIds?: readonly string[];
   readonly checkpoint?: BattleCheckpoint;
+  readonly loadoutSnapshot?: LoadoutSnapshot;
   /** Reward ids (see `RewardDefinition`) unlocked for this run, e.g. from campaign progress. */
   readonly unlockedRewardIds?: readonly string[];
 }

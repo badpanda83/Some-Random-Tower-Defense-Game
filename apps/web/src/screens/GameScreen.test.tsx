@@ -12,12 +12,14 @@ import type {
   GameCommand,
   Settings,
 } from "@srtg/protocol";
+import type { GameEvent } from "@srtg/game-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const battlefieldTest = vi.hoisted(() => ({
   setPaused: vi.fn<(paused: boolean) => void>(),
   paused: false,
   advance: null as null | ((ticks: number) => void),
+  emit: null as null | ((events: readonly GameEvent[]) => void),
 }));
 
 vi.mock("../game/audio.js", () => ({
@@ -34,17 +36,18 @@ vi.mock("../game/Battlefield.js", async () => {
     Battlefield: React.forwardRef(function MockBattlefield(
       props: {
         simulation: {
+          readonly state: unknown;
           dispatch: (command: GameCommand) => {
             state: unknown;
-            events: readonly unknown[];
+            events: readonly GameEvent[];
           };
           step: (ticks: number) => {
             state: unknown;
-            events: readonly unknown[];
+            events: readonly GameEvent[];
           };
         };
         paused: boolean;
-        onState: (state: unknown, events: readonly unknown[]) => void;
+        onState: (state: unknown, events: readonly GameEvent[]) => void;
       },
       ref: React.ForwardedRef<unknown>,
     ) {
@@ -54,6 +57,9 @@ vi.mock("../game/Battlefield.js", async () => {
         }
         const result = props.simulation.step(ticks);
         props.onState(result.state, result.events);
+      };
+      battlefieldTest.emit = (events) => {
+        props.onState(props.simulation.state, events);
       };
       React.useEffect(() => {
         battlefieldTest.paused = props.paused;
@@ -113,7 +119,7 @@ function renderGame(
   checkpoint: BattleCheckpoint | null = null,
   overrides: Partial<{
     onComplete: (result: BattleResult) => Promise<void>;
-    onRetry: () => void;
+    onRetry: () => Promise<void>;
     onAbandon: () => Promise<void>;
   }> = {},
   unlockedRewardIds: readonly string[] = [],
@@ -121,7 +127,7 @@ function renderGame(
   const callbacks = {
     onCheckpoint: vi.fn(),
     onComplete: vi.fn().mockResolvedValue(undefined),
-    onRetry: vi.fn(),
+    onRetry: vi.fn().mockResolvedValue(undefined),
     onAbandon: vi.fn().mockResolvedValue(undefined),
     onSettings: vi.fn(),
     ...overrides,
@@ -380,6 +386,28 @@ describe("mission abandonment", () => {
   });
 
   afterEach(cleanup);
+
+  it("surfaces converted equipment feedback through the battle message", () => {
+    renderGame();
+
+    act(() =>
+      battlefieldTest.emit?.([
+        {
+          type: "equipment-effect",
+          itemId: "excalifork",
+          effectId: "excalifork-seventh-hit",
+          sourceInstanceId: "tower-1",
+          targetInstanceId: "enemy-1",
+          outcome: "converted",
+          message: "Boss resisted displacement - Set for the Party",
+        },
+      ]),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Dismiss message" }),
+    ).toHaveTextContent("Boss resisted displacement - Set for the Party");
+  });
 
   it("cancels with Escape and restores a running wave", () => {
     const callbacks = renderGame();

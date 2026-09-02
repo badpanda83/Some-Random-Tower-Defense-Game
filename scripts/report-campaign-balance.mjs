@@ -1,9 +1,11 @@
 import {
   campaignNodes,
+  equipmentBalanceScenarios,
   levelDefinitions,
   referencePlanningModel,
   referenceStrategies,
   representativeStrategyIdsByLevel,
+  runEquipmentBalanceMatrix,
   runReferenceStrategy,
   runTwoForkStressReference,
   twoForkStressPadIdsByLevel,
@@ -80,6 +82,8 @@ console.log(
         "frozen-assets",
         referenceStrategies["two-knight-table-service"],
       ),
+      equipmentScenarios: Object.keys(equipmentBalanceScenarios),
+      equipmentMatrix: runEquipmentBalanceMatrix(),
       reports: reports.map((report) => ({
         act: actByLevelId[report.levelId] ?? null,
         ...report,

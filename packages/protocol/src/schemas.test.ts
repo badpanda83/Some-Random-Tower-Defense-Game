@@ -9,6 +9,7 @@ import {
 } from "./migration.js";
 import {
   CONTENT_VERSION,
+  ACT_THREE_CONTENT_VERSION,
   LEGACY_CONTENT_VERSION,
   PREVIOUS_CONTENT_VERSION,
   battleCheckpointSchema,
@@ -16,6 +17,7 @@ import {
   saveDataSchema,
   saveDataSchemaV1,
   saveDataSchemaV2,
+  saveDataSchemaV3,
 } from "./schemas.js";
 
 function freshCampaign() {
@@ -39,6 +41,9 @@ describe("protocol schemas", () => {
     expect(save.settings.muted).toBe(false);
     expect(save.settings.keepPlayingWhileAway).toBe(false);
     expect(save.campaign.recordedAttemptIds).toEqual([]);
+    expect(save.economy.questCrowns).toBe(0);
+    expect(save.inventory.ownedItemIds).toEqual([]);
+    expect(save.loadouts["fork-knight"].weapon).toBeNull();
   });
 
   it("rejects unknown commands", () => {
@@ -285,7 +290,15 @@ describe("legacy v1 migration", () => {
     const migrated = migrateSaveDataV1ToV2(v1WithCheckpoint);
 
     expect(() => saveDataSchema.parse(migrated)).not.toThrow();
-    expect(migrated.checkpoint).toEqual(v1WithCheckpoint.checkpoint);
+    expect(migrated.checkpoint).toMatchObject(v1WithCheckpoint.checkpoint);
+    expect(migrated.checkpoint?.attemptId).toBe(
+      "migrated:siege-and-desist:42:normal",
+    );
+    expect(migrated.checkpoint?.loadoutSnapshot).toEqual({
+      "fork-knight": { weapon: null, armor: null, charm: null },
+      "discount-wizard": { weapon: null, armor: null, charm: null },
+      bardbarian: { weapon: null, armor: null, charm: null },
+    });
     expect(migrated.checkpoint?.metrics.splitSpawns).toBe(12);
     expect(migrated.checkpoint?.metrics.leakedByWaveIndex).toEqual({ "3": 2 });
 
@@ -352,6 +365,9 @@ describe("v1/v2/v3 migration", () => {
         contentVersion: version,
         campaign: {
           ...envelope.campaign,
+          recordedAttemptIds: [
+            "3:lava-lamp-district:91:hot-seat,other:2026-09-02T00:00:00.000Z",
+          ],
           recentResults: [
             { ...envelope.campaign.recentResults[0]!, contentVersion: version },
           ],
@@ -359,5 +375,46 @@ describe("v1/v2/v3 migration", () => {
       });
       expect(migrated.campaign.recentResults[0]?.contentVersion).toBe(version);
     }
+  });
+
+  it("migrates an active v3 checkpoint to v4 without changing background-play or progress", () => {
+    const v3 = saveDataSchemaV3.parse({
+      ...envelope,
+      contentVersion: ACT_THREE_CONTENT_VERSION,
+      settings: {
+        ...envelope.settings,
+        keepPlayingWhileAway: true,
+      },
+      checkpoint: {
+        levelId: "lava-lamp-district",
+        seed: 91,
+        modifierIds: [],
+        tick: 800,
+        nextWave: 3,
+        lives: 14,
+        gold: 222,
+        score: 333,
+        spawnedEnemies: 44,
+        placements: [],
+        metrics: {
+          spentGold: 555,
+          leakedEnemies: 1,
+          leakedByEnemyId: { "refund-slime": 1 },
+          soldTowers: 0,
+          usedTowerIds: ["discount-wizard"],
+          exposedPadUses: 2,
+          bossReinforcementCalls: { "final-eviction": 1 },
+        },
+      },
+    });
+
+    const once = parseSaveDataWithMigration(v3);
+    const twice = parseSaveDataWithMigration(once);
+
+    expect(once.contentVersion).toBe(4);
+    expect(once.settings.keepPlayingWhileAway).toBe(true);
+    expect(once.campaign).toEqual(v3.campaign);
+    expect(once.checkpoint).toMatchObject(v3.checkpoint!);
+    expect(twice).toEqual(once);
   });
 });

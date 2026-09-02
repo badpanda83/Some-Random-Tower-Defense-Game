@@ -1,4 +1,5 @@
 import { CONTENT_VERSION, type SaveData } from "@srtg/protocol";
+import { equipmentDefinitions } from "@srtg/game-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildApp } from "./app.js";
@@ -277,10 +278,56 @@ describe("API", () => {
         },
       },
     });
+    const unknownEquipment = await app.inject({
+      method: "PUT",
+      url: "/api/saves/campaign",
+      payload: {
+        expectedRevision: 0,
+        data: {
+          ...freshSave,
+          inventory: {
+            ownedItemIds: ["imaginary-sword"],
+            metadata: {},
+          },
+        },
+      },
+    });
 
     expect(malformed.statusCode).toBe(400);
     expect(impossible.statusCode).toBe(400);
     expect(unknownContent.statusCode).toBe(400);
+    expect(unknownEquipment.statusCode).toBe(400);
+  });
+
+  it("accepts a representative bounded v4 save below 200 KiB", async () => {
+    const itemIds = Object.keys(equipmentDefinitions);
+    const data = {
+      ...freshSave,
+      campaign: {
+        ...freshSave.campaign,
+        recordedAttemptIds: Array.from(
+          { length: 2_000 },
+          (_, index) => `attempt-${String(index).padStart(4, "0")}`,
+        ),
+      },
+      inventory: {
+        ownedItemIds: itemIds,
+        metadata: Object.fromEntries(
+          itemIds.map((itemId) => [
+            itemId,
+            { favorite: false, locked: false, isNew: false },
+          ]),
+        ),
+      },
+    };
+    expect(JSON.stringify(data).length).toBeLessThan(200 * 1024);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/saves/campaign",
+      payload: { expectedRevision: 0, data },
+    });
+    expect(response.statusCode).toBe(200);
   });
 
   it("relays auth responses and cookies", async () => {

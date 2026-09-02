@@ -12,10 +12,12 @@ import {
 } from "@srtg/game-core";
 import {
   CONTENT_VERSION,
+  EMPTY_LOADOUTS,
   type AbilityId,
   type BattleCheckpoint,
   type BattleResult,
   type GameSpeed,
+  type LoadoutSnapshot,
   type Settings,
 } from "@srtg/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,12 +44,14 @@ interface GameScreenProps {
   readonly modifierIds: readonly string[];
   readonly unlockedRewardIds: readonly string[];
   readonly checkpoint: BattleCheckpoint | null;
+  readonly attemptId?: string;
+  readonly loadoutSnapshot?: LoadoutSnapshot;
   readonly settings: Settings;
   readonly synchronizationBlocked: boolean;
   readonly pageActivity?: PageActivitySource;
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
   readonly onComplete: (result: BattleResult) => Promise<void>;
-  readonly onRetry: () => void;
+  readonly onRetry: () => Promise<void>;
   readonly onAbandon: () => Promise<void>;
   readonly onSettings: (settings: Settings) => void;
 }
@@ -134,6 +138,8 @@ export function GameScreen({
   modifierIds,
   unlockedRewardIds,
   checkpoint,
+  attemptId = `battle:${levelId}:${seed}:normal`,
+  loadoutSnapshot = EMPTY_LOADOUTS,
   settings,
   synchronizationBlocked,
   pageActivity = browserPageActivity,
@@ -148,9 +154,24 @@ export function GameScreen({
       createSimulation(
         checkpoint
           ? { checkpoint, unlockedRewardIds }
-          : { seed, levelId, modifierIds, unlockedRewardIds },
+          : {
+              seed,
+              levelId,
+              modifierIds,
+              unlockedRewardIds,
+              attemptId,
+              loadoutSnapshot,
+            },
       ),
-    [checkpoint, levelId, modifierIds, seed, unlockedRewardIds],
+    [
+      attemptId,
+      checkpoint,
+      levelId,
+      loadoutSnapshot,
+      modifierIds,
+      seed,
+      unlockedRewardIds,
+    ],
   );
   const [state, setState] = useState<GameState>(simulation.state);
   const level =
@@ -397,6 +418,15 @@ export function GameScreen({
         `${definition.name} enters the battlefield. Boss health and stage are now pinned.`,
       );
     }
+    const equipmentConversion = events.find(
+      (event) =>
+        event.type === "equipment-effect" &&
+        (event.outcome === "converted" ||
+          event.message.toLowerCase().includes("resist")),
+    );
+    if (equipmentConversion?.type === "equipment-effect") {
+      setMessage(equipmentConversion.message);
+    }
   }
 
   function setSpeed(speed: GameSpeed) {
@@ -467,6 +497,14 @@ export function GameScreen({
         score: state.score,
         completedMasteryIds: [...state.completedMasteryIds],
         completedAt: new Date().toISOString(),
+        attemptId: state.attemptId,
+        loadoutSnapshot: state.loadoutSnapshot,
+        defeatedBossEnemyIds: [...state.metrics.defeatedBossEnemyIds],
+        equipmentMetrics: Object.fromEntries(
+          Object.entries(state.metrics.equipment).map(
+            ([itemId, contribution]) => [itemId, { ...contribution }],
+          ),
+        ),
       } satisfies BattleResult);
     completedResult.current = result;
     try {
@@ -476,6 +514,26 @@ export function GameScreen({
         error instanceof Error
           ? error.message
           : "The result could not be stored locally.",
+      );
+      resultSavingRef.current = false;
+      setResultSaving(false);
+    }
+  }
+
+  async function retry() {
+    if (resultSavingRef.current) {
+      return;
+    }
+    resultSavingRef.current = true;
+    setResultSaving(true);
+    setResultError(null);
+    try {
+      await onRetry();
+    } catch (error) {
+      setResultError(
+        error instanceof Error
+          ? error.message
+          : "The previous checkpoint could not be cleared.",
       );
       resultSavingRef.current = false;
       setResultSaving(false);
@@ -984,7 +1042,7 @@ export function GameScreen({
             <div className="result-actions">
               <button
                 className="button button-ghost"
-                onClick={onRetry}
+                onClick={() => void retry()}
                 disabled={resultSaving}
               >
                 Retry

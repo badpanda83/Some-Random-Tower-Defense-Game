@@ -4,8 +4,10 @@ import {
   towerDefinitions,
 } from "./content.js";
 import { createSimulation } from "./simulation.js";
+import { createEmptyLoadouts } from "./equipment.js";
 import { ROYAL_FORKFALL_CHARGE_TICKS, TICK_RATE } from "./types.js";
 import type { GameEvent } from "./types.js";
+import type { EquipmentContribution, LoadoutSnapshot } from "@srtg/protocol";
 
 type TowerId = keyof typeof towerDefinitions;
 /** Any campaign level id currently defined in content, across all acts. */
@@ -76,6 +78,7 @@ export interface BuildActionReport {
 export interface MissionBalanceReport {
   readonly levelId: ActOneLevelId;
   readonly strategyId: string;
+  readonly equipmentScenarioId: string;
   readonly result: "victory" | "defeat";
   readonly endingWave: number;
   readonly battleTicks: number;
@@ -89,6 +92,7 @@ export interface MissionBalanceReport {
   readonly leakedByEnemyId: Readonly<Record<string, number>>;
   readonly splitSpawns: number;
   readonly spentGold: number;
+  readonly authoredSpentGold: number;
   readonly leaksDuringEnvironmentHazards: number;
   readonly exposedPadUses: number;
   readonly referredEnemiesReachedHalfway: number;
@@ -99,6 +103,10 @@ export interface MissionBalanceReport {
   readonly buildActions: readonly BuildActionReport[];
   readonly waves: readonly WaveBalanceReport[];
   readonly contributionByTowerId: Readonly<Record<string, TowerContribution>>;
+  readonly rankDistribution: Readonly<Record<string, number>>;
+  readonly equipmentContribution: Readonly<
+    Record<string, EquipmentContribution>
+  >;
 }
 
 export const referenceStrategies = {
@@ -291,6 +299,64 @@ export const referencePlanningModel = {
   actionSeconds: 2.5,
 } as const;
 
+export const equipmentBalanceScenarios = {
+  "no-gear": {
+    id: "no-gear",
+    loadoutSnapshot: createEmptyLoadouts(),
+  },
+  "representative-common": {
+    id: "representative-common",
+    loadoutSnapshot: {
+      "fork-knight": {
+        weapon: null,
+        armor: "cardboard-cuirass-deluxe-ish",
+        charm: null,
+      },
+      "discount-wizard": { weapon: null, armor: null, charm: null },
+      bardbarian: { weapon: null, armor: null, charm: null },
+    },
+  },
+  "representative-s-plus-plus-plus": {
+    id: "representative-s-plus-plus-plus",
+    loadoutSnapshot: {
+      "fork-knight": { weapon: "excalifork", armor: null, charm: null },
+      "discount-wizard": {
+        weapon: "wand-of-ooze-and-aahs",
+        armor: null,
+        charm: null,
+      },
+      bardbarian: {
+        weapon: null,
+        armor: null,
+        charm: "the-forbidden-power-chord",
+      },
+    },
+  },
+  "strongest-legal-s-plus-plus-plus": {
+    id: "strongest-legal-s-plus-plus-plus",
+    loadoutSnapshot: {
+      "fork-knight": {
+        weapon: "excalifork",
+        armor: null,
+        charm: "plot-armor-pin",
+      },
+      "discount-wizard": {
+        weapon: "wand-of-ooze-and-aahs",
+        armor: null,
+        charm: null,
+      },
+      bardbarian: {
+        weapon: null,
+        armor: null,
+        charm: "the-forbidden-power-chord",
+      },
+    },
+  },
+} as const satisfies Record<
+  string,
+  { readonly id: string; readonly loadoutSnapshot: LoadoutSnapshot }
+>;
+
 function roundedMinutes(ticks: number): number {
   return Number((ticks / TICK_RATE / 60).toFixed(2));
 }
@@ -299,6 +365,10 @@ export function runReferenceStrategy(
   levelId: CampaignLevelId,
   strategy: ReferenceStrategy,
   modifierIds: readonly string[] = [],
+  equipmentScenario: {
+    readonly id: string;
+    readonly loadoutSnapshot: LoadoutSnapshot;
+  } = equipmentBalanceScenarios["no-gear"],
 ): MissionBalanceReport {
   const level = levelDefinitions[levelId];
   if (!level) {
@@ -337,12 +407,14 @@ export function runReferenceStrategy(
             },
           },
           unlockedRewardIds,
+          loadoutSnapshot: equipmentScenario.loadoutSnapshot,
         }
       : {
           levelId,
           seed: 123,
           modifierIds,
           unlockedRewardIds,
+          loadoutSnapshot: equipmentScenario.loadoutSnapshot,
         },
   );
   const waveStartedAt = new Map<number, number>();
@@ -552,6 +624,7 @@ export function runReferenceStrategy(
   return {
     levelId,
     strategyId: strategy.id,
+    equipmentScenarioId: equipmentScenario.id,
     result: simulation.state.phase === "victory" ? "victory" : "defeat",
     endingWave: Math.min(simulation.state.waveIndex + 1, level.waves.length),
     battleTicks: simulation.state.tick,
@@ -567,6 +640,7 @@ export function runReferenceStrategy(
     leakedByEnemyId: simulation.state.metrics.leakedByEnemyId,
     splitSpawns: simulation.state.metrics.splitSpawns,
     spentGold: simulation.state.metrics.spentGold,
+    authoredSpentGold: simulation.state.metrics.authoredSpentGold,
     leaksDuringEnvironmentHazards:
       simulation.state.metrics.leaksDuringEnvironmentHazards,
     exposedPadUses: simulation.state.metrics.exposedPadUses,
@@ -579,5 +653,59 @@ export function runReferenceStrategy(
     buildActions,
     waves,
     contributionByTowerId: contribution,
+    rankDistribution: simulation.state.towers.reduce<Record<string, number>>(
+      (counts, tower) => {
+        const key = `${tower.towerId}:rank-${tower.level}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    ),
+    equipmentContribution: simulation.state.metrics.equipment,
   };
+}
+
+export function runEquipmentBalanceMatrix(): readonly MissionBalanceReport[] {
+  return Object.keys(levelDefinitions).flatMap((levelId) =>
+    Object.values(equipmentBalanceScenarios).flatMap((scenario) =>
+      representativeStrategyIdsByLevel[levelId as CampaignLevelId].map(
+        (strategyId) =>
+          runReferenceStrategy(
+            levelId as CampaignLevelId,
+            referenceStrategies[strategyId],
+            [],
+            scenario,
+          ),
+      ),
+    ),
+  );
+}
+
+export function runMonoForkStress(
+  levelId: CampaignLevelId,
+  loadoutSnapshot: LoadoutSnapshot = createEmptyLoadouts(),
+): MissionBalanceReport {
+  const level = levelDefinitions[levelId];
+  const legalPads = level.pads
+    .filter(
+      (pad) =>
+        (!pad.allowedTowerIds || pad.allowedTowerIds.includes("fork-knight")) &&
+        !pad.deniedTowerIds?.includes("fork-knight"),
+    )
+    .slice(0, 2);
+  return runReferenceStrategy(
+    levelId,
+    {
+      id: "two-rank-iv-fork-stress",
+      towerPattern: ["fork-knight"],
+      maxTowers: 2,
+      initialPlacements: legalPads.map((pad) => ({
+        towerId: "fork-knight",
+        padId: pad.id,
+        level: 4,
+      })),
+    },
+    [],
+    { id: "mono-fork-stress", loadoutSnapshot },
+  );
 }
