@@ -52,6 +52,9 @@ describe("campaign screen", () => {
     ).toHaveLength(10);
     expect(screen.getByText("0/10")).toBeInTheDocument();
     expect(screen.queryByText(/preview coming later/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Goblin filler, sprinting mimics, armored tax trolls/),
+    ).toBeInTheDocument();
   });
 
   it("marks the three Act III missions as sequentially locked", () => {

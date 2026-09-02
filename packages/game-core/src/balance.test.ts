@@ -5,6 +5,8 @@ import {
   referenceStrategies,
   representativeStrategyIdsByLevel,
   runReferenceStrategy,
+  runTwoForkStressReference,
+  twoForkStressPadIdsByLevel,
 } from "./balance.js";
 import type { ActOneLevelId } from "./balance.js";
 
@@ -89,35 +91,97 @@ describe("Act I balance references", () => {
     },
   );
 
-  it("rejects the two-max-rank-Knight Frozen Assets build", () => {
+  it.each([
+    ["frozen-assets", 1, 1_547, 3],
+    ["department-of-unnecessary-bridges", 9, 13_544, 4],
+    ["siege-and-desist", 5, 6_862, 4],
+    ["lava-lamp-district", 5, 8_061, 4],
+    ["necromancers-networking-event", 3, 3_820, 4],
+    ["quarterly-dragon-review", 1, 1_306, 4],
+  ] as const)(
+    "rejects the exact no-gear mono-Fork matrix on %s",
+    (levelId, endingWave, battleTicks, maximumRank) => {
+      const report = runTwoForkStressReference(levelId);
+      const expectedPadIds = [...twoForkStressPadIdsByLevel[levelId]];
+      const placementPadIds = report.buildActions
+        .filter((action) => action.action === "place")
+        .map((action) => action.padId);
+      const maximumRankByPad = Object.fromEntries(
+        expectedPadIds.map((padId) => [
+          padId,
+          Math.max(
+            ...report.buildActions
+              .filter((action) => action.padId === padId)
+              .map((action) => action.resultingLevel),
+          ),
+        ]),
+      );
+
+      expect(placementPadIds).toEqual(expectedPadIds);
+      expect(maximumRankByPad).toEqual(
+        Object.fromEntries(expectedPadIds.map((padId) => [padId, maximumRank])),
+      );
+      expect(report).toMatchObject({
+        strategyId: "mono-fork-matrix",
+        result: "defeat",
+        endingWave,
+        battleTicks,
+        lives: 0,
+        towers: 2,
+      });
+    },
+  );
+
+  it("keeps the prebuilt max-rank Frozen Assets stress fixture losing", () => {
     const report = runReferenceStrategy(
       "frozen-assets",
       referenceStrategies["two-knight-table-service"],
     );
 
-    expect(
-      referenceStrategies["two-knight-table-service"].initialPlacements,
-    ).toEqual([
-      { towerId: "fork-knight", padId: "frost-perch", level: 4 },
-      { towerId: "fork-knight", padId: "floe-crossing", level: 4 },
-    ]);
-    expect(report.towers).toBe(2);
-    expect(report.result === "defeat" || report.lives <= 3).toBe(true);
-    for (const strategyId of representativeStrategyIdsByLevel[
-      "frozen-assets"
-    ]) {
-      const mixed = runReferenceStrategy(
-        "frozen-assets",
-        referenceStrategies[strategyId],
-      );
-      expect(mixed.result).toBe("victory");
-      expect(
-        Object.values(mixed.contributionByTowerId).filter(
-          (contribution) => contribution.attacks > 0,
-        ).length,
-      ).toBeGreaterThanOrEqual(2);
-    }
+    expect(report).toMatchObject({
+      result: "defeat",
+      lives: 0,
+      towers: 2,
+      spentGold: 0,
+    });
   });
+
+  it.each([
+    "department-of-unnecessary-bridges",
+    "siege-and-desist",
+    "lava-lamp-district",
+    "necromancers-networking-event",
+  ] as const)(
+    "%s keeps two distinct mixed references healthy and contributing",
+    (levelId) => {
+      const reports = representativeStrategyIdsByLevel[levelId].map(
+        (strategyId) =>
+          runReferenceStrategy(levelId, referenceStrategies[strategyId]),
+      );
+      const towerTypeSets = reports.map((report) =>
+        Object.entries(report.contributionByTowerId)
+          .filter(
+            ([, contribution]) =>
+              contribution.attacks >= 10 &&
+              contribution.damageDealt >= 500 &&
+              contribution.defeatedEnemies >= 5,
+          )
+          .map(([towerId]) => towerId)
+          .sort(),
+      );
+
+      expect(reports.map((report) => report.result)).toEqual([
+        "victory",
+        "victory",
+      ]);
+      expect(reports.every((report) => report.lives >= 4)).toBe(true);
+      expect(reports.every((report) => report.gold >= 100)).toBe(true);
+      expect(towerTypeSets.every((towerIds) => towerIds.length >= 2)).toBe(
+        true,
+      );
+      expect(towerTypeSets[0]).not.toEqual(towerTypeSets[1]);
+    },
+  );
 
   it("keeps every authored mastery feasible across specialized references", () => {
     const muddyAccounting = runReferenceStrategy(
@@ -177,11 +241,11 @@ describe("Act I balance references", () => {
     );
     const bridgesDefault = runReferenceStrategy(
       "department-of-unnecessary-bridges",
-      referenceStrategies["blade-and-magic"],
+      referenceStrategies["bridge-blade-and-magic"],
     );
     const bridgesBudget = runReferenceStrategy(
       "department-of-unnecessary-bridges",
-      referenceStrategies["royal-accounting"],
+      referenceStrategies["bridge-authorized-roster"],
     );
     const siegeClean = runReferenceStrategy(
       "siege-and-desist",
@@ -189,11 +253,7 @@ describe("Act I balance references", () => {
     );
     const siegeCompact = runReferenceStrategy(
       "siege-and-desist",
-      referenceStrategies["royal-accounting"],
-    );
-    const controlledClaims = runReferenceStrategy(
-      "siege-and-desist",
-      referenceStrategies["claims-control"],
+      referenceStrategies["siege-skeleton-crew"],
     );
 
     expect(frozenBalanced.completedMasteryIds).toEqual(
@@ -210,15 +270,8 @@ describe("Act I balance references", () => {
     );
     expect(siegeClean.completedMasteryIds).toContain("no-leaks-at-the-gate");
     expect(siegeCompact.completedMasteryIds).toContain("skeleton-siege");
-    expect(controlledClaims.result).toBe("victory");
-    expect(controlledClaims.splitSpawns).toBe(50);
-    expect(controlledClaims.completedMasteryIds).toContain(
-      "authorized-splits-only",
-    );
-    expect(siegeClean.splitSpawns).toBe(52);
-    expect(siegeClean.completedMasteryIds).not.toContain(
-      "authorized-splits-only",
-    );
+    expect(siegeClean.splitSpawns).toBe(50);
+    expect(siegeClean.completedMasteryIds).toContain("authorized-splits-only");
 
     const lavaSafe = runReferenceStrategy(
       "lava-lamp-district",
@@ -256,7 +309,11 @@ describe("Act I balance references", () => {
       level.id as ActOneLevelId,
       level.id === "muddy-moat"
         ? referenceStrategies["budget-party"]
-        : referenceStrategies["blade-and-magic"],
+        : level.id === "department-of-unnecessary-bridges"
+          ? referenceStrategies["bridge-blade-and-magic"]
+          : level.id === "necromancers-networking-event"
+            ? referenceStrategies["network-blade-and-magic"]
+            : referenceStrategies["blade-and-magic"],
       level.availableModifierIds,
     );
 

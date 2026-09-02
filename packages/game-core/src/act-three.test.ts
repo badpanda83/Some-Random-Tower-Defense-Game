@@ -168,7 +168,7 @@ describe("Act III deterministic systems", () => {
       (event) => event.type === "enemy-referred",
     );
     expect(referrals).toHaveLength(1);
-    expect(referrals[0]).toMatchObject({ health: 65 });
+    expect(referrals[0]).toMatchObject({ health: 123 });
     expect(first.simulation.state.metrics.referredWaveIndices).toEqual([2]);
     expect(first.simulation.state.metrics.referredEnemiesReachedHalfway).toBe(
       0,

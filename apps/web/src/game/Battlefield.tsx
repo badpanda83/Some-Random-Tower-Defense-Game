@@ -429,6 +429,38 @@ function padName(padId: string): string {
   return padId.replaceAll("-", " ");
 }
 
+function padRestrictionDescription(
+  pad: TowerPadDefinition,
+): string | undefined {
+  const descriptions: string[] = [];
+  if (pad.allowedTowerIds) {
+    descriptions.push(
+      `Licensed for ${pad.allowedTowerIds
+        .map(
+          (towerId) =>
+            towerDefinitions[towerId as keyof typeof towerDefinitions]
+              .shortName,
+        )
+        .join(" or ")}.`,
+    );
+  }
+  if (pad.deniedTowerIds) {
+    descriptions.push(
+      `Cannot support ${pad.deniedTowerIds
+        .map(
+          (towerId) =>
+            towerDefinitions[towerId as keyof typeof towerDefinitions]
+              .shortName,
+        )
+        .join(" or ")}.`,
+    );
+  }
+  if (pad.shutdowns) {
+    descriptions.push("Scheduled closures pause this pad during marked waves.");
+  }
+  return descriptions.length > 0 ? descriptions.join(" ") : undefined;
+}
+
 function towerAvailableOnPad(
   pad: TowerPadDefinition,
   towerId: string,
@@ -2534,6 +2566,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
                               : ""
                           }`
                   }
+                  title={padRestrictionDescription(pad)}
                   onClick={() => scene.current?.selectPad(pad.id)}
                 />
               );

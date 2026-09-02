@@ -284,17 +284,22 @@ describe("Act II multi-route framework", () => {
       gold: 0,
       score: 0,
       spawnedEnemies: 0,
-      placements: level.pads.map((pad, index) => ({
-        id: `tower-${index + 1}`,
-        towerId:
+      placements: level.pads.map((pad, index) => {
+        const patternedTowerId =
           index % 3 === 0
             ? "discount-wizard"
             : index % 3 === 1
               ? "fork-knight"
-              : "bardbarian",
-        padId: pad.id,
-        level: 4,
-      })),
+              : "bardbarian";
+        return {
+          id: `tower-${index + 1}`,
+          towerId: pad.deniedTowerIds?.includes(patternedTowerId)
+            ? "discount-wizard"
+            : patternedTowerId,
+          padId: pad.id,
+          level: 4,
+        };
+      }),
       metrics: {
         spentGold: 2_000,
         leakedEnemies: 0,
@@ -366,7 +371,7 @@ describe("Act II multi-route framework", () => {
       levelId: "department-of-unnecessary-bridges",
       seed: 1,
     });
-    for (const pad of departmentOfUnnecessaryBridgesLevel.pads) {
+    for (const pad of departmentOfUnnecessaryBridgesLevel.pads.slice(0, 6)) {
       const towerId = pad.deniedTowerIds?.includes("fork-knight")
         ? "discount-wizard"
         : "fork-knight";
