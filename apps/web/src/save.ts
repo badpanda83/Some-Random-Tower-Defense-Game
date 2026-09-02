@@ -42,6 +42,7 @@ export function createFreshSave(): SaveData {
       reducedMotion: false,
       lowEffects: false,
       gameSpeed: 1,
+      keepPlayingWhileAway: false,
     },
     checkpoint: null,
   };

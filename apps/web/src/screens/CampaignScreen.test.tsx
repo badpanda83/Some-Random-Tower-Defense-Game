@@ -27,6 +27,21 @@ function renderCampaign(
 }
 
 describe("campaign screen", () => {
+  it("shows the background-play setting with its mobile limitation", () => {
+    renderCampaign();
+
+    fireEvent.click(screen.getByText("Traveling settings cart"));
+    expect(
+      screen.getByRole("checkbox", { name: /Keep playing while away/i }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByText(/mobile browsers and operating systems may throttle/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/uninterrupted play cannot be guaranteed/i),
+    ).toBeVisible();
+  });
+
   it("shows exactly seven playable mission nodes and an honest Act III boundary", () => {
     renderCampaign();
 

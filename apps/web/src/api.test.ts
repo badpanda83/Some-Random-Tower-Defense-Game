@@ -81,6 +81,7 @@ describe("cloud identity boundaries", () => {
 
     expect(migrated?.data.contentVersion).toBe(2);
     expect(migrated?.data.campaign.unlockedNodeIds).toContain("mimic-market");
+    expect(migrated?.data.settings.keepPlayingWhileAway).toBe(false);
   });
 
   it("surfaces equal revision numbers as a conflict when owners differ", async () => {
@@ -109,6 +110,13 @@ describe("cloud identity boundaries", () => {
       ...localSave(true),
       cloudOwnerId: linkedProfile.id,
       pending: true,
+      data: {
+        ...localSave(true).data,
+        settings: {
+          ...localSave(true).data.settings,
+          keepPlayingWhileAway: true,
+        },
+      },
     };
     const put = vi.fn(
       async (_input: string | URL | Request, _init?: RequestInit) =>
@@ -145,7 +153,9 @@ describe("cloud identity boundaries", () => {
     expect(put).toHaveBeenCalledOnce();
     expect(JSON.parse(String(put.mock.calls[0]?.[1]?.body))).toMatchObject({
       expectedRevision: 2,
-      data: pending.data,
+      data: {
+        settings: { keepPlayingWhileAway: true },
+      },
     });
   });
 

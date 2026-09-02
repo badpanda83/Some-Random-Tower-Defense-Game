@@ -10,11 +10,13 @@ import type {
   BattleCheckpoint,
   BattleResult,
   GameCommand,
+  Settings,
 } from "@srtg/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const battlefieldTest = vi.hoisted(() => ({
   setPaused: vi.fn<(paused: boolean) => void>(),
+  paused: false,
   advance: null as null | ((ticks: number) => void),
 }));
 
@@ -41,15 +43,22 @@ vi.mock("../game/Battlefield.js", async () => {
             events: readonly unknown[];
           };
         };
+        paused: boolean;
         onState: (state: unknown, events: readonly unknown[]) => void;
-        onPauseChanged: (paused: boolean) => void;
       },
       ref: React.ForwardedRef<unknown>,
     ) {
       battlefieldTest.advance = (ticks) => {
+        if (battlefieldTest.paused) {
+          return;
+        }
         const result = props.simulation.step(ticks);
         props.onState(result.state, result.events);
       };
+      React.useEffect(() => {
+        battlefieldTest.paused = props.paused;
+        battlefieldTest.setPaused(props.paused);
+      }, [props.paused]);
       React.useImperativeHandle(ref, () => ({
         dispatch(command: GameCommand) {
           const result = props.simulation.dispatch(command);
@@ -58,10 +67,6 @@ vi.mock("../game/Battlefield.js", async () => {
         },
         confirmPlacement() {
           return false;
-        },
-        setPaused(paused: boolean) {
-          battlefieldTest.setPaused(paused);
-          props.onPauseChanged(paused);
         },
         setSpeed() {},
       }));
@@ -77,7 +82,32 @@ const settings = {
   reducedMotion: false,
   lowEffects: false,
   gameSpeed: 1 as const,
+  keepPlayingWhileAway: false,
 };
+
+const activePage = {
+  isAway: () => false,
+  subscribe: () => () => undefined,
+};
+
+class TestPageActivity {
+  private away = false;
+  private readonly listeners = new Set<() => void>();
+
+  public isAway() {
+    return this.away;
+  }
+
+  public subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  public setAway(away: boolean) {
+    this.away = away;
+    this.listeners.forEach((listener) => listener());
+  }
+}
 
 function renderGame(
   checkpoint: BattleCheckpoint | null = null,
@@ -105,6 +135,7 @@ function renderGame(
       checkpoint={checkpoint}
       settings={settings}
       synchronizationBlocked={false}
+      pageActivity={activePage}
       {...callbacks}
     />,
   );
@@ -113,6 +144,7 @@ function renderGame(
 
 describe("mission abandonment", () => {
   beforeEach(() => {
+    battlefieldTest.paused = false;
     battlefieldTest.setPaused.mockClear();
   });
   afterEach(cleanup);
@@ -142,6 +174,7 @@ describe("mission abandonment", () => {
           checkpoint={null}
           settings={{ ...settings, reducedMotion: true }}
           synchronizationBlocked={false}
+          pageActivity={activePage}
           onCheckpoint={vi.fn()}
           onComplete={vi.fn().mockResolvedValue(undefined)}
           onRetry={vi.fn()}
@@ -382,7 +415,8 @@ describe("mission abandonment", () => {
     fireEvent.click(screen.getByRole("button", { name: "Leave mission" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue mission" }));
 
-    expect(battlefieldTest.setPaused.mock.calls).toEqual([[true], [true]]);
+    expect(battlefieldTest.paused).toBe(true);
+    expect(battlefieldTest.setPaused).not.toHaveBeenCalledWith(false);
     expect(
       screen.getByRole("button", { name: "Resume battle" }),
     ).toBeInTheDocument();
@@ -405,6 +439,7 @@ describe("mission abandonment", () => {
         checkpoint={null}
         settings={settings}
         synchronizationBlocked={synchronizationBlocked}
+        pageActivity={activePage}
         {...callbacks}
       />
     );
@@ -429,6 +464,124 @@ describe("mission abandonment", () => {
     expect(callbacks.onAbandon).toHaveBeenCalledOnce();
     expect(callbacks.onComplete).not.toHaveBeenCalled();
     expect(callbacks.onCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it("keeps manual and settings-overlay pauses independent", () => {
+    renderGame();
+    fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
+    const menu = screen.getByLabelText("Battle settings");
+    const details = menu.closest("details");
+    expect(details).not.toBeNull();
+
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+    expect(battlefieldTest.paused).toBe(true);
+    details!.open = false;
+    fireEvent(details!, new Event("toggle"));
+    expect(battlefieldTest.paused).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause battle" }));
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+    details!.open = false;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(battlefieldTest.paused).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Resume battle" }),
+    ).toBeInTheDocument();
+  });
+
+  it("pauses when a wave starts behind an already-open settings overlay", () => {
+    renderGame();
+    const menu = screen.getByLabelText("Battle settings");
+    const details = menu.closest("details");
+    expect(details).not.toBeNull();
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
+
+    expect(battlefieldTest.paused).toBe(true);
+  });
+
+  it.each([
+    [false, "0% charged"],
+    [true, "25% charged"],
+  ])(
+    "handles away-state ticks when keep-playing is %s",
+    async (keepPlayingWhileAway, expectedCharge) => {
+      const pageActivity = new TestPageActivity();
+      const activitySettings: Settings = {
+        ...settings,
+        keepPlayingWhileAway,
+      };
+      const unlockedRewardIds: readonly string[] = [];
+      const modifierIds: readonly string[] = [];
+      const view = render(
+        <GameScreen
+          levelId="muddy-moat"
+          seed={7}
+          modifierIds={modifierIds}
+          unlockedRewardIds={unlockedRewardIds}
+          checkpoint={null}
+          settings={activitySettings}
+          synchronizationBlocked={false}
+          pageActivity={pageActivity}
+          onCheckpoint={vi.fn()}
+          onComplete={vi.fn()}
+          onRetry={vi.fn()}
+          onAbandon={vi.fn()}
+          onSettings={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Start Wave 1" }));
+
+      act(() => pageActivity.setAway(true));
+      act(() => battlefieldTest.advance?.(60));
+      expect(screen.getByText(expectedCharge)).toBeInTheDocument();
+
+      view.rerender(
+        <GameScreen
+          levelId="muddy-moat"
+          seed={7}
+          modifierIds={modifierIds}
+          unlockedRewardIds={unlockedRewardIds}
+          checkpoint={null}
+          settings={{
+            ...activitySettings,
+            keepPlayingWhileAway: !keepPlayingWhileAway,
+          }}
+          synchronizationBlocked={false}
+          pageActivity={pageActivity}
+          onCheckpoint={vi.fn()}
+          onComplete={vi.fn()}
+          onRetry={vi.fn()}
+          onAbandon={vi.fn()}
+          onSettings={vi.fn()}
+        />,
+      );
+      await waitFor(() =>
+        expect(battlefieldTest.paused).toBe(keepPlayingWhileAway),
+      );
+      act(() => battlefieldTest.advance?.(60));
+      expect(screen.getByText("25% charged")).toBeInTheDocument();
+    },
+  );
+
+  it("shows the background-play helper in battle settings", () => {
+    renderGame();
+    fireEvent.click(screen.getByLabelText("Battle settings"));
+
+    expect(
+      screen.getByRole("checkbox", { name: /Keep playing while away/i }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByText(/mobile browsers and operating systems may throttle/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/uninterrupted play cannot be guaranteed/i),
+    ).toBeVisible();
   });
 
   it("explains compact defender choices on hover, focus, and touch without spending", () => {

@@ -86,6 +86,34 @@ describe("concurrent save synchronization", () => {
     }
   });
 
+  it("keeps a newer background-play edit after its submitted base syncs", () => {
+    const submitted = record("user-1", 1, "2026-08-31T10:00:00.000Z");
+    const latest = {
+      ...submitted,
+      data: {
+        ...submitted.data,
+        settings: {
+          ...submitted.data.settings,
+          keepPlayingWhileAway: true,
+        },
+      },
+      pending: true,
+    };
+    const uploaded = {
+      ...submitted,
+      cloudRevision: 2,
+      pending: false,
+    };
+
+    const resolution = reconcileCompletedSync(submitted, latest, uploaded);
+
+    expect(resolution.type).toBe("resolved");
+    if (resolution.type === "resolved") {
+      expect(resolution.record.data.settings.keepPlayingWhileAway).toBe(true);
+      expect(resolution.record.pending).toBe(true);
+    }
+  });
+
   it("ignores object key reordering from PostgreSQL JSONB", () => {
     const checkpoint = {
       levelId: "muddy-moat",

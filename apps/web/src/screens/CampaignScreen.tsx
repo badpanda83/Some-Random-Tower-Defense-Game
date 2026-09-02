@@ -437,7 +437,7 @@ export function CampaignScreen({
             <details className="settings-card card">
               <summary>Traveling settings cart</summary>
               <div className="settings-grid">
-                <label>
+                <label className="setting-with-help">
                   <input
                     type="checkbox"
                     checked={save.settings.muted}
@@ -445,9 +445,11 @@ export function CampaignScreen({
                       updateSetting("muted", event.target.checked)
                     }
                   />
-                  Mute tiny battle noises
+                  <span>
+                    <strong>Mute tiny battle noises</strong>
+                  </span>
                 </label>
-                <label>
+                <label className="setting-with-help">
                   <input
                     type="checkbox"
                     checked={save.settings.reducedMotion}
@@ -455,9 +457,11 @@ export function CampaignScreen({
                       updateSetting("reducedMotion", event.target.checked)
                     }
                   />
-                  Reduce motion
+                  <span>
+                    <strong>Reduce motion</strong>
+                  </span>
                 </label>
-                <label>
+                <label className="setting-with-help">
                   <input
                     type="checkbox"
                     checked={save.settings.lowEffects}
@@ -465,7 +469,30 @@ export function CampaignScreen({
                       updateSetting("lowEffects", event.target.checked)
                     }
                   />
-                  Low-effects mode
+                  <span>
+                    <strong>Low-effects mode</strong>
+                  </span>
+                </label>
+                <label className="setting-with-help">
+                  <input
+                    type="checkbox"
+                    checked={save.settings.keepPlayingWhileAway}
+                    onChange={(event) =>
+                      updateSetting(
+                        "keepPlayingWhileAway",
+                        event.target.checked,
+                      )
+                    }
+                  />
+                  <span>
+                    <strong>Keep playing while away</strong>
+                    <small>
+                      When enabled, switching tabs or windows will not
+                      intentionally pause the simulation. Mobile browsers and
+                      operating systems may throttle or suspend background tabs,
+                      so uninterrupted play cannot be guaranteed.
+                    </small>
+                  </span>
                 </label>
               </div>
             </details>
