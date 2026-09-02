@@ -114,6 +114,37 @@ function squaredDistance(left: Point, right: Point): number {
   return x * x + y * y;
 }
 
+const towerInstanceOrdinalCache = new Map<string, number>();
+
+function towerInstanceOrdinal(instanceId: string): number | undefined {
+  const cached = towerInstanceOrdinalCache.get(instanceId);
+  if (cached !== undefined) {
+    return cached;
+  }
+  if (!instanceId.startsWith("tower-")) {
+    return undefined;
+  }
+  const ordinal = Number(instanceId.slice(6));
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0) {
+    return undefined;
+  }
+  towerInstanceOrdinalCache.set(instanceId, ordinal);
+  return ordinal;
+}
+
+export function compareTowerInstanceIds(left: string, right: string): number {
+  const leftOrdinal = towerInstanceOrdinal(left);
+  const rightOrdinal = towerInstanceOrdinal(right);
+  if (
+    leftOrdinal !== undefined &&
+    rightOrdinal !== undefined &&
+    leftOrdinal !== rightOrdinal
+  ) {
+    return leftOrdinal - rightOrdinal;
+  }
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 /**
  * The content maps use `as const satisfies Record<string, X>` so individual
  * definitions keep their literal types (useful for tests). That means a
@@ -1204,7 +1235,7 @@ class GameSimulation implements Simulation {
     const state = this.mutableState;
     const orderedTowerIds = state.towers
       .map((tower) => tower.id)
-      .sort((left, right) => left.localeCompare(right));
+      .sort(compareTowerInstanceIds);
 
     for (const towerInstanceId of orderedTowerIds) {
       const towerIndex = state.towers.findIndex(
@@ -1641,10 +1672,10 @@ class GameSimulation implements Simulation {
           if (count % effect.every !== 0) {
             continue;
           }
-          this.recordEquipmentContribution(item.id, { procCount: 1 });
           switch (effect.action.kind) {
             case "cooldown-percent":
               cooldownAdjustment += effect.action.percent;
+              this.recordEquipmentContribution(item.id, { procCount: 1 });
               events.push({
                 type: "equipment-effect",
                 itemId: item.id,
@@ -1683,7 +1714,10 @@ class GameSimulation implements Simulation {
                 0,
                 tower.id,
               );
-              this.recordEquipmentContribution(item.id, { echoDamage: dealt });
+              this.recordEquipmentContribution(item.id, {
+                procCount: 1,
+                echoDamage: dealt,
+              });
               events.push({
                 type: "equipment-effect",
                 itemId: item.id,
@@ -1704,6 +1738,7 @@ class GameSimulation implements Simulation {
               }
               const definition = enemyDefinition(target.enemyId);
               if (definition.boss) {
+                this.recordEquipmentContribution(item.id, { procCount: 1 });
                 this.applyEquipmentStatus(
                   item.id,
                   effect.id,
@@ -1747,6 +1782,7 @@ class GameSimulation implements Simulation {
                   };
                   state.equipmentProcState.targetCaps[capKey] =
                     prior + appliedPercent;
+                  this.recordEquipmentContribution(item.id, { procCount: 1 });
                   events.push({
                     type: "equipment-effect",
                     itemId: item.id,
@@ -1771,6 +1807,7 @@ class GameSimulation implements Simulation {
                   "forbidden-chorus"
                 ] = state.tick + effect.action.ticks;
                 this.recordEquipmentContribution(item.id, {
+                  procCount: 1,
                   teamBuffUptimeTicks: effect.action.ticks,
                 });
                 events.push({
@@ -1959,7 +1996,7 @@ class GameSimulation implements Simulation {
     ] as const) {
       const source = state.towers
         .filter((tower) => tower.towerId === defenderId)
-        .sort((left, right) => left.id.localeCompare(right.id))[0];
+        .sort((left, right) => compareTowerInstanceIds(left.id, right.id))[0];
       if (!source) {
         continue;
       }
@@ -2103,7 +2140,6 @@ class GameSimulation implements Simulation {
     );
     const damage = Math.max(1, modifiedRawDamage - armor + ignoredArmor);
     let health = Math.max(0, enemy.health - damage);
-    const appliedDamage = enemy.health - health;
     let bossPhaseIndex = enemy.bossPhaseIndex;
     let wardConsumed = enemy.wardConsumed;
 
@@ -2138,6 +2174,7 @@ class GameSimulation implements Simulation {
             0) + 1;
       }
     }
+    const appliedDamage = enemy.health - health;
     const bossPhase = bossPhaseIndex > 0;
 
     if (health <= 0) {

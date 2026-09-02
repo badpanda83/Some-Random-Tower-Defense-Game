@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { levelDefinitions } from "./content.js";
 import { createEmptyLoadouts } from "./equipment.js";
-import { createSimulation } from "./simulation.js";
+import { compareTowerInstanceIds, createSimulation } from "./simulation.js";
 import type { GameEvent } from "./types.js";
 
 function checkpoint(
@@ -176,6 +176,236 @@ describe("equipment simulation replay", () => {
         event.message.includes("Boss resisted"),
     );
     expect(conversion).toBeDefined();
+  });
+
+  it("reports only post-threshold damage when a boss phase clamps health", () => {
+    const level = levelDefinitions["mimic-market"];
+    const bossCheckpoint = checkpoint(
+      "mimic-market",
+      5,
+      level.waves.length - 1,
+    );
+    bossCheckpoint.placements = level.pads.flatMap((pad, index) =>
+      (!pad.allowedTowerIds || pad.allowedTowerIds.includes("fork-knight")) &&
+      !pad.deniedTowerIds?.includes("fork-knight")
+        ? [
+            {
+              id: `tower-${index + 1}`,
+              towerId: "fork-knight",
+              padId: pad.id,
+              level: 4,
+            },
+          ]
+        : [],
+    );
+    bossCheckpoint.metrics.usedTowerIds = ["fork-knight"];
+    bossCheckpoint.metrics.maxTowersPlaced = bossCheckpoint.placements.length;
+    const simulation = createSimulation({
+      checkpoint: bossCheckpoint,
+      unlockedRewardIds: ["fork-table-service"],
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    let bossId: string | null = null;
+    for (let safety = 0; safety < 20_000; safety += 1) {
+      const healthBefore = bossId
+        ? simulation.state.enemies.find((enemy) => enemy.id === bossId)?.health
+        : undefined;
+      const result = simulation.step(1);
+      const spawn = result.events.find(
+        (event) =>
+          event.type === "enemy-spawned" &&
+          event.enemyId === "grand-till-mimic",
+      );
+      if (spawn?.type === "enemy-spawned") {
+        bossId = spawn.instanceId;
+      }
+      if (
+        bossId &&
+        healthBefore !== undefined &&
+        result.events.some(
+          (event) => event.type === "boss-phase" && event.instanceId === bossId,
+        )
+      ) {
+        const healthAfter = result.state.enemies.find(
+          (enemy) => enemy.id === bossId,
+        )?.health;
+        const reportedDamage = result.events.reduce(
+          (total, event) =>
+            event.type === "tower-attacked" &&
+            event.affectedInstanceIds.includes(bossId!)
+              ? total + event.damageDealt
+              : total,
+          0,
+        );
+        expect(healthAfter).toBeDefined();
+        expect(reportedDamage).toBe(healthBefore - healthAfter!);
+        return;
+      }
+    }
+    throw new Error("Boss did not cross a phase threshold");
+  });
+
+  it("does not count synchronized counters suppressed by a shared cooldown", () => {
+    const value = checkpoint("quarterly-dragon-review", 11);
+    value.loadoutSnapshot = {
+      ...createEmptyLoadouts(),
+      bardbarian: {
+        weapon: null,
+        armor: null,
+        charm: "the-forbidden-power-chord",
+      },
+    };
+    const padIds = ["warehouse-door", "courtyard-door"];
+    value.placements = Array.from({ length: 2 }, (_, index) => ({
+      id: `tower-${index + 1}`,
+      towerId: "bardbarian",
+      padId: padIds[index]!,
+      level: 4,
+    }));
+    value.metrics.usedTowerIds = ["bardbarian"];
+    value.metrics.maxTowersPlaced = 2;
+    value.equipmentProcState = {
+      counters: {
+        "tower-1:forbidden-chorus": 9,
+        "tower-2:forbidden-chorus": 9,
+      },
+      cooldownUntilTicks: {},
+      oncePerWaveIds: [],
+      oncePerBattleIds: [],
+      teamCooldownUntilTicks: { "forbidden-chorus": 10_000 },
+      targetCaps: {},
+      activeBuffUntilTicks: {},
+    };
+    const simulation = createSimulation({
+      checkpoint: value,
+      unlockedRewardIds: ["bardbarian-power-chord"],
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    const attackingTowers = new Set<string>();
+    const effectEvents: GameEvent[] = [];
+    for (
+      let safety = 0;
+      safety < 2_000 && attackingTowers.size === 0;
+      safety += 1
+    ) {
+      const result = simulation.step(1);
+      for (const event of result.events) {
+        if (event.type === "tower-attacked") {
+          attackingTowers.add(event.instanceId);
+        }
+        if (
+          event.type === "equipment-effect" &&
+          event.effectId === "forbidden-chorus"
+        ) {
+          effectEvents.push(event);
+        }
+      }
+    }
+
+    expect(attackingTowers.size).toBeGreaterThan(0);
+    expect(effectEvents).toHaveLength(0);
+    expect(
+      simulation.state.metrics.equipment["the-forbidden-power-chord"]
+        ?.procCount ?? 0,
+    ).toBe(0);
+  });
+
+  it("does not count an echo counter when its primary target is gone", () => {
+    const value = checkpoint("muddy-moat", 13);
+    value.loadoutSnapshot = {
+      ...createEmptyLoadouts(),
+      "discount-wizard": {
+        weapon: null,
+        armor: "robes-of-the-second-draft",
+        charm: "royal-participation-trophy",
+      },
+    };
+    value.placements = [
+      {
+        id: "tower-1",
+        towerId: "discount-wizard",
+        padId: levelDefinitions["muddy-moat"].pads[0]!.id,
+        level: 4,
+      },
+      {
+        id: "tower-2",
+        towerId: "bardbarian",
+        padId: levelDefinitions["muddy-moat"].pads[1]!.id,
+        level: 1,
+      },
+    ];
+    value.metrics.usedTowerIds = ["discount-wizard", "bardbarian"];
+    value.metrics.maxTowersPlaced = 2;
+    value.equipmentProcState = {
+      counters: { "tower-1:second-draft-repeat": 3 },
+      cooldownUntilTicks: {},
+      oncePerWaveIds: [],
+      oncePerBattleIds: [],
+      teamCooldownUntilTicks: {},
+      targetCaps: {},
+      activeBuffUntilTicks: {},
+    };
+    const simulation = createSimulation({
+      checkpoint: value,
+      unlockedRewardIds: ["wizard-actual-certification"],
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    let attackEvents: readonly GameEvent[] = [];
+    for (
+      let safety = 0;
+      safety < 2_000 && attackEvents.length === 0;
+      safety += 1
+    ) {
+      const result = simulation.step(1);
+      if (result.events.some((event) => event.type === "tower-attacked")) {
+        attackEvents = result.events;
+      }
+    }
+
+    expect(attackEvents.some((event) => event.type === "tower-attacked")).toBe(
+      true,
+    );
+    expect(
+      attackEvents.some(
+        (event) =>
+          event.type === "equipment-effect" &&
+          event.effectId === "second-draft-repeat",
+      ),
+    ).toBe(false);
+    expect(
+      simulation.state.metrics.equipment["robes-of-the-second-draft"]
+        ?.procCount ?? 0,
+    ).toBe(0);
+  });
+
+  it("orders more than nine tower instances numerically on replay", () => {
+    const checkpointOrder = [
+      "tower-1",
+      "tower-10",
+      "tower-11",
+      "tower-2",
+      "tower-3",
+      "tower-4",
+      "tower-5",
+      "tower-6",
+      "tower-7",
+      "tower-8",
+      "tower-9",
+    ];
+    const expected = Array.from(
+      { length: 11 },
+      (_, index) => `tower-${index + 1}`,
+    );
+
+    expect([...checkpointOrder].sort(compareTowerInstanceIds)).toEqual(
+      expected,
+    );
+    expect([...checkpointOrder].sort(compareTowerInstanceIds)).toEqual(
+      expected,
+    );
   });
 
   it("preserves discounted invested gold across checkpoint restore and sale", () => {

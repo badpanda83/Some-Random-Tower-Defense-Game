@@ -5,7 +5,6 @@ import type {
   Profile,
   SaveData,
   Settings,
-  LoadoutSnapshot,
 } from "@srtg/protocol";
 import {
   lazy,
@@ -38,6 +37,12 @@ import {
   withoutBattleCheckpoint,
 } from "./save.js";
 import { reconcileCompletedSync } from "./sync-state.js";
+import {
+  createRetryBattleSetup,
+  randomAttemptId,
+  randomSeed,
+  type BattleSetup,
+} from "./battle-setup.js";
 
 const GameScreen = lazy(async () => {
   const module = await import("./screens/GameScreen.js");
@@ -46,31 +51,6 @@ const GameScreen = lazy(async () => {
 
 type Screen = "title" | "campaign" | "game";
 type SyncStatus = "local" | "syncing" | "synced" | "offline" | "conflict";
-
-interface BattleSetup {
-  readonly levelId: string;
-  readonly seed: number;
-  readonly modifierIds: readonly string[];
-  readonly unlockedRewardIds: readonly string[];
-  readonly checkpoint: BattleCheckpoint | null;
-  readonly attemptId: string;
-  readonly loadoutSnapshot: LoadoutSnapshot;
-  readonly key: number;
-}
-
-function randomSeed(): number {
-  const values = new Uint32Array(1);
-  crypto.getRandomValues(values);
-  return ((values[0] ?? 1) % 2_147_483_646) + 1;
-}
-
-function randomAttemptId(): string {
-  const values = new Uint32Array(4);
-  crypto.getRandomValues(values);
-  return `attempt-${[...values]
-    .map((value) => value.toString(16).padStart(8, "0"))
-    .join("")}`;
-}
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("title");
@@ -448,7 +428,7 @@ export function App() {
                 setScreen("campaign");
                 setBattle(null);
               }}
-              onRetry={() => beginBattle(battle.levelId, battle.modifierIds)}
+              onRetry={() => setBattle(createRetryBattleSetup(battle))}
               onAbandon={async () => {
                 await commit(withoutBattleCheckpoint(recordRef.current!.data));
                 setScreen("campaign");
