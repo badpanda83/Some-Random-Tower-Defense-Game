@@ -176,6 +176,9 @@ describe("equipment simulation replay", () => {
         event.message.includes("Boss resisted"),
     );
     expect(conversion).toBeDefined();
+    expect(
+      simulation.state.metrics.equipment.excalifork?.controlTicksApplied ?? 0,
+    ).toBe(0);
   });
 
   it("reports only post-threshold damage when a boss phase clamps health", () => {
@@ -344,6 +347,46 @@ describe("equipment simulation replay", () => {
       }
     }
     throw new Error("A synchronized control proc was not rejected by resolve");
+  });
+
+  it("does not count a boss slow conversion dominated by an active slow", () => {
+    const level = levelDefinitions["castle-hassle"];
+    const value = staffedCheckpoint("castle-hassle", 11, {
+      ...createEmptyLoadouts(),
+      "discount-wizard": {
+        weapon: "wand-of-definitely-winter",
+        armor: null,
+        charm: null,
+      },
+    });
+    value.nextWave = level.waves.length - 1;
+    value.lives = 999;
+    const simulation = createSimulation({
+      checkpoint: value,
+      unlockedRewardIds: ["wizard-actual-certification"],
+    });
+    const events = completeCurrentWave(simulation).filter(
+      (event) =>
+        event.type === "equipment-effect" &&
+        event.effectId === "definitely-winter-freeze",
+    );
+    const rejected = events.find(
+      (event) =>
+        event.type === "equipment-effect" &&
+        event.outcome === "rejected" &&
+        event.message === "Stronger or longer slow already active",
+    );
+    const successfulCount = events.filter(
+      (event) =>
+        event.type === "equipment-effect" &&
+        (event.outcome === "applied" || event.outcome === "converted"),
+    ).length;
+
+    expect(rejected).toBeDefined();
+    expect(
+      simulation.state.metrics.equipment["wand-of-definitely-winter"]
+        ?.procCount ?? 0,
+    ).toBe(successfulCount);
   });
 
   it("does not count synchronized counters suppressed by a shared cooldown", () => {

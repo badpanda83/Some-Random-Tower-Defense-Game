@@ -1928,10 +1928,11 @@ class GameSimulation implements Simulation {
       state.tick,
     );
     state.enemies[index] = { ...enemy, status: application.status };
+    const isControl = request.kind !== "mark";
     this.recordEquipmentContribution(itemId, {
-      controlTicksApplied: application.appliedTicks,
+      controlTicksApplied: isControl ? application.appliedTicks : 0,
       controlTicksRejected:
-        application.outcome === "applied"
+        !isControl || application.outcome === "applied"
           ? 0
           : "ticks" in request
             ? request.ticks
@@ -1955,7 +1956,9 @@ class GameSimulation implements Simulation {
           : outcome === "immune"
             ? "Immune"
             : outcome === "rejected"
-              ? "Control rejected during resolve"
+              ? application.rejectionReason === "dominated-slow"
+                ? "Stronger or longer slow already active"
+                : "Control rejected during resolve"
               : `${request.kind} applied`),
     });
     return application.outcome;
