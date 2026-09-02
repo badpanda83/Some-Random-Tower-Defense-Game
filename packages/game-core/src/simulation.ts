@@ -1,8 +1,14 @@
 import {
   CONTENT_VERSION,
+  EMPTY_EQUIPMENT_PROC_STATE,
+  EMPTY_LOADOUTS,
   type AbilityId,
   type BattleCheckpoint,
+  type DefenderId,
+  type EquipmentContribution,
+  type EquipmentProcState,
   type GameCommand,
+  type LoadoutSnapshot,
 } from "@srtg/protocol";
 
 import {
@@ -14,7 +20,19 @@ import {
 } from "./content.js";
 import { evaluateMasteryRule, type MasteryContext } from "./mastery.js";
 import { pointAlongPath, preparePath, type PreparedPath } from "./path.js";
-import { SeededRandom } from "./rng.js";
+import {
+  applyEquipmentStats,
+  equipmentForDefender,
+  validateLoadoutSnapshot,
+  type EquipmentEffect,
+} from "./equipment.js";
+import { deriveBattleRngStates, SeededRandom } from "./rng.js";
+import {
+  activeSlowPercent,
+  applyEnemyStatus,
+  EMPTY_ENEMY_STATUS,
+  expireEnemyStatus,
+} from "./status.js";
 import {
   EMERGENCY_TEA_BREAK_SLOW_TICKS,
   ROYAL_FORKFALL_CHARGE_TICKS,
@@ -39,6 +57,7 @@ import { validateCheckpointContent } from "./validation.js";
 
 interface MutableMetrics {
   spentGold: number;
+  authoredSpentGold: number;
   leakedEnemies: number;
   leakedByEnemyId: Record<string, number>;
   leakedByWaveIndex: Record<string, number>;
@@ -54,12 +73,18 @@ interface MutableMetrics {
   referredEnemiesReachedHalfway: number;
   referredWaveIndices: number[];
   bossReinforcementCalls: Record<string, number>;
+  defeatedBossEnemyIds: string[];
+  equipment: Record<string, EquipmentContribution>;
 }
 
 interface MutableState {
   levelId: string;
+  attemptId: string;
   seed: number;
   modifierIds: string[];
+  loadoutSnapshot: LoadoutSnapshot;
+  rngState: { spawn: number; combat: number };
+  equipmentProcState: EquipmentProcState;
   tick: number;
   phase: GameState["phase"];
   waveIndex: number;
@@ -117,6 +142,9 @@ function deepState(state: MutableState): GameState {
   return {
     ...state,
     modifierIds: [...state.modifierIds],
+    loadoutSnapshot: cloneLoadouts(state.loadoutSnapshot),
+    rngState: { ...state.rngState },
+    equipmentProcState: cloneProcState(state.equipmentProcState),
     towers: state.towers.map((tower) => ({ ...tower })),
     enemies: state.enemies.map((enemy) => ({ ...enemy })),
     metrics: {
@@ -128,11 +156,37 @@ function deepState(state: MutableState): GameState {
       lastEnemyClearedTick: { ...state.metrics.lastEnemyClearedTick },
       referredWaveIndices: [...state.metrics.referredWaveIndices],
       bossReinforcementCalls: { ...state.metrics.bossReinforcementCalls },
+      defeatedBossEnemyIds: [...state.metrics.defeatedBossEnemyIds],
+      equipment: Object.fromEntries(
+        Object.entries(state.metrics.equipment).map(
+          ([itemId, contribution]) => [itemId, { ...contribution }],
+        ),
+      ),
     },
     completedMasteryIds: [...state.completedMasteryIds],
     telegraphedEnvironmentHazardIds: [...state.telegraphedEnvironmentHazardIds],
     activeEnvironmentHazardIds: [...state.activeEnvironmentHazardIds],
     exposedPadIds: [...state.exposedPadIds],
+  };
+}
+
+function cloneLoadouts(loadouts: LoadoutSnapshot): LoadoutSnapshot {
+  return {
+    "fork-knight": { ...loadouts["fork-knight"] },
+    "discount-wizard": { ...loadouts["discount-wizard"] },
+    bardbarian: { ...loadouts.bardbarian },
+  };
+}
+
+function cloneProcState(state: EquipmentProcState): EquipmentProcState {
+  return {
+    counters: { ...state.counters },
+    cooldownUntilTicks: { ...state.cooldownUntilTicks },
+    oncePerWaveIds: [...state.oncePerWaveIds],
+    oncePerBattleIds: [...state.oncePerBattleIds],
+    teamCooldownUntilTicks: { ...state.teamCooldownUntilTicks },
+    targetCaps: { ...state.targetCaps },
+    activeBuffUntilTicks: { ...state.activeBuffUntilTicks },
   };
 }
 
@@ -149,7 +203,8 @@ class GameSimulation implements Simulation {
   private readonly level;
   private readonly routePaths: ReadonlyMap<string, PreparedPath>;
   private readonly defaultRouteId: string;
-  private readonly random;
+  private readonly spawnRandom: SeededRandom;
+  private readonly combatRandom: SeededRandom;
   private readonly unlockedRewardIds: ReadonlySet<string>;
   private mutableState: MutableState;
   private enemyCounter = 0;
@@ -190,19 +245,24 @@ class GameSimulation implements Simulation {
       routeDefs.map((route) => [route.id, preparePath(route.path)]),
     );
     this.defaultRouteId = routeDefs[0]!.id;
-    this.random = new SeededRandom(seed);
+    const derivedRng = deriveBattleRngStates(seed);
+    const rngState = options.checkpoint?.rngState ?? derivedRng;
+    this.spawnRandom = new SeededRandom(rngState.spawn);
+    this.combatRandom = new SeededRandom(rngState.combat);
     this.unlockedRewardIds = new Set(options.unlockedRewardIds ?? []);
     if (options.checkpoint) {
       const checkpointErrors = validateCheckpointContent(options.checkpoint);
       if (checkpointErrors.length > 0) {
         throw new Error(checkpointErrors[0]);
       }
-      for (
-        let spawned = 0;
-        spawned < options.checkpoint.spawnedEnemies;
-        spawned += 1
-      ) {
-        this.random.nextUint32();
+      if (!options.checkpoint.rngState) {
+        for (
+          let spawned = 0;
+          spawned < options.checkpoint.spawnedEnemies;
+          spawned += 1
+        ) {
+          this.spawnRandom.nextUint32();
+        }
       }
     }
 
@@ -214,6 +274,27 @@ class GameSimulation implements Simulation {
       0,
     );
     const checkpoint = options.checkpoint;
+    const loadoutSnapshot = cloneLoadouts(
+      checkpoint?.loadoutSnapshot ??
+        options.loadoutSnapshot ??
+        (EMPTY_LOADOUTS as LoadoutSnapshot),
+    );
+    const loadoutErrors = validateLoadoutSnapshot(loadoutSnapshot);
+    if (loadoutErrors.length > 0) {
+      throw new Error(loadoutErrors[0]);
+    }
+    const attemptId =
+      checkpoint?.attemptId ??
+      options.attemptId ??
+      `battle:${levelId}:${seed}:${modifierIds.sort().join(".") || "normal"}`;
+    const equipmentProcState = cloneProcState(
+      checkpoint?.equipmentProcState ??
+        ({
+          ...EMPTY_EQUIPMENT_PROC_STATE,
+          oncePerWaveIds: [],
+          oncePerBattleIds: [],
+        } satisfies EquipmentProcState),
+    );
 
     const towers: TowerState[] =
       checkpoint?.placements.map((placement) => {
@@ -229,14 +310,23 @@ class GameSimulation implements Simulation {
           padId: placement.padId,
           level: placement.level,
           nextAttackTick: checkpoint.tick,
-          investedGold: this.investedGold(placement.towerId, placement.level),
+          investedGold:
+            placement.investedGold ??
+            this.investedGold(placement.towerId, placement.level),
         };
       }) ?? [];
 
     this.mutableState = {
       levelId,
+      attemptId,
       seed,
       modifierIds,
+      loadoutSnapshot,
+      rngState: {
+        spawn: this.spawnRandom.state,
+        combat: this.combatRandom.state,
+      },
+      equipmentProcState,
       tick: checkpoint?.tick ?? 0,
       phase: "preparing",
       waveIndex: checkpoint?.nextWave ?? 0,
@@ -255,6 +345,9 @@ class GameSimulation implements Simulation {
       metrics: checkpoint
         ? {
             spentGold: checkpoint.metrics.spentGold,
+            authoredSpentGold:
+              checkpoint.metrics.authoredSpentGold ??
+              checkpoint.metrics.spentGold,
             leakedEnemies: checkpoint.metrics.leakedEnemies,
             leakedByEnemyId: { ...(checkpoint.metrics.leakedByEnemyId ?? {}) },
             leakedByWaveIndex: {
@@ -286,9 +379,18 @@ class GameSimulation implements Simulation {
             bossReinforcementCalls: {
               ...(checkpoint.metrics.bossReinforcementCalls ?? {}),
             },
+            defeatedBossEnemyIds: [
+              ...(checkpoint.metrics.defeatedBossEnemyIds ?? []),
+            ],
+            equipment: Object.fromEntries(
+              Object.entries(checkpoint.metrics.equipment ?? {}).map(
+                ([itemId, contribution]) => [itemId, { ...contribution }],
+              ),
+            ),
           }
         : {
             spentGold: 0,
+            authoredSpentGold: 0,
             leakedEnemies: 0,
             leakedByEnemyId: {},
             leakedByWaveIndex: {},
@@ -304,6 +406,8 @@ class GameSimulation implements Simulation {
             referredEnemiesReachedHalfway: 0,
             referredWaveIndices: [],
             bossReinforcementCalls: {},
+            defeatedBossEnemyIds: [],
+            equipment: {},
           },
       completedMasteryIds: [],
       telegraphedEnvironmentHazardIds: [],
@@ -319,6 +423,10 @@ class GameSimulation implements Simulation {
   }
 
   public get state(): GameState {
+    this.mutableState.rngState = {
+      spawn: this.spawnRandom.state,
+      combat: this.combatRandom.state,
+    };
     return deepState(this.mutableState);
   }
 
@@ -404,8 +512,15 @@ class GameSimulation implements Simulation {
 
     return {
       levelId: state.levelId,
+      attemptId: state.attemptId,
       seed: state.seed,
       modifierIds: [...state.modifierIds],
+      loadoutSnapshot: cloneLoadouts(state.loadoutSnapshot),
+      rngState: {
+        spawn: this.spawnRandom.state,
+        combat: this.combatRandom.state,
+      },
+      equipmentProcState: cloneProcState(state.equipmentProcState),
       tick: state.tick,
       nextWave: state.waveIndex,
       lives: state.lives,
@@ -419,9 +534,11 @@ class GameSimulation implements Simulation {
         towerId: tower.towerId,
         padId: tower.padId,
         level: tower.level,
+        investedGold: tower.investedGold,
       })),
       metrics: {
         spentGold: state.metrics.spentGold,
+        authoredSpentGold: state.metrics.authoredSpentGold,
         leakedEnemies: state.metrics.leakedEnemies,
         leakedByEnemyId: { ...state.metrics.leakedByEnemyId },
         leakedByWaveIndex: { ...state.metrics.leakedByWaveIndex },
@@ -441,6 +558,12 @@ class GameSimulation implements Simulation {
         bossReinforcementCalls: {
           ...state.metrics.bossReinforcementCalls,
         },
+        defeatedBossEnemyIds: [...state.metrics.defeatedBossEnemyIds],
+        equipment: Object.fromEntries(
+          Object.entries(state.metrics.equipment).map(
+            ([itemId, contribution]) => [itemId, { ...contribution }],
+          ),
+        ),
       },
     };
   }
@@ -450,8 +573,15 @@ class GameSimulation implements Simulation {
     return fnv1a(
       JSON.stringify({
         levelId: state.levelId,
+        attemptId: state.attemptId,
         seed: state.seed,
         modifierIds: state.modifierIds,
+        loadoutSnapshot: state.loadoutSnapshot,
+        rngState: {
+          spawn: this.spawnRandom.state,
+          combat: this.combatRandom.state,
+        },
+        equipmentProcState: state.equipmentProcState,
         unlockedRewardIds: [...this.unlockedRewardIds].sort(),
         tick: state.tick,
         phase: state.phase,
@@ -496,13 +626,42 @@ class GameSimulation implements Simulation {
     if (this.mutableState.towers.some((tower) => tower.padId === padId)) {
       throw new Error(`Tower pad ${padId} is occupied`);
     }
-    if (this.mutableState.gold < definition.cost) {
+    const defenderId = towerId as DefenderId;
+    const discountEntry = equipmentForDefender(
+      this.mutableState.loadoutSnapshot,
+      defenderId,
+    )
+      .flatMap((item) =>
+        item.effects.map((effect) => ({ itemId: item.id, effect })),
+      )
+      .find(
+        (
+          entry,
+        ): entry is {
+          itemId: string;
+          effect: Extract<EquipmentEffect, { kind: "placement-discount" }>;
+        } =>
+          entry.effect.kind === "placement-discount" &&
+          (!entry.effect.firstOnly ||
+            !this.mutableState.metrics.usedTowerIds.includes(towerId)),
+      );
+    const actualCost = Math.max(
+      0,
+      definition.cost - (discountEntry?.effect.amount ?? 0),
+    );
+    if (this.mutableState.gold < actualCost) {
       throw new Error("Not enough gold");
     }
 
     this.towerCounter += 1;
-    this.mutableState.gold -= definition.cost;
-    this.mutableState.metrics.spentGold += definition.cost;
+    this.mutableState.gold -= actualCost;
+    this.mutableState.metrics.spentGold += actualCost;
+    this.mutableState.metrics.authoredSpentGold += definition.cost;
+    if (discountEntry) {
+      this.recordEquipmentContribution(discountEntry.itemId, {
+        goldSaved: discountEntry.effect.amount,
+      });
+    }
     if (!this.mutableState.metrics.usedTowerIds.includes(towerId)) {
       this.mutableState.metrics.usedTowerIds.push(towerId);
       this.mutableState.metrics.usedTowerIds.sort();
@@ -513,7 +672,7 @@ class GameSimulation implements Simulation {
       padId,
       level: 1,
       nextAttackTick: 0,
-      investedGold: definition.cost,
+      investedGold: actualCost,
     });
     this.mutableState.metrics.maxTowersPlaced += 1;
   }
@@ -541,6 +700,7 @@ class GameSimulation implements Simulation {
 
     this.mutableState.gold -= level.upgradeCost;
     this.mutableState.metrics.spentGold += level.upgradeCost;
+    this.mutableState.metrics.authoredSpentGold += level.upgradeCost;
     this.mutableState.towers[index] = {
       ...tower,
       level: tower.level + 1,
@@ -576,6 +736,22 @@ class GameSimulation implements Simulation {
     this.mutableState.telegraphedEnvironmentHazardIds = [];
     this.mutableState.activeEnvironmentHazardIds = [];
     this.mutableState.exposedPadIds = [];
+    this.mutableState.equipmentProcState.oncePerWaveIds = [];
+    this.mutableState.equipmentProcState.targetCaps = {};
+    for (const tower of this.mutableState.towers) {
+      for (const item of equipmentForDefender(
+        this.mutableState.loadoutSnapshot,
+        tower.towerId as DefenderId,
+      )) {
+        for (const effect of item.effects) {
+          if (effect.kind === "attack-counter" && effect.resets === "wave") {
+            delete this.mutableState.equipmentProcState.counters[
+              `${tower.id}:${effect.id}`
+            ];
+          }
+        }
+      }
+    }
   }
 
   private activateAbility(abilityId: AbilityId, events: GameEvent[]): void {
@@ -716,7 +892,7 @@ class GameSimulation implements Simulation {
   private applySlow(
     instanceId: string,
     ticks: number,
-    options: { extend?: boolean } = {},
+    options: { extend?: boolean; percent?: number } = {},
   ): boolean {
     const state = this.mutableState;
     if (ticks <= 0) {
@@ -730,14 +906,39 @@ class GameSimulation implements Simulation {
     const definition = enemyDefinition(enemy.enemyId);
     const slowImmune =
       definition.traits?.some((trait) => trait.kind === "slow-immune") ?? false;
-    if (slowImmune || (!options.extend && enemy.slowUntilTick > state.tick)) {
+    const currentStatus = expireEnemyStatus(
+      enemy.status ?? EMPTY_ENEMY_STATUS,
+      state.tick,
+    );
+    const incomingPercent = Math.min(
+      definition.boss ? 20 : 60,
+      options.percent ?? towerDefinitions.bardbarian.slowPercent,
+    );
+    if (
+      slowImmune ||
+      (!options.extend &&
+        currentStatus.slow !== null &&
+        currentStatus.slow.untilTick > state.tick &&
+        currentStatus.slow.percent >= incomingPercent)
+    ) {
       return false;
     }
+    const application = applyEnemyStatus(
+      currentStatus,
+      {
+        kind: "slow",
+        percent: incomingPercent,
+        ticks,
+      },
+      { boss: definition.boss, slowImmune },
+      state.tick,
+    );
     state.enemies[index] = {
       ...enemy,
       slowUntilTick: Math.max(enemy.slowUntilTick, state.tick + ticks),
+      status: application.status,
     };
-    return true;
+    return application.outcome === "applied";
   }
 
   private requirePreparing(): void {
@@ -968,7 +1169,7 @@ class GameSimulation implements Simulation {
       maxHealth,
       pathDistanceMilli: startDistanceMilli,
       slowUntilTick: 0,
-      variant: this.random.int(3),
+      variant: this.spawnRandom.int(3),
       routeId,
       bossPhase: false,
       bossPhaseIndex: 0,
@@ -977,6 +1178,7 @@ class GameSimulation implements Simulation {
       spectral: referred,
       referredReachedHalfway,
       activeBossStageId: definition.initialBossStage?.id ?? null,
+      status: EMPTY_ENEMY_STATUS,
     });
     events.push({
       type: "enemy-spawned",
@@ -1000,12 +1202,14 @@ class GameSimulation implements Simulation {
 
   private attackWithTowers(events: GameEvent[]): void {
     const state = this.mutableState;
+    const orderedTowerIds = state.towers
+      .map((tower) => tower.id)
+      .sort((left, right) => left.localeCompare(right));
 
-    for (
-      let towerIndex = 0;
-      towerIndex < state.towers.length;
-      towerIndex += 1
-    ) {
+    for (const towerInstanceId of orderedTowerIds) {
+      const towerIndex = state.towers.findIndex(
+        (tower) => tower.id === towerInstanceId,
+      );
       const tower = state.towers[towerIndex];
       if (!tower || tower.nextAttackTick > state.tick) {
         continue;
@@ -1023,7 +1227,13 @@ class GameSimulation implements Simulation {
         continue;
       }
 
-      const range = this.effectiveRange(level);
+      const defenderId = tower.towerId as DefenderId;
+      const openingStats = this.statsFor(
+        defenderId,
+        level,
+        definition.splashRadius,
+      );
+      const range = openingStats.range;
       const targets = state.enemies
         .filter(
           (enemy) =>
@@ -1038,8 +1248,7 @@ class GameSimulation implements Simulation {
         continue;
       }
 
-      const splashRadius =
-        level.splashRadiusOverride ?? definition.splashRadius;
+      const splashRadius = openingStats.splashRadius;
       const affectedIds = new Set<string>();
       for (const primary of primaryTargets) {
         affectedIds.add(primary.id);
@@ -1062,26 +1271,171 @@ class GameSimulation implements Simulation {
 
       let damageDealt = 0;
       let defeatedCount = 0;
+      let primarySlowApplied = false;
       for (const enemy of affected) {
-        const healthBefore = enemy.health;
-        this.damageEnemy(
+        const enemyStats = this.statsFor(
+          defenderId,
+          level,
+          definition.splashRadius,
+          enemy,
+        );
+        const dealt = this.damageEnemy(
           enemy.id,
-          level.damage,
+          enemyStats.damage,
           definition.damageType,
           Boolean(level.ignoresArmor),
           events,
+          enemyStats.armorIgnorePercent,
+          tower.id,
         );
-        const healthAfter =
-          state.enemies.find((candidate) => candidate.id === enemy.id)
-            ?.health ?? 0;
-        damageDealt += healthBefore - healthAfter;
-        if (healthAfter === 0) {
+        damageDealt += dealt;
+        if (!state.enemies.some((candidate) => candidate.id === enemy.id)) {
           defeatedCount += 1;
         }
-        this.applySlow(enemy.id, definition.slowTicks);
+        const slowApplied = this.applySlow(enemy.id, definition.slowTicks, {
+          percent: definition.slowPercent,
+        });
+        if (enemy.id === target.id) {
+          primarySlowApplied = slowApplied;
+        }
       }
 
-      const cooldown = this.cooldownFor(tower, level.cooldownTicks);
+      const items = equipmentForDefender(state.loadoutSnapshot, defenderId);
+      if (primarySlowApplied && splashRadius > 0) {
+        const primaryPosition = this.getEnemyPosition(target);
+        for (const item of items) {
+          for (const effect of item.effects) {
+            if (effect.kind !== "secondary-slow") {
+              continue;
+            }
+            const secondary = targets
+              .filter((candidate) => {
+                if (candidate.id === target.id) {
+                  return false;
+                }
+                const current = state.enemies.find(
+                  (enemy) => enemy.id === candidate.id,
+                );
+                return (
+                  current !== undefined &&
+                  !enemyDefinition(current.enemyId).boss &&
+                  !expireEnemyStatus(
+                    current.status ?? EMPTY_ENEMY_STATUS,
+                    state.tick,
+                  ).hardControl &&
+                  squaredDistance(
+                    primaryPosition,
+                    this.getEnemyPosition(current),
+                  ) <=
+                    splashRadius * splashRadius
+                );
+              })
+              .sort((left, right) => {
+                const distance =
+                  squaredDistance(
+                    primaryPosition,
+                    this.getEnemyPosition(left),
+                  ) -
+                  squaredDistance(
+                    primaryPosition,
+                    this.getEnemyPosition(right),
+                  );
+                return distance || left.id.localeCompare(right.id);
+              })[0];
+            if (secondary) {
+              this.applyEquipmentStatus(
+                item.id,
+                effect.id,
+                tower.id,
+                secondary.id,
+                {
+                  kind: "slow",
+                  percent: effect.slowPercent,
+                  ticks: effect.ticks,
+                },
+                false,
+                events,
+              );
+            }
+          }
+        }
+      }
+      const secondaryEffect = items
+        .flatMap((item) =>
+          item.effects.map((effect) => ({ itemId: item.id, effect })),
+        )
+        .find(
+          (
+            entry,
+          ): entry is {
+            itemId: string;
+            effect: Extract<EquipmentEffect, { kind: "secondary-target" }>;
+          } => entry.effect.kind === "secondary-target",
+        );
+      const secondaryTarget = targets.find(
+        (candidate) => !affectedIds.has(candidate.id),
+      );
+      if (secondaryEffect && secondaryTarget) {
+        const percent =
+          tower.level === 4
+            ? secondaryEffect.effect.damagePercentRankFour
+            : secondaryEffect.effect.damagePercentRanksOneToThree;
+        const secondaryStats = this.statsFor(
+          defenderId,
+          level,
+          definition.splashRadius,
+          secondaryTarget,
+        );
+        const dealt = this.damageEnemy(
+          secondaryTarget.id,
+          Math.max(1, Math.floor((secondaryStats.damage * percent) / 100)),
+          definition.damageType,
+          Boolean(level.ignoresArmor),
+          events,
+          secondaryStats.armorIgnorePercent,
+          tower.id,
+        );
+        damageDealt += dealt;
+        if (
+          !state.enemies.some(
+            (candidate) => candidate.id === secondaryTarget.id,
+          )
+        ) {
+          defeatedCount += 1;
+        }
+        this.recordEquipmentContribution(secondaryEffect.itemId, {
+          echoDamage: dealt,
+        });
+        events.push({
+          type: "equipment-effect",
+          itemId: secondaryEffect.itemId,
+          effectId: secondaryEffect.effect.id,
+          sourceInstanceId: tower.id,
+          targetInstanceId: secondaryTarget.id,
+          outcome: "applied",
+          message:
+            tower.level === 4
+              ? "Rank IV secondary target hit for 35%"
+              : "Secondary target hit for 60%",
+        });
+      }
+
+      const cooldownAdjustment = this.processPrimaryEquipmentEffects(
+        tower,
+        target,
+        targets,
+        openingStats.damage,
+        definition.damageType,
+        events,
+      );
+      const cooldown = Math.max(
+        Math.ceil((level.cooldownTicks * 70) / 100),
+        Math.round(
+          (this.cooldownFor(tower, openingStats.cooldownTicks) *
+            (100 + cooldownAdjustment)) /
+            100,
+        ),
+      );
       state.towers[towerIndex] = {
         ...tower,
         nextAttackTick: state.tick + cooldown,
@@ -1095,6 +1449,551 @@ class GameSimulation implements Simulation {
         damageDealt,
         defeatedCount,
       });
+    }
+  }
+
+  private statsFor(
+    defenderId: DefenderId,
+    level: TowerLevelDefinition,
+    authoredSplashRadius: number,
+    target?: EnemyState,
+  ) {
+    const state = this.mutableState;
+    const targetDefinition = target
+      ? enemyDefinition(target.enemyId)
+      : undefined;
+    const route = target
+      ? (this.routePaths.get(target.routeId) ??
+        this.routePaths.get(this.defaultRouteId)!)
+      : undefined;
+    const progressPercent =
+      target && route
+        ? (target.pathDistanceMilli / route.totalDistanceMilli) * 100
+        : undefined;
+    const waveElapsedTicks =
+      state.waveStartedAtTick === null
+        ? 0
+        : state.tick - state.waveStartedAtTick;
+    const deployedDefenderIds = new Set(
+      state.towers.map((tower) => tower.towerId as DefenderId),
+    );
+    const stats = applyEquipmentStats(
+      {
+        damage: level.damage,
+        cooldownTicks: level.cooldownTicks,
+        range: this.effectiveRange(level),
+        splashRadius: level.splashRadiusOverride ?? authoredSplashRadius,
+        armorIgnorePercent: 0,
+      },
+      defenderId,
+      state.loadoutSnapshot,
+      {
+        ...(progressPercent === undefined
+          ? {}
+          : { routeProgressPercent: progressPercent }),
+        ...(targetDefinition
+          ? { boss: targetDefinition.boss, armor: targetDefinition.armor }
+          : {}),
+        waveElapsedTicks,
+        deployedDefenderIds,
+      },
+    );
+    const chorusActive =
+      (state.equipmentProcState.activeBuffUntilTicks["forbidden-chorus"] ?? 0) >
+      state.tick;
+    const leakHasteActive =
+      (state.equipmentProcState.activeBuffUntilTicks[
+        `leak-haste:${defenderId}`
+      ] ?? 0) > state.tick;
+    const cooldownMultiplier =
+      (chorusActive ? 0.9 : 1) * (leakHasteActive ? 0.8 : 1);
+    return {
+      ...stats,
+      cooldownTicks: Math.max(
+        Math.ceil((level.cooldownTicks * 70) / 100),
+        Math.round(stats.cooldownTicks * cooldownMultiplier),
+      ),
+      range: chorusActive ? Math.round(stats.range * 1.1) : stats.range,
+    };
+  }
+
+  private processPrimaryEquipmentEffects(
+    tower: TowerState,
+    originalTarget: EnemyState,
+    orderedTargets: readonly EnemyState[],
+    damage: number,
+    damageType: "physical" | "arcane" | "sonic",
+    events: GameEvent[],
+  ): number {
+    const state = this.mutableState;
+    const defenderId = tower.towerId as DefenderId;
+    let cooldownAdjustment = 0;
+    for (const item of equipmentForDefender(
+      state.loadoutSnapshot,
+      defenderId,
+    )) {
+      for (const effect of item.effects) {
+        const key = `${tower.id}:${effect.id}`;
+        if (effect.kind === "primary-proc") {
+          if (
+            (state.equipmentProcState.cooldownUntilTicks[key] ?? 0) >
+              state.tick ||
+            this.combatRandom.int(10_000) >= effect.chanceBasisPoints
+          ) {
+            continue;
+          }
+          state.equipmentProcState.cooldownUntilTicks[key] =
+            state.tick + effect.cooldownTicks;
+          const target = state.enemies.find(
+            (enemy) => enemy.id === originalTarget.id,
+          );
+          if (!target) {
+            continue;
+          }
+          const definition = enemyDefinition(target.enemyId);
+          this.recordEquipmentContribution(item.id, { procCount: 1 });
+          if (definition.boss) {
+            if (effect.boss.kind === "bonus-damage") {
+              const bonus = this.damageEnemy(
+                target.id,
+                Math.max(1, Math.floor((damage * effect.boss.percent) / 100)),
+                damageType,
+                false,
+                events,
+                0,
+                tower.id,
+              );
+              this.recordEquipmentContribution(item.id, {
+                directBonusDamage: bonus,
+              });
+              events.push({
+                type: "equipment-effect",
+                itemId: item.id,
+                effectId: effect.id,
+                sourceInstanceId: tower.id,
+                targetInstanceId: target.id,
+                outcome: "converted",
+                message: `Boss resisted ${effect.normal.kind} - bonus damage applied`,
+              });
+            } else {
+              this.applyEquipmentStatus(
+                item.id,
+                effect.id,
+                tower.id,
+                target.id,
+                {
+                  kind: "slow",
+                  percent: effect.boss.slowPercent,
+                  ticks: effect.boss.ticks,
+                },
+                true,
+                events,
+              );
+            }
+          } else {
+            const slowImmune =
+              definition.traits?.some(
+                (trait) => trait.kind === "slow-immune",
+              ) ?? false;
+            if (
+              slowImmune &&
+              effect.normal.kind === "polymorph" &&
+              effect.boss.kind === "bonus-damage"
+            ) {
+              const bonus = this.damageEnemy(
+                target.id,
+                Math.max(1, Math.floor((damage * effect.boss.percent) / 100)),
+                damageType,
+                false,
+                events,
+                0,
+                tower.id,
+              );
+              this.recordEquipmentContribution(item.id, {
+                directBonusDamage: bonus,
+              });
+              events.push({
+                type: "equipment-effect",
+                itemId: item.id,
+                effectId: effect.id,
+                sourceInstanceId: tower.id,
+                targetInstanceId: target.id,
+                outcome: "converted",
+                message: "Control immunity converted polymorph to bonus damage",
+              });
+            } else {
+              this.applyEquipmentStatus(
+                item.id,
+                effect.id,
+                tower.id,
+                target.id,
+                effect.normal,
+                false,
+                events,
+              );
+            }
+          }
+          continue;
+        }
+        if (effect.kind === "attack-counter") {
+          const count = (state.equipmentProcState.counters[key] ?? 0) + 1;
+          state.equipmentProcState.counters[key] = count;
+          if (count % effect.every !== 0) {
+            continue;
+          }
+          this.recordEquipmentContribution(item.id, { procCount: 1 });
+          switch (effect.action.kind) {
+            case "cooldown-percent":
+              cooldownAdjustment += effect.action.percent;
+              events.push({
+                type: "equipment-effect",
+                itemId: item.id,
+                effectId: effect.id,
+                sourceInstanceId: tower.id,
+                targetInstanceId: originalTarget.id,
+                outcome: "applied",
+                message: "Counter shortened the next attack cooldown",
+              });
+              break;
+            case "echo": {
+              const echoTarget =
+                effect.action.target === "primary"
+                  ? state.enemies.find(
+                      (enemy) => enemy.id === originalTarget.id,
+                    )
+                  : orderedTargets.find(
+                      (candidate) =>
+                        candidate.id !== originalTarget.id &&
+                        state.enemies.some(
+                          (enemy) => enemy.id === candidate.id,
+                        ),
+                    );
+              if (!echoTarget) {
+                break;
+              }
+              const dealt = this.damageEnemy(
+                echoTarget.id,
+                Math.max(
+                  1,
+                  Math.floor((damage * effect.action.damagePercent) / 100),
+                ),
+                damageType,
+                false,
+                events,
+                0,
+                tower.id,
+              );
+              this.recordEquipmentContribution(item.id, { echoDamage: dealt });
+              events.push({
+                type: "equipment-effect",
+                itemId: item.id,
+                effectId: effect.id,
+                sourceInstanceId: tower.id,
+                targetInstanceId: echoTarget.id,
+                outcome: "applied",
+                message: "Nonrecursive echo damage applied",
+              });
+              break;
+            }
+            case "push-or-boss-mark": {
+              const target = state.enemies.find(
+                (enemy) => enemy.id === originalTarget.id,
+              );
+              if (!target) {
+                break;
+              }
+              const definition = enemyDefinition(target.enemyId);
+              if (definition.boss) {
+                this.applyEquipmentStatus(
+                  item.id,
+                  effect.id,
+                  tower.id,
+                  target.id,
+                  {
+                    kind: "mark",
+                    ticks: effect.action.markTicks,
+                    damagePercent: effect.action.alliedDamagePercent,
+                    damageTypes: ["arcane", "sonic"],
+                    sourceInstanceId: tower.id,
+                    sourceMode: "exclude",
+                  },
+                  true,
+                  events,
+                  "Boss resisted displacement - Set for the Party",
+                );
+              } else {
+                const capKey = `${state.waveIndex}:${effect.id}:${target.id}`;
+                const prior = state.equipmentProcState.targetCaps[capKey] ?? 0;
+                const appliedPercent = Math.min(
+                  effect.action.pushRoutePercent,
+                  effect.action.perTargetWaveCapPercent - prior,
+                );
+                if (appliedPercent > 0) {
+                  const route =
+                    this.routePaths.get(target.routeId) ??
+                    this.routePaths.get(this.defaultRouteId)!;
+                  const index = state.enemies.findIndex(
+                    (enemy) => enemy.id === target.id,
+                  );
+                  state.enemies[index] = {
+                    ...target,
+                    pathDistanceMilli: Math.max(
+                      0,
+                      target.pathDistanceMilli -
+                        Math.floor(
+                          (route.totalDistanceMilli * appliedPercent) / 100,
+                        ),
+                    ),
+                  };
+                  state.equipmentProcState.targetCaps[capKey] =
+                    prior + appliedPercent;
+                  events.push({
+                    type: "equipment-effect",
+                    itemId: item.id,
+                    effectId: effect.id,
+                    sourceInstanceId: tower.id,
+                    targetInstanceId: target.id,
+                    outcome: "applied",
+                    message: `Target pushed back ${appliedPercent}%`,
+                  });
+                }
+              }
+              break;
+            }
+            case "team-haste":
+              if (
+                (state.equipmentProcState.teamCooldownUntilTicks[effect.id] ??
+                  0) <= state.tick
+              ) {
+                state.equipmentProcState.teamCooldownUntilTicks[effect.id] =
+                  state.tick + effect.action.cooldownTicks;
+                state.equipmentProcState.activeBuffUntilTicks[
+                  "forbidden-chorus"
+                ] = state.tick + effect.action.ticks;
+                this.recordEquipmentContribution(item.id, {
+                  teamBuffUptimeTicks: effect.action.ticks,
+                });
+                events.push({
+                  type: "equipment-effect",
+                  itemId: item.id,
+                  effectId: effect.id,
+                  sourceInstanceId: tower.id,
+                  targetInstanceId: null,
+                  outcome: "applied",
+                  message: "Team chorus started",
+                });
+              }
+              break;
+          }
+          continue;
+        }
+        if (effect.kind === "route-mark") {
+          const battleKey = `${item.id}:${effect.id}`;
+          const target = state.enemies.find(
+            (enemy) => enemy.id === originalTarget.id,
+          );
+          if (
+            !target ||
+            state.equipmentProcState.oncePerBattleIds.includes(battleKey)
+          ) {
+            continue;
+          }
+          const route =
+            this.routePaths.get(target.routeId) ??
+            this.routePaths.get(this.defaultRouteId)!;
+          const progress =
+            (target.pathDistanceMilli / route.totalDistanceMilli) * 100;
+          if (progress < effect.minimumProgressPercent) {
+            continue;
+          }
+          state.equipmentProcState.oncePerBattleIds.push(battleKey);
+          const boss = enemyDefinition(target.enemyId).boss;
+          this.applyEquipmentStatus(
+            item.id,
+            effect.id,
+            tower.id,
+            target.id,
+            {
+              kind: "slow",
+              percent: boss ? effect.bossSlowPercent : effect.normalSlowPercent,
+              ticks: boss ? effect.bossTicks : effect.normalTicks,
+            },
+            boss,
+            events,
+            boss ? "Boss resisted mark - slowed instead" : undefined,
+          );
+          if (!boss) {
+            this.applyEquipmentStatus(
+              item.id,
+              effect.id,
+              tower.id,
+              target.id,
+              {
+                kind: "mark",
+                ticks: effect.normalTicks,
+                damagePercent: effect.normalDamagePercent,
+                sourceInstanceId: tower.id,
+                sourceMode: "only",
+              },
+              false,
+              events,
+            );
+          }
+        }
+      }
+    }
+    return cooldownAdjustment;
+  }
+
+  private applyEquipmentStatus(
+    itemId: string,
+    effectId: string,
+    sourceInstanceId: string,
+    targetInstanceId: string,
+    request:
+      | { kind: "slow"; percent: number; ticks: number }
+      | { kind: "freeze"; ticks: number }
+      | { kind: "polymorph"; ticks: number; slowPercent: number }
+      | {
+          kind: "mark";
+          ticks: number;
+          damagePercent: number;
+          damageTypes?: readonly ("physical" | "arcane" | "sonic")[];
+          sourceInstanceId?: string;
+          sourceMode?: "only" | "exclude";
+        },
+    converted: boolean,
+    events: GameEvent[],
+    convertedMessage?: string,
+  ): void {
+    const state = this.mutableState;
+    const index = state.enemies.findIndex(
+      (enemy) => enemy.id === targetInstanceId,
+    );
+    const enemy = state.enemies[index];
+    if (!enemy) {
+      return;
+    }
+    const definition = enemyDefinition(enemy.enemyId);
+    const slowImmune =
+      definition.traits?.some((trait) => trait.kind === "slow-immune") ?? false;
+    const application = applyEnemyStatus(
+      enemy.status ?? EMPTY_ENEMY_STATUS,
+      request,
+      { boss: definition.boss, slowImmune },
+      state.tick,
+    );
+    state.enemies[index] = { ...enemy, status: application.status };
+    this.recordEquipmentContribution(itemId, {
+      controlTicksApplied: application.appliedTicks,
+      controlTicksRejected:
+        application.outcome === "applied"
+          ? 0
+          : "ticks" in request
+            ? request.ticks
+            : 0,
+    });
+    const outcome =
+      application.outcome === "applied" && converted
+        ? "converted"
+        : application.outcome;
+    events.push({
+      type: "equipment-effect",
+      itemId,
+      effectId,
+      sourceInstanceId,
+      targetInstanceId,
+      outcome,
+      message:
+        convertedMessage ??
+        (outcome === "converted"
+          ? `Boss resisted control - ${request.kind} conversion applied`
+          : outcome === "immune"
+            ? "Immune"
+            : outcome === "rejected"
+              ? "Control rejected during resolve"
+              : `${request.kind} applied`),
+    });
+  }
+
+  private recordEquipmentContribution(
+    itemId: string,
+    delta: Partial<EquipmentContribution>,
+  ): void {
+    const previous = this.mutableState.metrics.equipment[itemId] ?? {
+      procCount: 0,
+      directBonusDamage: 0,
+      echoDamage: 0,
+      controlTicksApplied: 0,
+      controlTicksRejected: 0,
+      goldSaved: 0,
+      lifeDamagePrevented: 0,
+      teamBuffUptimeTicks: 0,
+    };
+    this.mutableState.metrics.equipment[itemId] = {
+      procCount: previous.procCount + (delta.procCount ?? 0),
+      directBonusDamage:
+        previous.directBonusDamage + (delta.directBonusDamage ?? 0),
+      echoDamage: previous.echoDamage + (delta.echoDamage ?? 0),
+      controlTicksApplied:
+        previous.controlTicksApplied + (delta.controlTicksApplied ?? 0),
+      controlTicksRejected:
+        previous.controlTicksRejected + (delta.controlTicksRejected ?? 0),
+      goldSaved: previous.goldSaved + (delta.goldSaved ?? 0),
+      lifeDamagePrevented:
+        previous.lifeDamagePrevented + (delta.lifeDamagePrevented ?? 0),
+      teamBuffUptimeTicks:
+        previous.teamBuffUptimeTicks + (delta.teamBuffUptimeTicks ?? 0),
+    };
+  }
+
+  private activateLeakEquipment(
+    leakedEnemy: EnemyState,
+    events: GameEvent[],
+  ): void {
+    const state = this.mutableState;
+    for (const defenderId of [
+      "fork-knight",
+      "discount-wizard",
+      "bardbarian",
+    ] as const) {
+      const source = state.towers
+        .filter((tower) => tower.towerId === defenderId)
+        .sort((left, right) => left.id.localeCompare(right.id))[0];
+      if (!source) {
+        continue;
+      }
+      for (const item of equipmentForDefender(
+        state.loadoutSnapshot,
+        defenderId,
+      )) {
+        for (const effect of item.effects) {
+          if (effect.kind !== "leak-haste") {
+            continue;
+          }
+          const key = `${state.waveIndex}:${item.id}:${effect.id}`;
+          if (state.equipmentProcState.oncePerWaveIds.includes(key)) {
+            continue;
+          }
+          state.equipmentProcState.oncePerWaveIds.push(key);
+          state.equipmentProcState.activeBuffUntilTicks[
+            `leak-haste:${defenderId}`
+          ] = state.tick + effect.ticks;
+          this.recordEquipmentContribution(item.id, {
+            procCount: 1,
+            teamBuffUptimeTicks: effect.ticks,
+          });
+          events.push({
+            type: "equipment-effect",
+            itemId: item.id,
+            effectId: effect.id,
+            sourceInstanceId: source.id,
+            targetInstanceId: leakedEnemy.id,
+            outcome: "applied",
+            message: "Leak haste activated",
+          });
+        }
+      }
     }
   }
 
@@ -1132,12 +2031,14 @@ class GameSimulation implements Simulation {
     damageType: "physical" | "arcane" | "sonic",
     ignoresArmor: boolean,
     events: GameEvent[],
-  ): void {
+    armorIgnorePercent = 0,
+    sourceInstanceId?: string,
+  ): number {
     const state = this.mutableState;
     const index = state.enemies.findIndex((enemy) => enemy.id === instanceId);
     const enemy = state.enemies[index];
     if (!enemy) {
-      return;
+      return 0;
     }
 
     const definition = enemyDefinition(enemy.enemyId);
@@ -1147,7 +2048,7 @@ class GameSimulation implements Simulation {
       false;
     if (hasWard && !enemy.wardConsumed) {
       state.enemies[index] = { ...enemy, wardConsumed: true };
-      return;
+      return 0;
     }
 
     const resistancePercent =
@@ -1160,9 +2061,27 @@ class GameSimulation implements Simulation {
         }
         return Math.floor((percent * trait.percent) / 100);
       }, 100) ?? 100;
+    const activeStatus = expireEnemyStatus(
+      enemy.status ?? EMPTY_ENEMY_STATUS,
+      state.tick,
+    );
+    const markTypeMatches =
+      activeStatus.markDamageTypes === null ||
+      activeStatus.markDamageTypes.includes(damageType);
+    const markSourceMatches =
+      activeStatus.markSourceMode === null ||
+      (activeStatus.markSourceMode === "only"
+        ? activeStatus.markSourceInstanceId === sourceInstanceId
+        : activeStatus.markSourceInstanceId !== sourceInstanceId);
+    const markedRawDamage =
+      activeStatus.markUntilTick > state.tick &&
+      markTypeMatches &&
+      markSourceMatches
+        ? Math.floor((rawDamage * (100 + activeStatus.markDamagePercent)) / 100)
+        : rawDamage;
     const modifiedRawDamage = Math.max(
       1,
-      Math.floor((rawDamage * resistancePercent) / 100),
+      Math.floor((markedRawDamage * resistancePercent) / 100),
     );
 
     const phases = this.bossPhasesFor(definition);
@@ -1171,15 +2090,20 @@ class GameSimulation implements Simulation {
     const armor =
       definition.armor +
       (activePhase?.armorBonus ?? definition.initialBossStage?.armorBonus ?? 0);
-    const ignoredArmor = ignoresArmor
+    const authoredIgnoredArmor = ignoresArmor
       ? armor
       : damageType === "arcane"
         ? Math.ceil(armor / 2)
         : damageType === "sonic"
           ? armor
           : 0;
+    const ignoredArmor = Math.max(
+      authoredIgnoredArmor,
+      Math.floor((armor * armorIgnorePercent) / 100),
+    );
     const damage = Math.max(1, modifiedRawDamage - armor + ignoredArmor);
     let health = Math.max(0, enemy.health - damage);
+    const appliedDamage = enemy.health - health;
     let bossPhaseIndex = enemy.bossPhaseIndex;
     let wardConsumed = enemy.wardConsumed;
 
@@ -1227,6 +2151,10 @@ class GameSimulation implements Simulation {
             (enemy.pathDistanceMilli / preparedPath.totalDistanceMilli) * 100,
           ),
         );
+        if (!state.metrics.defeatedBossEnemyIds.includes(enemy.enemyId)) {
+          state.metrics.defeatedBossEnemyIds.push(enemy.enemyId);
+          state.metrics.defeatedBossEnemyIds.sort();
+        }
       }
       state.metrics.lastEnemyClearedTick[enemy.enemyId] = state.tick;
       state.enemies.splice(index, 1);
@@ -1278,7 +2206,7 @@ class GameSimulation implements Simulation {
           );
         }
       }
-      return;
+      return appliedDamage;
     }
 
     state.enemies[index] = {
@@ -1291,7 +2219,9 @@ class GameSimulation implements Simulation {
         bossPhaseIndex > 0
           ? (phases[bossPhaseIndex - 1]?.id ?? enemy.activeBossStageId)
           : enemy.activeBossStageId,
+      status: activeStatus,
     };
+    return appliedDamage;
   }
 
   private cooldownFor(tower: TowerState, baseCooldown: number): number {
@@ -1314,16 +2244,36 @@ class GameSimulation implements Simulation {
       );
       const supportDefinition = towerDefinitions.bardbarian;
       const supportLevel = supportDefinition.levels[supportTower.level - 1];
-      const supportRange = supportLevel ? this.effectiveRange(supportLevel) : 0;
+      const supportRange = supportLevel
+        ? this.statsFor(
+            "bardbarian",
+            supportLevel,
+            supportDefinition.splashRadius,
+          ).range
+        : 0;
       if (
         supportPad &&
         supportLevel &&
         squaredDistance(towerPad.position, supportPad.position) <=
           supportRange * supportRange
       ) {
+        const equipmentBonus = equipmentForDefender(
+          this.mutableState.loadoutSnapshot,
+          "bardbarian",
+        )
+          .flatMap((item) => item.effects)
+          .filter((effect) => effect.kind === "support-bonus")
+          .reduce(
+            (total, effect) =>
+              Math.min(effect.capPercent, total + effect.percentagePoints),
+            0,
+          );
         supportPercent = Math.max(
           supportPercent,
-          supportDefinition.supportCooldownPercent,
+          Math.min(
+            30,
+            supportDefinition.supportCooldownPercent + equipmentBonus,
+          ),
         );
       }
     }
@@ -1405,10 +2355,11 @@ class GameSimulation implements Simulation {
 
     for (const enemy of enemiesBeforeMove) {
       const definition = enemyDefinition(enemy.enemyId);
-      const slowPercent =
-        enemy.slowUntilTick > state.tick
-          ? 100 - towerDefinitions.bardbarian.slowPercent
-          : 100;
+      const status = expireEnemyStatus(
+        enemy.status ?? EMPTY_ENEMY_STATUS,
+        state.tick,
+      );
+      const slowPercent = 100 - activeSlowPercent(status, state.tick);
       const phases = this.bossPhasesFor(definition);
       const bossPercent =
         enemy.bossPhaseIndex > 0
@@ -1443,6 +2394,7 @@ class GameSimulation implements Simulation {
         if (state.activeEnvironmentHazardIds.length > 0) {
           state.metrics.leaksDuringEnvironmentHazards += 1;
         }
+        this.activateLeakEquipment(enemy, events);
         events.push({
           type: "enemy-leaked",
           instanceId: enemy.id,
@@ -1463,6 +2415,7 @@ class GameSimulation implements Simulation {
         survivors.push({
           ...enemy,
           pathDistanceMilli: distance,
+          status,
           referredReachedHalfway:
             enemy.referredReachedHalfway || Boolean(reachedHalfway),
         });

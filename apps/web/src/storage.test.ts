@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CONTENT_VERSION } from "@srtg/protocol";
 
 import { createFreshSave } from "./save.js";
 import {
@@ -63,7 +64,7 @@ describe("local save writer", () => {
 
     const loaded = parseLocalSaveData(legacy);
 
-    expect(loaded.contentVersion).toBe(3);
+    expect(loaded.contentVersion).toBe(CONTENT_VERSION);
     expect(loaded.campaign.unlockedNodeIds).toEqual([
       "muddy-moat",
       "mimic-market",

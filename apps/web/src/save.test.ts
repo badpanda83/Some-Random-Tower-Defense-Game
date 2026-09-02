@@ -55,6 +55,27 @@ describe("campaign progress", () => {
     expect(twice.campaign.recordedAttemptIds).toHaveLength(2);
   });
 
+  it("uses stable attemptId rather than completion time for v4 idempotency", () => {
+    const result = {
+      levelId: "muddy-moat",
+      seed: 5,
+      contentVersion: 4 as const,
+      modifierIds: [],
+      result: "victory" as const,
+      score: 4000,
+      completedMasteryIds: [],
+      completedAt: "2026-09-02T12:00:00.000Z",
+      attemptId: "attempt-stable",
+    };
+    const once = withBattleResult(createFreshSave(), result);
+    const twice = withBattleResult(once, {
+      ...result,
+      completedAt: "2026-09-02T12:01:00.000Z",
+    });
+    expect(twice.campaign.levels["muddy-moat"]?.victories).toBe(1);
+    expect(twice.campaign.recentResults).toHaveLength(1);
+  });
+
   it("keeps attempt idempotency after results leave the recent display list", () => {
     const firstResult = {
       levelId: "muddy-moat",

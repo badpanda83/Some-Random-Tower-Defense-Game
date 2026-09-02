@@ -1,5 +1,10 @@
 import {
   CONTENT_VERSION,
+  DEFAULT_GUIDANCE,
+  EMPTY_ECONOMY,
+  EMPTY_INVENTORY,
+  EMPTY_LOADOUTS,
+  EQUIPMENT_RULES_VERSION,
   type BattleCheckpoint,
   type BattleResult,
   type SaveData,
@@ -44,6 +49,20 @@ export function createFreshSave(): SaveData {
       gameSpeed: 1,
       keepPlayingWhileAway: false,
     },
+    equipmentRulesVersion: EQUIPMENT_RULES_VERSION,
+    economy: {
+      ...EMPTY_ECONOMY,
+      rewardClaimIds: [],
+      replayHistory: [],
+      recentReceipts: [],
+    },
+    inventory: { ...EMPTY_INVENTORY, ownedItemIds: [] },
+    loadouts: {
+      "fork-knight": { ...EMPTY_LOADOUTS["fork-knight"] },
+      "discount-wizard": { ...EMPTY_LOADOUTS["discount-wizard"] },
+      bardbarian: { ...EMPTY_LOADOUTS.bardbarian },
+    },
+    guidance: { ...DEFAULT_GUIDANCE },
     checkpoint: null,
   };
 }
@@ -60,6 +79,9 @@ export function withoutBattleCheckpoint(save: SaveData): SaveData {
 }
 
 function battleAttemptKey(result: BattleResult): string {
+  if (result.attemptId) {
+    return `attempt:${result.attemptId}`;
+  }
   return [
     result.contentVersion,
     result.levelId,

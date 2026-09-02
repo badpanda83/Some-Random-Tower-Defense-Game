@@ -5,6 +5,7 @@ import type {
   Profile,
   SaveData,
   Settings,
+  LoadoutSnapshot,
 } from "@srtg/protocol";
 import {
   lazy,
@@ -52,6 +53,8 @@ interface BattleSetup {
   readonly modifierIds: readonly string[];
   readonly unlockedRewardIds: readonly string[];
   readonly checkpoint: BattleCheckpoint | null;
+  readonly attemptId: string;
+  readonly loadoutSnapshot: LoadoutSnapshot;
   readonly key: number;
 }
 
@@ -59,6 +62,14 @@ function randomSeed(): number {
   const values = new Uint32Array(1);
   crypto.getRandomValues(values);
   return ((values[0] ?? 1) % 2_147_483_646) + 1;
+}
+
+function randomAttemptId(): string {
+  const values = new Uint32Array(4);
+  crypto.getRandomValues(values);
+  return `attempt-${[...values]
+    .map((value) => value.toString(16).padStart(8, "0"))
+    .join("")}`;
 }
 
 export function App() {
@@ -243,6 +254,13 @@ export function App() {
         ? unlockedRewardIds(recordRef.current.data)
         : [],
       checkpoint,
+      attemptId: checkpoint?.attemptId ?? randomAttemptId(),
+      loadoutSnapshot: checkpoint?.loadoutSnapshot ??
+        recordRef.current?.data.loadouts ?? {
+          "fork-knight": { weapon: null, armor: null, charm: null },
+          "discount-wizard": { weapon: null, armor: null, charm: null },
+          bardbarian: { weapon: null, armor: null, charm: null },
+        },
       key: Date.now(),
     });
     setScreen("game");
@@ -410,6 +428,8 @@ export function App() {
               modifierIds={battle.modifierIds}
               unlockedRewardIds={battle.unlockedRewardIds}
               checkpoint={battle.checkpoint}
+              attemptId={battle.attemptId}
+              loadoutSnapshot={battle.loadoutSnapshot}
               settings={record.data.settings}
               synchronizationBlocked={Boolean(conflict)}
               onCheckpoint={(checkpoint) => {

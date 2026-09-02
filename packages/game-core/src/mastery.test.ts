@@ -6,6 +6,7 @@ import type { BattleMetrics } from "./types.js";
 function metrics(overrides: Partial<BattleMetrics> = {}): BattleMetrics {
   return {
     spentGold: 0,
+    authoredSpentGold: overrides.authoredSpentGold ?? overrides.spentGold ?? 0,
     leakedEnemies: 0,
     leakedByEnemyId: {},
     leakedByWaveIndex: {},
@@ -21,6 +22,8 @@ function metrics(overrides: Partial<BattleMetrics> = {}): BattleMetrics {
     referredEnemiesReachedHalfway: 0,
     referredWaveIndices: [],
     bossReinforcementCalls: {},
+    defeatedBossEnemyIds: [],
+    equipment: {},
     ...overrides,
   };
 }

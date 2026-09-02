@@ -1,63 +1,104 @@
 import {
+  ACT_THREE_CONTENT_VERSION,
   CONTENT_VERSION,
+  DEFAULT_GUIDANCE,
+  EMPTY_ECONOMY,
+  EMPTY_INVENTORY,
+  EMPTY_LOADOUTS,
+  EQUIPMENT_RULES_VERSION,
   LEGACY_CONTENT_VERSION,
   PREVIOUS_CONTENT_VERSION,
   saveDataSchema,
   saveDataSchemaV1,
   saveDataSchemaV2,
+  saveDataSchemaV3,
   type SaveData,
 } from "./schemas.js";
 
+function migratedAttemptId(checkpoint: {
+  readonly levelId: string;
+  readonly seed: number;
+  readonly modifierIds: readonly string[];
+}): string {
+  return `migrated:${checkpoint.levelId}:${checkpoint.seed}:${
+    [...checkpoint.modifierIds].sort().join(".") || "normal"
+  }`;
+}
+
+function buildRpgScaffolding() {
+  return {
+    economy: EMPTY_ECONOMY,
+    inventory: EMPTY_INVENTORY,
+    loadouts: EMPTY_LOADOUTS,
+    guidance: DEFAULT_GUIDANCE,
+  };
+}
+
 /**
- * Migrates a save payload from v1 or v2 to the current v3 version.
- * Idempotent: passing already-current data returns it
- * unchanged (structurally re-validated), so callers can migrate
- * unconditionally on every load without double-transforming.
- *
- * All additions are optional/backward compatible, so migration only updates
- * the envelope version and preserves progress, settings, checkpoints, and
- * battle results exactly.
- *
- * Throws if `input` matches none of the supported save schemas.
+ * Pure, idempotent migration from every released save envelope to v4.
+ * Existing campaign progress, settings, results, and checkpoint state are
+ * preserved; v4 fields are initialized exactly once.
  */
-export function migrateSaveDataToV3(input: unknown): SaveData {
+export function migrateSaveDataToV4(input: unknown): SaveData {
   const current = saveDataSchema.safeParse(input);
   if (current.success) {
     return current.data;
   }
 
-  const previous = saveDataSchemaV2.safeParse(input);
-  const legacy = previous.success
-    ? previous.data
-    : saveDataSchemaV1.parse(input);
+  const v3 = saveDataSchemaV3.safeParse(input);
+  const v2 = v3.success ? null : saveDataSchemaV2.safeParse(input);
+  const legacy = v3.success
+    ? v3.data
+    : v2?.success
+      ? v2.data
+      : saveDataSchemaV1.parse(input);
+  const rpgState = buildRpgScaffolding();
+  const checkpoint = legacy.checkpoint
+    ? {
+        ...legacy.checkpoint,
+        attemptId:
+          legacy.checkpoint.attemptId ?? migratedAttemptId(legacy.checkpoint),
+        loadoutSnapshot: legacy.checkpoint.loadoutSnapshot ?? EMPTY_LOADOUTS,
+      }
+    : null;
+
   return saveDataSchema.parse({
     ...legacy,
     contentVersion: CONTENT_VERSION,
+    equipmentRulesVersion: EQUIPMENT_RULES_VERSION,
+    checkpoint,
+    ...rpgState,
   });
 }
 
-/** @deprecated Use `migrateSaveDataToV3`; retained for existing consumers. */
-export const migrateSaveDataV1ToV2 = migrateSaveDataToV3;
-export const migrateSaveDataV1ToV3 = migrateSaveDataToV3;
-export const migrateSaveDataV2ToV3 = migrateSaveDataToV3;
+/** @deprecated Current migration always normalizes to v4. */
+export const migrateSaveDataToV3 = migrateSaveDataToV4;
+/** @deprecated Current migration always normalizes to v4. */
+export const migrateSaveDataV1ToV2 = migrateSaveDataToV4;
+export const migrateSaveDataV1ToV3 = migrateSaveDataToV4;
+export const migrateSaveDataV2ToV3 = migrateSaveDataToV4;
+export const migrateSaveDataV1ToV4 = migrateSaveDataToV4;
+export const migrateSaveDataV2ToV4 = migrateSaveDataToV4;
+export const migrateSaveDataV3ToV4 = migrateSaveDataToV4;
 
-/** True when `input` parses as a legacy v1 save envelope. */
 export function isLegacySaveData(input: unknown): boolean {
   return saveDataSchemaV1.safeParse(input).success;
 }
 
-/** True when `input` parses as a v2 save envelope. */
 export function isPreviousSaveData(input: unknown): boolean {
   return saveDataSchemaV2.safeParse(input).success;
 }
 
-/**
- * Parses any supported save payload (v1, v2, or current v3), migrating older
- * data to the current version. Prefer this at ingestion boundaries (cloud
- * sync, local storage load) so writes are always normalized back out as v3.
- */
-export function parseSaveDataWithMigration(input: unknown): SaveData {
-  return migrateSaveDataToV3(input);
+export function isActThreeSaveData(input: unknown): boolean {
+  return saveDataSchemaV3.safeParse(input).success;
 }
 
-export { LEGACY_CONTENT_VERSION, PREVIOUS_CONTENT_VERSION };
+export function parseSaveDataWithMigration(input: unknown): SaveData {
+  return migrateSaveDataToV4(input);
+}
+
+export {
+  ACT_THREE_CONTENT_VERSION,
+  LEGACY_CONTENT_VERSION,
+  PREVIOUS_CONTENT_VERSION,
+};

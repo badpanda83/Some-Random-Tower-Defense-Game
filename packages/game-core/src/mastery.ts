@@ -33,7 +33,7 @@ export function evaluateMasteryRule(
         (context.metrics.leakedByWaveIndex[String(rule.waveIndex)] ?? 0) === 0
       );
     case "max-spent-gold":
-      return context.metrics.spentGold <= rule.maxGold;
+      return context.metrics.authoredSpentGold <= rule.maxGold;
     case "max-towers-placed":
       return context.metrics.maxTowersPlaced <= rule.maxTowers;
     case "max-tower-types":

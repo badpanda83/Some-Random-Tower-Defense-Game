@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { levelDefinitions } from "./content.js";
 import {
+  equipmentBalanceScenarios,
   referenceStrategies,
   representativeStrategyIdsByLevel,
+  runEquipmentBalanceMatrix,
+  runMonoForkStress,
   runReferenceStrategy,
 } from "./balance.js";
+import { createEmptyLoadouts } from "./equipment.js";
 import type { ActOneLevelId } from "./balance.js";
 
 describe("Act I balance references", () => {
@@ -117,6 +121,49 @@ describe("Act I balance references", () => {
         ).length,
       ).toBeGreaterThanOrEqual(2);
     }
+  });
+
+  it("keeps every approved equipment scenario viable without exceeding output or proc budgets", () => {
+    const reports = runEquipmentBalanceMatrix();
+    expect(reports).toHaveLength(
+      Object.keys(levelDefinitions).length *
+        Object.keys(equipmentBalanceScenarios).length *
+        2,
+    );
+    const gearless = new Map(
+      reports
+        .filter((report) => report.equipmentScenarioId === "no-gear")
+        .map((report) => [`${report.levelId}:${report.strategyId}`, report]),
+    );
+    for (const report of reports) {
+      expect(report.result).toBe("victory");
+      const baseline = gearless.get(`${report.levelId}:${report.strategyId}`)!;
+      expect(baseline.activeTicks / report.activeTicks).toBeLessThanOrEqual(
+        1.15,
+      );
+      const teamDamage = Object.values(report.contributionByTowerId).reduce(
+        (total, contribution) => total + contribution.damageDealt,
+        0,
+      );
+      const procDamage = Object.values(report.equipmentContribution).reduce(
+        (total, contribution) =>
+          total + contribution.directBonusDamage + contribution.echoDamage,
+        0,
+      );
+      expect(procDamage / Math.max(1, teamDamage)).toBeLessThanOrEqual(0.05);
+      expect(report.authoredSpentGold).toBeGreaterThanOrEqual(report.spentGold);
+    }
+  }, 60_000);
+
+  it("keeps Many Tines rank IV below the Frozen Assets anti-degenerate gate", () => {
+    const loadouts = createEmptyLoadouts();
+    loadouts["fork-knight"].weapon = "fork-of-many-tines";
+    const report = runMonoForkStress("frozen-assets", loadouts);
+    expect(report.result).toBe("defeat");
+    expect(report.waves.length).toBeLessThanOrEqual(6);
+    expect(
+      report.equipmentContribution["fork-of-many-tines"]?.echoDamage,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps every authored mastery feasible across specialized references", () => {

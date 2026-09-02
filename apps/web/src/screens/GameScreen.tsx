@@ -12,10 +12,12 @@ import {
 } from "@srtg/game-core";
 import {
   CONTENT_VERSION,
+  EMPTY_LOADOUTS,
   type AbilityId,
   type BattleCheckpoint,
   type BattleResult,
   type GameSpeed,
+  type LoadoutSnapshot,
   type Settings,
 } from "@srtg/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,6 +44,8 @@ interface GameScreenProps {
   readonly modifierIds: readonly string[];
   readonly unlockedRewardIds: readonly string[];
   readonly checkpoint: BattleCheckpoint | null;
+  readonly attemptId?: string;
+  readonly loadoutSnapshot?: LoadoutSnapshot;
   readonly settings: Settings;
   readonly synchronizationBlocked: boolean;
   readonly pageActivity?: PageActivitySource;
@@ -134,6 +138,8 @@ export function GameScreen({
   modifierIds,
   unlockedRewardIds,
   checkpoint,
+  attemptId = `battle:${levelId}:${seed}:normal`,
+  loadoutSnapshot = EMPTY_LOADOUTS,
   settings,
   synchronizationBlocked,
   pageActivity = browserPageActivity,
@@ -148,9 +154,24 @@ export function GameScreen({
       createSimulation(
         checkpoint
           ? { checkpoint, unlockedRewardIds }
-          : { seed, levelId, modifierIds, unlockedRewardIds },
+          : {
+              seed,
+              levelId,
+              modifierIds,
+              unlockedRewardIds,
+              attemptId,
+              loadoutSnapshot,
+            },
       ),
-    [checkpoint, levelId, modifierIds, seed, unlockedRewardIds],
+    [
+      attemptId,
+      checkpoint,
+      levelId,
+      loadoutSnapshot,
+      modifierIds,
+      seed,
+      unlockedRewardIds,
+    ],
   );
   const [state, setState] = useState<GameState>(simulation.state);
   const level =
@@ -467,6 +488,14 @@ export function GameScreen({
         score: state.score,
         completedMasteryIds: [...state.completedMasteryIds],
         completedAt: new Date().toISOString(),
+        attemptId: state.attemptId,
+        loadoutSnapshot: state.loadoutSnapshot,
+        defeatedBossEnemyIds: [...state.metrics.defeatedBossEnemyIds],
+        equipmentMetrics: Object.fromEntries(
+          Object.entries(state.metrics.equipment).map(
+            ([itemId, contribution]) => [itemId, { ...contribution }],
+          ),
+        ),
       } satisfies BattleResult);
     completedResult.current = result;
     try {

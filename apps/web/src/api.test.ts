@@ -79,7 +79,7 @@ describe("cloud identity boundaries", () => {
 
     const migrated = await getCloudSave();
 
-    expect(migrated?.data.contentVersion).toBe(3);
+    expect(migrated?.data.contentVersion).toBe(CONTENT_VERSION);
     expect(migrated?.data.campaign.unlockedNodeIds).toContain("mimic-market");
     expect(migrated?.data.settings.keepPlayingWhileAway).toBe(false);
   });

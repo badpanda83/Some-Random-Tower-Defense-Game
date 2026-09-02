@@ -16,7 +16,7 @@ The complete campaign contains exactly ten playable missions in three acts:
 
 Act III finishes the campaign with deterministic lava eruptions and hot-road windows, the phased Lava Lamp Landlord, one-shot spectral referrals, three-route formations, the returning Dragon Intern miniboss, and the three-stage Chief Executive Dragon. The regular full-boss cadence is Missions 2, 4, 6, 8, and 10 (Grand Till Mimic, Baron von Bog, Comptroller General, Lava Lamp Landlord, and Chief Executive Dragon); Mission 7's Queen of Pending Litigation is an explicit act-finale exception. Story victories unlock the next mission without replay grinding. Mission 10 awards the campaign epilogue, Completion Crest, Executive Palette, and Executive Mandate challenge; the campaign screen then displays **10/10** completion. There are no preview-only nodes, eleventh mission, or endless mode.
 
-Run `pnpm report:balance` for deterministic 1× mission timing, per-wave duration, lives, economy, peak enemy load, mastery, and tower-contribution reports for two distinct reference compositions. The reporter measures exact active ticks at 20 ticks/second, then adds the disclosed ordinary first-clear planning model: 33 seconds for the briefing, 12 seconds to read each wave preview, and 2.5 seconds per placement, upgrade, sale, or wave-start decision. Retries and paused/idle time are excluded.
+Run `pnpm report:balance` for deterministic 1× mission timing, per-wave duration, lives, economy, peak enemy load, mastery, and tower-contribution reports. The report covers two distinct reference compositions under no gear, representative common gear, representative S+++ gear, and the strongest legal S+++ loadout, plus the Frozen Assets mono-Fork regression. The reporter measures exact active ticks at 20 ticks/second, then adds the disclosed ordinary first-clear planning model: 33 seconds for the briefing, 12 seconds to read each wave preview, and 2.5 seconds per placement, upgrade, sale, or wave-start decision. Retries and paused/idle time are excluded.
 
 Measured normal first clears for Act III are:
 
@@ -87,7 +87,7 @@ corepack pnpm db:generate      # Generate a migration after schema changes
 corepack pnpm db:migrate       # Apply checked-in migrations
 ```
 
-Game definitions live in `packages/game-core/src/content.ts`. IDs are persistence contracts: add new IDs rather than renaming released ones. Simulation rules must remain independent of Phaser, browser APIs, wall-clock time, and `Math.random`. Routes, speed zones, environment hazard schedules, referral-marked waves, boss stages, mastery rules, modifiers, and rewards are typed content rather than level-name branches. Add authored wave previews that truthfully identify formation roles and deterministic pressure windows.
+Game definitions live in `packages/game-core/src/content.ts`; authored equipment and its typed effect vocabulary live in `packages/game-core/src/equipment.ts`. IDs are persistence contracts: add new IDs rather than renaming released ones. Simulation rules must remain independent of Phaser, browser APIs, wall-clock time, and `Math.random`. Routes, speed zones, environment hazard schedules, referral-marked waves, boss stages, mastery rules, modifiers, rewards, loadouts, and equipment effects are typed content rather than level-name branches. Add authored wave previews that truthfully identify formation roles and deterministic pressure windows.
 
 ## Saves and identity
 
@@ -96,7 +96,7 @@ Game definitions live in `packages/game-core/src/content.ts`. IDs are persistenc
 - Linking an email upgrades the guest identity instead of requiring a new profile.
 - Cloud writes include an expected revision. Conflicting local and remote revisions are shown to the player; neither is silently overwritten.
 - Between-wave checkpoints contain only simulation-safe data. Active combat is not serialized.
-- Save payloads carry a `contentVersion`; v3 explicitly migrates v1 and v2 saves while preserving campaign progress, settings, recent results, cloud revision behavior, and compatible between-wave checkpoints. Incompatible payloads fail visibly rather than being guessed into shape.
+- Save payloads carry a `contentVersion`; v4 explicitly migrates v1, v2, and v3 saves while preserving campaign progress, settings (including `keepPlayingWhileAway`), recent results, cloud revision behavior, and compatible between-wave checkpoints. V4 checkpoints snapshot all three defender loadouts, split spawn/combat RNG state, proc counters, and equipment telemetry. Economy and inventory fields are persistence scaffolding only in this layer; no shop or spend flow is exposed. Incompatible payloads fail visibly rather than being guessed into shape.
 
 Guest browser storage can be evicted by the platform. The UI encourages account linking after progress begins.
 
@@ -137,6 +137,8 @@ The service worker precaches only versioned application assets, activates deploy
 Eruptions use amber warning rings, red disabled-pad marks, and triangular hot-road markers. Referred enemies use spectral diamond outlines. Boss stages expose named health and ward status. These cues combine color and shape, honor reduced-motion and low-effects settings, and share the renderer's capped transient-effect budget.
 
 Current tower purchase/upgrade costs are Fork Knight **57/52/85/140**, Discount Wizard **95/76/119/165**, and Bardbarian **85/66/105/150** gold. The Bardbarian slow lasts 3 seconds at 35% and cannot refresh while already active, preserving deterministic control gaps. Fork Knight ranks deal **24/38/58/72** single-target damage at **16/14/12/11-tick** cadence and **126/138/152/152** range. Table Service no longer doubles full-damage targets; Frozen Assets also reserves its lane-center thin-ice pads for arcane or sonic coverage, while the two shore pads keep Fork Knights useful against Warranty Wraiths.
+
+Equipment modifiers use a fixed authored-base/additive/conditional/rounding/cap pipeline. Slows use the strongest active magnitude, full bosses cap slows at 20%, and freeze, polymorph, and displacement produce explicit deterministic resistance conversions instead of replacing boss stages, traits, routes, referrals, or rewards. Combat procs use a serialized RNG stream separate from spawn variants and never use wall-clock catch-up.
 
 All current visual assets and copy are original project material. No third-party game art is required.
 

@@ -1,10 +1,12 @@
 import {
   campaignNodes,
+  equipmentBalanceScenarios,
   levelDefinitions,
   referencePlanningModel,
   referenceStrategies,
   representativeStrategyIdsByLevel,
   runReferenceStrategy,
+  runEquipmentBalanceMatrix,
 } from "../packages/game-core/dist/index.js";
 
 const reports = [];
@@ -72,6 +74,8 @@ console.log(
         "frozen-assets",
         referenceStrategies["two-knight-table-service"],
       ),
+      equipmentScenarios: Object.keys(equipmentBalanceScenarios),
+      equipmentMatrix: runEquipmentBalanceMatrix(),
       reports: reports.map((report) => ({
         act: actByLevelId[report.levelId] ?? null,
         ...report,

@@ -1,6 +1,7 @@
 import type {
   CampaignNodeDefinition,
   EnemyDefinition,
+  FullBossEncounterDefinition,
   LevelDefinition,
   ModifierDefinition,
   RewardDefinition,
@@ -2814,6 +2815,39 @@ export const levelDefinitions = {
   "necromancers-networking-event": necromancersNetworkingEventLevel,
   "quarterly-dragon-review": quarterlyDragonReviewLevel,
 } as const satisfies Record<string, LevelDefinition>;
+
+export const fullBossEncounterDefinitions = [
+  {
+    levelId: "mimic-market",
+    enemyId: "grand-till-mimic",
+    cadence: "regular",
+  },
+  {
+    levelId: "castle-hassle",
+    enemyId: "baron-von-bog",
+    cadence: "regular",
+  },
+  {
+    levelId: "department-of-unnecessary-bridges",
+    enemyId: "comptroller-general",
+    cadence: "regular",
+  },
+  {
+    levelId: "siege-and-desist",
+    enemyId: "queen-of-pending-litigation",
+    cadence: "act-finale-exception",
+  },
+  {
+    levelId: "lava-lamp-district",
+    enemyId: "lava-lamp-landlord",
+    cadence: "regular",
+  },
+  {
+    levelId: "quarterly-dragon-review",
+    enemyId: "chief-executive-dragon",
+    cadence: "regular",
+  },
+] as const satisfies readonly FullBossEncounterDefinition[];
 
 export const campaignNodes: readonly CampaignNodeDefinition[] = [
   {
