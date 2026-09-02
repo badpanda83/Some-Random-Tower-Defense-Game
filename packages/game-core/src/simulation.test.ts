@@ -5,7 +5,11 @@ import {
   muddyMoatLevel,
   towerDefinitions,
 } from "./content.js";
-import { referenceStrategies, runReferenceStrategy } from "./balance.js";
+import {
+  referenceStrategies,
+  representativeStrategyIdsByLevel,
+  runReferenceStrategy,
+} from "./balance.js";
 import type { ActOneLevelId } from "./balance.js";
 import { createSimulation } from "./simulation.js";
 import {
@@ -341,11 +345,11 @@ describe("game simulation", () => {
     (levelId) => {
       const first = runReferenceStrategy(
         levelId as ActOneLevelId,
-        referenceStrategies["blade-and-magic"],
+        referenceStrategies[representativeStrategyIdsByLevel[levelId][0]],
       );
       const repeated = runReferenceStrategy(
         levelId as ActOneLevelId,
-        referenceStrategies["blade-and-magic"],
+        referenceStrategies[representativeStrategyIdsByLevel[levelId][0]],
       );
 
       expect(first.result).toBe("victory");

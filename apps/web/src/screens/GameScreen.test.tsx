@@ -162,6 +162,9 @@ describe("mission abandonment", () => {
       const launch = screen.getByRole("button", { name: "Start Wave 1" });
       expect(launch).toHaveTextContent("Start Wave 1");
       expect(launch).toHaveTextContent("Next: Orientation Day");
+      expect(launch).toHaveTextContent(
+        "Three drill companies arrive in sequence",
+      );
       expect(launch).toHaveClass("is-pulsing");
 
       fireEvent.click(launch);

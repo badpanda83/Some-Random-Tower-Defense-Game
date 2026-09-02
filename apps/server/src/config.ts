@@ -12,6 +12,10 @@ if (existsSync(rootEnvironmentFile)) {
 const booleanFromEnvironment = z
   .enum(["true", "false"])
   .transform((value) => value === "true");
+const optionalNonEmptyEnvironmentString = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().min(1).optional(),
+);
 
 const environmentSchema = z.object({
   NODE_ENV: z
@@ -30,6 +34,14 @@ const environmentSchema = z.object({
     .string()
     .min(32)
     .default("development-only-secret-change-me-now"),
+  EMAIL_PROVIDER: z.enum(["resend", "smtp"]).optional(),
+  RESEND_API_KEY: optionalNonEmptyEnvironmentString,
+  EMAIL_SEND_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(30_000)
+    .default(10_000),
   SMTP_HOST: z.string().min(1).default("localhost"),
   SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(1025),
   SMTP_SECURE: booleanFromEnvironment.default(false),
@@ -52,14 +64,23 @@ export interface AppConfig {
   readonly authSecret: string;
   readonly trustProxy: boolean;
   readonly staticDirectory?: string;
-  readonly smtp: {
-    readonly host: string;
-    readonly port: number;
-    readonly secure: boolean;
-    readonly user?: string;
-    readonly password?: string;
-    readonly from: string;
-  };
+  readonly email:
+    | {
+        readonly provider: "resend";
+        readonly apiKey: string;
+        readonly from: string;
+        readonly timeoutMs: number;
+      }
+    | {
+        readonly provider: "smtp";
+        readonly host: string;
+        readonly port: number;
+        readonly secure: boolean;
+        readonly user?: string;
+        readonly password?: string;
+        readonly from: string;
+        readonly timeoutMs: number;
+      };
 }
 
 export function loadConfig(
@@ -72,14 +93,50 @@ export function loadConfig(
   ) {
     throw new Error("BETTER_AUTH_SECRET must be configured in production");
   }
-  if (Boolean(parsed.SMTP_USER) !== Boolean(parsed.SMTP_PASSWORD)) {
+  const emailProvider =
+    parsed.EMAIL_PROVIDER ??
+    (parsed.NODE_ENV === "production" ? "resend" : "smtp");
+  if (parsed.NODE_ENV === "production" && emailProvider !== "resend") {
+    throw new Error("EMAIL_PROVIDER must be resend in production");
+  }
+  if (parsed.NODE_ENV === "production" && !environment.EMAIL_FROM) {
+    throw new Error("EMAIL_FROM must be configured in production");
+  }
+  if (
+    emailProvider === "smtp" &&
+    Boolean(parsed.SMTP_USER) !== Boolean(parsed.SMTP_PASSWORD)
+  ) {
     throw new Error("SMTP_USER and SMTP_PASSWORD must be configured together");
   }
 
-  const credentials =
-    parsed.SMTP_USER && parsed.SMTP_PASSWORD
-      ? { user: parsed.SMTP_USER, password: parsed.SMTP_PASSWORD }
-      : {};
+  let email: AppConfig["email"];
+  if (emailProvider === "resend") {
+    if (!parsed.RESEND_API_KEY) {
+      throw new Error(
+        "RESEND_API_KEY must be configured for Resend email delivery",
+      );
+    }
+    email = {
+      provider: "resend",
+      apiKey: parsed.RESEND_API_KEY,
+      from: parsed.EMAIL_FROM,
+      timeoutMs: parsed.EMAIL_SEND_TIMEOUT_MS,
+    };
+  } else {
+    const credentials =
+      parsed.SMTP_USER && parsed.SMTP_PASSWORD
+        ? { user: parsed.SMTP_USER, password: parsed.SMTP_PASSWORD }
+        : {};
+    email = {
+      provider: "smtp",
+      host: parsed.SMTP_HOST,
+      port: parsed.SMTP_PORT,
+      secure: parsed.SMTP_SECURE,
+      from: parsed.EMAIL_FROM,
+      timeoutMs: parsed.EMAIL_SEND_TIMEOUT_MS,
+      ...credentials,
+    };
+  }
 
   const staticDirectory = parsed.STATIC_DIR
     ? { staticDirectory: parsed.STATIC_DIR }
@@ -94,12 +151,6 @@ export function loadConfig(
     authSecret: parsed.BETTER_AUTH_SECRET,
     trustProxy: parsed.TRUST_PROXY,
     ...staticDirectory,
-    smtp: {
-      host: parsed.SMTP_HOST,
-      port: parsed.SMTP_PORT,
-      secure: parsed.SMTP_SECURE,
-      from: parsed.EMAIL_FROM,
-      ...credentials,
-    },
+    email,
   };
 }

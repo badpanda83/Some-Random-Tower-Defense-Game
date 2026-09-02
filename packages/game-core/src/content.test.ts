@@ -210,6 +210,58 @@ describe("content integrity", () => {
     ).toHaveLength(3);
   });
 
+  it("telegraphs each late-campaign counter before combat", () => {
+    for (const levelId of [
+      "department-of-unnecessary-bridges",
+      "siege-and-desist",
+      "lava-lamp-district",
+      "necromancers-networking-event",
+    ] as const) {
+      const level = levelDefinitions[levelId];
+      expect(level.threatSummary).toMatch(/physical-resistant/i);
+      expect(level.mechanicSummary).toMatch(
+        /simultaneous|shut down|eruption|no-build/i,
+      );
+      expect(
+        level.waves.some((wave) => /physical-resistant/i.test(wave.preview)),
+      ).toBe(true);
+    }
+  });
+
+  it("keeps late-campaign previews aligned with referral and route mechanics", () => {
+    const bridges = levelDefinitions["department-of-unnecessary-bridges"];
+    const bridgeManagement = bridges.waves[3]!;
+    expect(bridgeManagement.preview).toBe(
+      "Priority target: Middle Manager Mages enter both routes, but the physical-resistant auditors they hasten stay on the south route.",
+    );
+    expect(
+      new Set(
+        bridgeManagement.spawns
+          .filter((spawn) => spawn.enemyId === "frozen-auditor")
+          .map((spawn) => spawn.routeId ?? bridges.routes![0]!.id),
+      ),
+    ).toEqual(new Set(["south-route"]));
+
+    const networking = levelDefinitions["necromancers-networking-event"];
+    expect(networking.waves[2]!.preview).toBe(
+      "Marked: whichever non-boss falls first returns once at half health; watch its resistance and finish the referral.",
+    );
+    const claimsFollowUp = networking.waves[4]!;
+    expect(claimsFollowUp.preview).toBe(
+      "Marked: resistant auditors lead northwest while Slimes split on both routes; the first non-boss defeated also returns.",
+    );
+    expect(
+      new Set(
+        claimsFollowUp.spawns
+          .filter((spawn) => spawn.enemyId === "refund-slime")
+          .map((spawn) => spawn.routeId ?? networking.routes![0]!.id),
+      ),
+    ).toEqual(new Set(["northwest-invite", "southwest-plus-one"]));
+    expect(networking.waves[8]!.preview).toBe(
+      "Marked: the first non-boss defeated returns while priority Middle Managers support both routes.",
+    );
+  });
+
   it("declares exactly two authored routes per Act II mission, both reachable from spawns", () => {
     for (const level of [
       levelDefinitions["frozen-assets"],
@@ -356,7 +408,7 @@ describe("content integrity", () => {
 
   it("declares Act I enemy traits and boss phase data", () => {
     expect(enemyDefinitions["frozen-auditor"]?.traits).toEqual([
-      { kind: "damage-resistance", damageType: "physical", percent: 40 },
+      { kind: "damage-resistance", damageType: "physical", percent: 25 },
     ]);
     expect(enemyDefinitions["coupon-squire"]?.traits).toEqual([
       { kind: "first-hit-ward" },

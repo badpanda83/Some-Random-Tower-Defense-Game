@@ -3,7 +3,7 @@ import { equipmentDefinitions } from "@srtg/game-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildApp } from "./app.js";
-import type { AuthServices } from "./auth.js";
+import { AUTH_CLIENT_IP_HEADER, type AuthServices } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import type { GameRepository, StoredSave } from "./database/repository.js";
 
@@ -15,11 +15,13 @@ const config: AppConfig = {
   databaseUrl: "postgresql://unused",
   authSecret: "test-secret-that-is-definitely-long-enough",
   trustProxy: false,
-  smtp: {
+  email: {
+    provider: "smtp",
     host: "localhost",
     port: 1025,
     secure: false,
     from: "test@example.test",
+    timeoutMs: 10_000,
   },
 };
 
@@ -339,5 +341,65 @@ describe("API", () => {
     expect(String(response.headers["set-cookie"])).toContain(
       "dubious-session=test",
     );
+  });
+
+  it("does not trust spoofed forwarded or internal IP headers in direct mode", async () => {
+    let receivedIp: string | null = null;
+    await app.close();
+    app = await buildApp({
+      config,
+      auth: {
+        ...fakeAuth(),
+        async handle(request) {
+          receivedIp = request.headers.get(AUTH_CLIENT_IP_HEADER);
+          return Response.json({ ok: true });
+        },
+      },
+      repository: memoryRepository(),
+      logger: false,
+      staticDirectory: null,
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/anonymous",
+      headers: {
+        "x-forwarded-for": "198.51.100.20",
+        [AUTH_CLIENT_IP_HEADER]: "203.0.113.99",
+      },
+      payload: {},
+    });
+
+    expect(receivedIp).toBe("127.0.0.1");
+  });
+
+  it("passes Fastify's Railway client IP only when proxy trust is enabled", async () => {
+    let receivedIp: string | null = null;
+    await app.close();
+    app = await buildApp({
+      config: { ...config, trustProxy: true },
+      auth: {
+        ...fakeAuth(),
+        async handle(request) {
+          receivedIp = request.headers.get(AUTH_CLIENT_IP_HEADER);
+          return Response.json({ ok: true });
+        },
+      },
+      repository: memoryRepository(),
+      logger: false,
+      staticDirectory: null,
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/anonymous",
+      headers: {
+        "x-forwarded-for": "198.51.100.20",
+        [AUTH_CLIENT_IP_HEADER]: "203.0.113.99",
+      },
+      payload: {},
+    });
+
+    expect(receivedIp).toBe("198.51.100.20");
   });
 });

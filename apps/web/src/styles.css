@@ -719,6 +719,10 @@ h3,
   color: #d8d0df;
 }
 
+.mission-card .mission-threat {
+  color: var(--muted);
+}
+
 .mission-reward {
   padding: 0.65rem;
   border-left: 3px solid var(--gold);
