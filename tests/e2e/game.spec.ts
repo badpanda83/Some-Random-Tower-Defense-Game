@@ -724,9 +724,11 @@ test("keeps campaign portrait-friendly and explains battle orientation", async (
   );
 
   await page.setViewportSize({ width: 852, height: 393 });
+  await expect
+    .poll(async () => (await canvas.boundingBox())?.height ?? 0)
+    .toBeGreaterThanOrEqual(393 * 0.82);
   const wideCanvasBox = await canvas.boundingBox();
   expect(wideCanvasBox?.width).toBeGreaterThanOrEqual(852 * 0.95);
-  expect(wideCanvasBox?.height).toBeGreaterThanOrEqual(393 * 0.82);
   expect(
     (wideCanvasBox?.x ?? -1) + (wideCanvasBox?.width ?? 853),
   ).toBeLessThanOrEqual(852);
@@ -848,6 +850,25 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
 });
 
 async function seedSaveData(page: Page, data: unknown): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open("dubious-realm", 1);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const record = await new Promise<unknown>((resolve, reject) => {
+          const transaction = database.transaction("saves", "readonly");
+          const request = transaction.objectStore("saves").get("campaign");
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        database.close();
+        return Boolean(record);
+      }),
+    )
+    .toBe(true);
   await page.evaluate(async (payload) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("dubious-realm", 1);
