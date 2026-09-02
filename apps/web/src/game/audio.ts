@@ -1,4 +1,4 @@
-import type { GameEvent } from "@srtg/game-core";
+import { enemyDefinitions, type GameEvent } from "@srtg/game-core";
 
 export class GameAudio {
   private context: AudioContext | null = null;
@@ -46,6 +46,12 @@ export class GameAudio {
           this.tone(event.result === "victory" ? 740 : 110, 0.38, 0.08);
           break;
         case "enemy-spawned":
+          if (
+            enemyDefinitions[event.enemyId as keyof typeof enemyDefinitions]
+              ?.boss
+          ) {
+            this.tone(98, 0.42, 0.11);
+          }
           break;
       }
     }

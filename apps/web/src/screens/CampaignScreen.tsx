@@ -9,6 +9,7 @@ import type { Profile, SaveData, Settings } from "@srtg/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AccountPanel } from "../components/AccountPanel.js";
+import { victoriousLevelIds } from "../save.js";
 
 interface CampaignScreenProps {
   readonly save: SaveData;
@@ -46,16 +47,26 @@ export function CampaignScreen({
     [save.campaign.unlockedNodeIds],
   );
   const playableNodes = campaignNodes.filter((node) => node.levelId !== null);
-  const totalNodeCount = campaignNodes.length;
-  const completedCount = campaignNodes.filter(
-    (node) => (save.campaign.levels[node.levelId ?? ""]?.victories ?? 0) > 0,
+  const totalNodeCount = playableNodes.length;
+  const victoriousLevels = victoriousLevelIds(save);
+  const completedCount = campaignNodes.filter((node) =>
+    victoriousLevels.has(node.levelId ?? ""),
   ).length;
   const finalPlayableNode = [...playableNodes].sort(
     (left, right) => right.order - left.order,
   )[0];
-  const actTwoCleared =
-    (save.campaign.levels[finalPlayableNode?.levelId ?? ""]?.victories ?? 0) >
-    0;
+  const campaignCleared = victoriousLevels.has(
+    finalPlayableNode?.levelId ?? "",
+  );
+  const actProgress = ([1, 2, 3] as const).map((act) => {
+    const nodes = playableNodes.filter((node) => node.act === act);
+    return {
+      act,
+      completed: nodes.filter((node) => victoriousLevels.has(node.levelId!))
+        .length,
+      total: nodes.length,
+    };
+  });
   const initialLevelId =
     save.checkpoint?.levelId ??
     [...campaignNodes]
@@ -96,7 +107,7 @@ export function CampaignScreen({
   );
   const nextUnlockCopy = nextNode?.levelId
     ? nextNode.name
-    : "Act III coming next";
+    : "Campaign epilogue";
   const rewardCopy = [nextUnlockCopy, ...rewardNames].join(" + ");
 
   useEffect(() => {
@@ -213,17 +224,17 @@ export function CampaignScreen({
         <section className="campaign-heading">
           <div>
             <span className="eyebrow">
-              Act I &amp; II · {playableNodes.length} playable missions
+              Acts I–III · {playableNodes.length} playable missions
             </span>
             <h1>
-              Seven authored calamities. One aggressively affordable defense
+              Ten authored calamities. One aggressively affordable defense
               force.
             </h1>
           </div>
           <p>
-            Story victories open the next mission immediately. Mastery seals and
-            optional challenges add tactics, never grind. Act III is charted but
-            not yet built.
+            Story victories open the next mission immediately. Three acts form a
+            4/3/3 campaign; mastery seals and optional challenges add tactics,
+            never grind.
           </p>
         </section>
 
@@ -245,14 +256,11 @@ export function CampaignScreen({
                 ? save.campaign.levels[node.levelId]
                 : undefined;
               const selected = node.levelId === selectedLevel.id;
-              const isPreview = node.levelId === null;
               return (
                 <button
                   key={node.id}
-                  className={`campaign-node node-${index + 1} ${
-                    isPreview
-                      ? "is-preview"
-                      : `is-playable ${isUnlocked ? "is-unlocked" : "is-locked"}`
+                  className={`campaign-node node-${index + 1} is-playable ${
+                    isUnlocked ? "is-unlocked" : "is-locked"
                   } ${selected ? "is-selected" : ""}`}
                   style={{
                     left: `${node.position.x}%`,
@@ -260,56 +268,54 @@ export function CampaignScreen({
                   }}
                   onClick={() => level && selectMission(level.id)}
                   aria-pressed={selected}
-                  aria-disabled={isPreview || !isUnlocked}
+                  aria-disabled={!isUnlocked}
                   aria-label={`${node.name}. ${
-                    isPreview
-                      ? "Not yet available."
-                      : isUnlocked
-                        ? "Unlocked."
-                        : "Locked."
+                    isUnlocked ? "Unlocked." : "Locked."
                   } ${node.description}`}
                 >
                   <span className="node-medallion">
-                    {isPreview
-                      ? "…"
-                      : (nodeProgress?.victories ?? 0) > 0
-                        ? "✓"
-                        : index + 1}
+                    {(nodeProgress?.victories ?? 0) > 0 ? "✓" : index + 1}
                   </span>
                   <span className="node-label">
                     <strong>{node.name}</strong>
                     <small>
-                      {isPreview
-                        ? "Act III · coming later"
-                        : (nodeProgress?.victories ?? 0) > 0
-                          ? `${nodeProgress!.victories} ${
-                              nodeProgress!.victories === 1
-                                ? "victory"
-                                : "victories"
-                            }`
-                          : isUnlocked
-                            ? "Ready to defend"
-                            : `Win mission ${Math.max(1, index)}`}
+                      {(nodeProgress?.victories ?? 0) > 0
+                        ? `${nodeProgress!.victories} ${
+                            nodeProgress!.victories === 1
+                              ? "victory"
+                              : "victories"
+                          }`
+                        : isUnlocked
+                          ? `Act ${["I", "II", "III"][node.act - 1]} · ready`
+                          : `Win mission ${Math.max(1, index)}`}
                     </small>
                   </span>
                 </button>
               );
             })}
             <div className="act-boundary">
-              <span className="eyebrow">Beyond the keep</span>
-              <strong>
-                {actTwoCleared
-                  ? "Act III passage earned"
-                  : "Act III lies ahead"}
-              </strong>
-              <small>
-                Coming in a future campaign layer · no preview mission is
-                playable yet
-              </small>
+              <span className="eyebrow">Campaign ledger</span>
+              {actProgress.map(({ act, completed, total }) => (
+                <span className="act-progress" key={act}>
+                  <strong>Act {["I", "II", "III"][act - 1]}</strong>
+                  <small>
+                    {completed}/{total} complete
+                  </small>
+                </span>
+              ))}
             </div>
+            {campaignCleared && (
+              <div className="campaign-epilogue" role="status">
+                <span className="eyebrow">10/10 · realm defended</span>
+                <strong>The Quarterly Review is adjourned.</strong>
+                <small>
+                  Epilogue unlocked · Completion Crest · Executive Palette
+                </small>
+              </div>
+            )}
             <div className="map-caption">
               <span>
-                Seven authored battlefields. Zero procedurally renamed moats.
+                Ten playable battlefields. Zero preview-only assignments.
               </span>
             </div>
           </section>

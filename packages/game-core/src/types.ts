@@ -98,12 +98,28 @@ export interface BossEscortDefinition {
 }
 
 export interface BossPhaseDefinition {
+  /** Stable, UI-facing identifier for the stage entered at this threshold. */
+  readonly id?: string;
+  readonly name?: string;
+  readonly description?: string;
   readonly healthThresholdPercent: number;
   readonly speedMultiplierPercent: number;
+  /** Additional armor while this stage is active. */
+  readonly armorBonus?: number;
   readonly escort?: BossEscortDefinition;
+  /** Stable id emitted and counted when this one-shot reinforcement fires. */
+  readonly reinforcementCallId?: string;
   /** When true, entering this phase strips any active first-hit-ward
    * (e.g. an "unwarded final phase"). */
   readonly removesWard?: boolean;
+}
+
+export interface BossInitialStageDefinition {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly armorBonus?: number;
+  readonly escort?: BossEscortDefinition;
 }
 
 export interface EnemyDefinition {
@@ -116,8 +132,13 @@ export interface EnemyDefinition {
   readonly armor: number;
   readonly reward: number;
   readonly lifeDamage: number;
+  /** Optional encounter classification for durable threats that are not
+   * full campaign bosses and therefore do not receive the boss HUD. */
+  readonly encounterRole?: "elite" | "miniboss";
   readonly boss: boolean;
   readonly traits?: readonly EnemyTraitDefinition[];
+  /** Metadata and optional one-shot escort for a boss's spawn stage. */
+  readonly initialBossStage?: BossInitialStageDefinition;
   /** @deprecated single-phase bosses may still use this; prefer `bossPhases`
    * for multi-phase bosses. When both are set, `bossPhases` wins. */
   readonly bossPhase?: BossPhaseDefinition;
@@ -138,6 +159,10 @@ export interface WaveDefinition {
   readonly name: string;
   readonly preview: string;
   readonly spawns: readonly SpawnDefinition[];
+  /** The first defeated non-boss in this wave returns once at this health. */
+  readonly referral?: {
+    readonly reviveHealthPercent: number;
+  };
 }
 
 export interface PadShutdownDefinition {
@@ -180,6 +205,9 @@ export type MasteryRule =
   | { readonly kind: "victory-under-modifier"; readonly modifierId: string }
   | { readonly kind: "no-ability-used"; readonly abilityId: string }
   | { readonly kind: "max-split-spawns"; readonly maxSplits: number }
+  | { readonly kind: "no-leaks-during-environment-hazards" }
+  | { readonly kind: "no-exposed-pad-uses" }
+  | { readonly kind: "no-referred-enemy-reaches-halfway" }
   | {
       /** True when no instance of `enemyId` leaked and the last one was
        * defeated by half of the final victorious tick count. */
@@ -227,8 +255,36 @@ export interface AbilityRewardDefinition {
   readonly abilityId: string;
 }
 
+export interface ModifierUnlockRewardDefinition {
+  readonly kind: "modifier-unlock";
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly modifierId: string;
+}
+
+export interface CosmeticRewardDefinition {
+  readonly kind: "cosmetic";
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly cosmeticType: "crest" | "palette";
+}
+
+export interface CampaignRewardDefinition {
+  readonly kind: "campaign";
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly featureId: "epilogue";
+}
+
 export type RewardDefinition =
-  TowerRankRewardDefinition | AbilityRewardDefinition;
+  | TowerRankRewardDefinition
+  | AbilityRewardDefinition
+  | ModifierUnlockRewardDefinition
+  | CosmeticRewardDefinition
+  | CampaignRewardDefinition;
 
 export interface LevelPaletteDefinition {
   readonly primary: number;
@@ -248,6 +304,7 @@ export interface RouteDefinition {
 }
 
 export interface SpeedZoneDefinition {
+  readonly id?: string;
   readonly routeId: string;
   /** Percent (0-100) of that route's total length where the zone begins. */
   readonly fromPercent: number;
@@ -255,13 +312,28 @@ export interface SpeedZoneDefinition {
   readonly toPercent: number;
   /** Speed multiplier applied while inside the zone (100 = unchanged). */
   readonly speedPercent: number;
+  /** When set, this zone only applies while that hazard is active. */
+  readonly activationHazardId?: string;
+}
+
+export interface EnvironmentHazardDefinition {
+  readonly id: string;
+  readonly kind: "eruption";
+  readonly name: string;
+  readonly description: string;
+  readonly waveIndex: number;
+  readonly telegraphFromTick: number;
+  readonly activeFromTick: number;
+  readonly activeToTick: number;
+  readonly exposedPadIds: readonly string[];
+  readonly speedZoneIds: readonly string[];
 }
 
 export interface LevelDefinition {
   readonly id: string;
   readonly name: string;
   readonly subtitle: string;
-  readonly act: 1 | 2;
+  readonly act: 1 | 2 | 3;
   readonly order: number;
   /**
    * First-play duration estimate in minutes for web display. This models a
@@ -287,6 +359,8 @@ export interface LevelDefinition {
   /** Deterministic marked segments (e.g. thin ice) that change enemy speed
    * along a specific route. */
   readonly speedZones?: readonly SpeedZoneDefinition[];
+  /** Authored, deterministic per-wave environment timelines. */
+  readonly environmentHazards?: readonly EnvironmentHazardDefinition[];
   readonly pads: readonly TowerPadDefinition[];
   readonly waves: readonly WaveDefinition[];
   readonly mastery: readonly MasteryDefinition[];
@@ -343,6 +417,12 @@ export interface EnemyState {
   readonly bossPhaseIndex: number;
   /** Whether a "first-hit-ward" trait (e.g. Coupon Squire) has already been consumed. */
   readonly wardConsumed: boolean;
+  /** Referral revival state. Referred enemies can never revive recursively. */
+  readonly referred: boolean;
+  readonly spectral: boolean;
+  readonly referredReachedHalfway: boolean;
+  /** Stable UI stage id, including the initial boss stage when authored. */
+  readonly activeBossStageId: string | null;
 }
 
 export interface BattleMetrics {
@@ -366,6 +446,11 @@ export interface BattleMetrics {
    * its most recent defeat (overwritten on every subsequent defeat, so once
    * every spawned instance is gone it holds the tick of the last one). */
   readonly lastEnemyClearedTick: Readonly<Record<string, number>>;
+  readonly leaksDuringEnvironmentHazards: number;
+  readonly exposedPadUses: number;
+  readonly referredEnemiesReachedHalfway: number;
+  readonly referredWaveIndices: readonly number[];
+  readonly bossReinforcementCalls: Readonly<Record<string, number>>;
 }
 
 export type BattlePhase = "preparing" | "active" | "victory" | "defeat";
@@ -388,6 +473,9 @@ export interface GameState {
   readonly enemies: readonly EnemyState[];
   readonly metrics: BattleMetrics;
   readonly completedMasteryIds: readonly string[];
+  readonly telegraphedEnvironmentHazardIds: readonly string[];
+  readonly activeEnvironmentHazardIds: readonly string[];
+  readonly exposedPadIds: readonly string[];
 }
 
 export type GameEvent =
@@ -417,6 +505,32 @@ export type GameEvent =
     }
   | {
       readonly type: "boss-phase";
+      readonly instanceId: string;
+      readonly stageId?: string;
+      readonly stageName?: string;
+      readonly reinforcementCallId?: string;
+    }
+  | {
+      readonly type: "environment-hazard-telegraphed";
+      readonly hazardId: string;
+    }
+  | {
+      readonly type: "environment-hazard-started";
+      readonly hazardId: string;
+      readonly exposedPadIds: readonly string[];
+    }
+  | {
+      readonly type: "environment-hazard-ended";
+      readonly hazardId: string;
+    }
+  | {
+      readonly type: "enemy-referred";
+      readonly originalInstanceId: string;
+      readonly referredInstanceId: string;
+      readonly health: number;
+    }
+  | {
+      readonly type: "referred-enemy-reached-halfway";
       readonly instanceId: string;
     }
   | {

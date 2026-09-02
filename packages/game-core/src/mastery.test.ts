@@ -16,9 +16,39 @@ function metrics(overrides: Partial<BattleMetrics> = {}): BattleMetrics {
     splitSpawns: 0,
     abilityActivations: {},
     lastEnemyClearedTick: {},
+    leaksDuringEnvironmentHazards: 0,
+    exposedPadUses: 0,
+    referredEnemiesReachedHalfway: 0,
+    referredWaveIndices: [],
+    bossReinforcementCalls: {},
     ...overrides,
   };
 }
+
+describe("Act III mastery metrics", () => {
+  it("evaluates environment and referral rules from cumulative metrics", () => {
+    expect(
+      evaluateMasteryRule(
+        { kind: "no-leaks-during-environment-hazards" },
+        context(),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateMasteryRule(
+        { kind: "no-exposed-pad-uses" },
+        context({ metrics: metrics({ exposedPadUses: 1 }) }),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateMasteryRule(
+        { kind: "no-referred-enemy-reaches-halfway" },
+        context({
+          metrics: metrics({ referredEnemiesReachedHalfway: 1 }),
+        }),
+      ),
+    ).toBe(false);
+  });
+});
 
 function context(overrides: Partial<MasteryContext> = {}): MasteryContext {
   return {

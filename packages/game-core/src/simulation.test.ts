@@ -872,7 +872,7 @@ describe("game simulation", () => {
     expect(escortSpawns).toBe(2);
   });
 
-  it("pierces to a second target once Fork Knight rank IV is unlocked", () => {
+  it("keeps Fork Knight rank IV focused on one target", () => {
     const simulation = createSimulation({
       seed: 7,
       unlockedRewardIds: ["fork-table-service"],
@@ -916,7 +916,7 @@ describe("game simulation", () => {
       }
     }
 
-    expect(maxAffected).toBeGreaterThanOrEqual(2);
+    expect(maxAffected).toBe(1);
   });
 
   it("rejects rank IV Fork Knight placements when Table Service is not unlocked", () => {

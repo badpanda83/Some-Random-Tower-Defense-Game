@@ -49,6 +49,11 @@ interface MutableMetrics {
   splitSpawns: number;
   abilityActivations: Record<string, number>;
   lastEnemyClearedTick: Record<string, number>;
+  leaksDuringEnvironmentHazards: number;
+  exposedPadUses: number;
+  referredEnemiesReachedHalfway: number;
+  referredWaveIndices: number[];
+  bossReinforcementCalls: Record<string, number>;
 }
 
 interface MutableState {
@@ -69,6 +74,9 @@ interface MutableState {
   enemies: EnemyState[];
   metrics: MutableMetrics;
   completedMasteryIds: string[];
+  telegraphedEnvironmentHazardIds: string[];
+  activeEnvironmentHazardIds: string[];
+  exposedPadIds: string[];
 }
 
 function assertNever(value: never): never {
@@ -118,8 +126,13 @@ function deepState(state: MutableState): GameState {
       leakedByWaveIndex: { ...state.metrics.leakedByWaveIndex },
       abilityActivations: { ...state.metrics.abilityActivations },
       lastEnemyClearedTick: { ...state.metrics.lastEnemyClearedTick },
+      referredWaveIndices: [...state.metrics.referredWaveIndices],
+      bossReinforcementCalls: { ...state.metrics.bossReinforcementCalls },
     },
     completedMasteryIds: [...state.completedMasteryIds],
+    telegraphedEnvironmentHazardIds: [...state.telegraphedEnvironmentHazardIds],
+    activeEnvironmentHazardIds: [...state.activeEnvironmentHazardIds],
+    exposedPadIds: [...state.exposedPadIds],
   };
 }
 
@@ -262,6 +275,17 @@ class GameSimulation implements Simulation {
             lastEnemyClearedTick: {
               ...(checkpoint.metrics.lastEnemyClearedTick ?? {}),
             },
+            leaksDuringEnvironmentHazards:
+              checkpoint.metrics.leaksDuringEnvironmentHazards ?? 0,
+            exposedPadUses: checkpoint.metrics.exposedPadUses ?? 0,
+            referredEnemiesReachedHalfway:
+              checkpoint.metrics.referredEnemiesReachedHalfway ?? 0,
+            referredWaveIndices: [
+              ...(checkpoint.metrics.referredWaveIndices ?? []),
+            ],
+            bossReinforcementCalls: {
+              ...(checkpoint.metrics.bossReinforcementCalls ?? {}),
+            },
           }
         : {
             spentGold: 0,
@@ -275,8 +299,16 @@ class GameSimulation implements Simulation {
             splitSpawns: 0,
             abilityActivations: {},
             lastEnemyClearedTick: {},
+            leaksDuringEnvironmentHazards: 0,
+            exposedPadUses: 0,
+            referredEnemiesReachedHalfway: 0,
+            referredWaveIndices: [],
+            bossReinforcementCalls: {},
           },
       completedMasteryIds: [],
+      telegraphedEnvironmentHazardIds: [],
+      activeEnvironmentHazardIds: [],
+      exposedPadIds: [],
     };
 
     this.towerCounter = this.mutableState.towers.reduce((maximum, tower) => {
@@ -340,6 +372,19 @@ class GameSimulation implements Simulation {
     return pointAlongPath(preparedPath, enemy.pathDistanceMilli);
   }
 
+  private compareEnemyProgress(left: EnemyState, right: EnemyState): number {
+    const leftPath =
+      this.routePaths.get(left.routeId) ??
+      this.routePaths.get(this.defaultRouteId)!;
+    const rightPath =
+      this.routePaths.get(right.routeId) ??
+      this.routePaths.get(this.defaultRouteId)!;
+    const leftRemaining = leftPath.totalDistanceMilli - left.pathDistanceMilli;
+    const rightRemaining =
+      rightPath.totalDistanceMilli - right.pathDistanceMilli;
+    return leftRemaining - rightRemaining || left.id.localeCompare(right.id);
+  }
+
   public getTowerMaxLevel(towerId: string): number {
     if (!Object.hasOwn(towerDefinitions, towerId)) {
       throw new Error(`Unknown tower: ${towerId}`);
@@ -387,6 +432,15 @@ class GameSimulation implements Simulation {
         splitSpawns: state.metrics.splitSpawns,
         abilityActivations: { ...state.metrics.abilityActivations },
         lastEnemyClearedTick: { ...state.metrics.lastEnemyClearedTick },
+        leaksDuringEnvironmentHazards:
+          state.metrics.leaksDuringEnvironmentHazards,
+        exposedPadUses: state.metrics.exposedPadUses,
+        referredEnemiesReachedHalfway:
+          state.metrics.referredEnemiesReachedHalfway,
+        referredWaveIndices: [...state.metrics.referredWaveIndices],
+        bossReinforcementCalls: {
+          ...state.metrics.bossReinforcementCalls,
+        },
       },
     };
   }
@@ -411,6 +465,9 @@ class GameSimulation implements Simulation {
         enemies: state.enemies,
         metrics: state.metrics,
         completedMasteryIds: state.completedMasteryIds,
+        telegraphedEnvironmentHazardIds: state.telegraphedEnvironmentHazardIds,
+        activeEnvironmentHazardIds: state.activeEnvironmentHazardIds,
+        exposedPadIds: state.exposedPadIds,
       }),
     );
   }
@@ -516,6 +573,9 @@ class GameSimulation implements Simulation {
     this.mutableState.waveStartedAtTick = this.mutableState.tick;
     this.mutableState.nextSpawnIndex = 0;
     this.mutableState.teaBreakUsedThisWave = false;
+    this.mutableState.telegraphedEnvironmentHazardIds = [];
+    this.mutableState.activeEnvironmentHazardIds = [];
+    this.mutableState.exposedPadIds = [];
   }
 
   private activateAbility(abilityId: AbilityId, events: GameEvent[]): void {
@@ -544,10 +604,8 @@ class GameSimulation implements Simulation {
     if (state.abilityChargeTicks < ROYAL_FORKFALL_CHARGE_TICKS) {
       throw new Error("Royal Forkfall is still charging");
     }
-    const target = [...state.enemies].sort(
-      (left, right) =>
-        right.pathDistanceMilli - left.pathDistanceMilli ||
-        left.id.localeCompare(right.id),
+    const target = [...state.enemies].sort((left, right) =>
+      this.compareEnemyProgress(left, right),
     )[0];
     if (!target) {
       throw new Error("Royal Forkfall needs an enemy target");
@@ -630,6 +688,9 @@ class GameSimulation implements Simulation {
 
   private isPadShutDown(pad: TowerPadDefinition): boolean {
     const state = this.mutableState;
+    if (state.exposedPadIds.includes(pad.id)) {
+      return true;
+    }
     if (!pad.shutdowns || pad.shutdowns.length === 0) {
       return false;
     }
@@ -701,6 +762,7 @@ class GameSimulation implements Simulation {
       ROYAL_FORKFALL_CHARGE_TICKS,
       state.abilityChargeTicks + 1,
     );
+    this.updateEnvironmentHazards(events);
     this.spawnEnemies(events);
     this.attackWithTowers(events);
     this.moveEnemies(events);
@@ -726,6 +788,9 @@ class GameSimulation implements Simulation {
       state.waveStartedAtTick = null;
       state.nextSpawnIndex = 0;
       state.teaBreakUsedThisWave = false;
+      state.telegraphedEnvironmentHazardIds = [];
+      state.activeEnvironmentHazardIds = [];
+      state.exposedPadIds = [];
       state.towers = state.towers.map((tower) => ({
         ...tower,
         nextAttackTick: state.tick,
@@ -749,6 +814,79 @@ class GameSimulation implements Simulation {
         state.gold += 25 + state.waveIndex * 5;
       }
     }
+  }
+
+  private updateEnvironmentHazards(events: GameEvent[]): void {
+    const state = this.mutableState;
+    if (state.waveStartedAtTick === null) {
+      return;
+    }
+    const elapsed = state.tick - state.waveStartedAtTick;
+    const extraTicks = state.modifierIds.reduce(
+      (total, id) =>
+        total +
+        modifierDefinitions[id as keyof typeof modifierDefinitions]
+          .padShutdownExtraTicks,
+      0,
+    );
+    const hazards = (this.level.environmentHazards ?? []).filter(
+      (hazard) => hazard.waveIndex === state.waveIndex,
+    );
+    const telegraphed = hazards
+      .filter(
+        (hazard) =>
+          elapsed >= hazard.telegraphFromTick &&
+          elapsed < hazard.activeFromTick,
+      )
+      .map((hazard) => hazard.id)
+      .sort();
+    const active = hazards
+      .filter(
+        (hazard) =>
+          elapsed >= hazard.activeFromTick &&
+          elapsed < hazard.activeToTick + extraTicks,
+      )
+      .map((hazard) => hazard.id)
+      .sort();
+
+    for (const hazardId of telegraphed) {
+      if (!state.telegraphedEnvironmentHazardIds.includes(hazardId)) {
+        events.push({
+          type: "environment-hazard-telegraphed",
+          hazardId,
+        });
+      }
+    }
+    for (const hazardId of active) {
+      if (state.activeEnvironmentHazardIds.includes(hazardId)) {
+        continue;
+      }
+      const hazard = hazards.find((candidate) => candidate.id === hazardId)!;
+      const occupiedExposedPads = hazard.exposedPadIds.filter((padId) =>
+        state.towers.some((tower) => tower.padId === padId),
+      );
+      state.metrics.exposedPadUses += occupiedExposedPads.length;
+      events.push({
+        type: "environment-hazard-started",
+        hazardId,
+        exposedPadIds: [...hazard.exposedPadIds],
+      });
+    }
+    for (const hazardId of state.activeEnvironmentHazardIds) {
+      if (!active.includes(hazardId)) {
+        events.push({ type: "environment-hazard-ended", hazardId });
+      }
+    }
+
+    state.telegraphedEnvironmentHazardIds = telegraphed;
+    state.activeEnvironmentHazardIds = active;
+    state.exposedPadIds = Array.from(
+      new Set(
+        hazards
+          .filter((hazard) => active.includes(hazard.id))
+          .flatMap((hazard) => hazard.exposedPadIds),
+      ),
+    ).sort();
   }
 
   private spawnEnemies(events: GameEvent[]): void {
@@ -792,13 +930,11 @@ class GameSimulation implements Simulation {
     routeId: string,
     events: GameEvent[],
     startDistanceMilli = 0,
+    referred = false,
+    startingHealthPercent = 100,
   ): void {
     const state = this.mutableState;
-    const definition =
-      enemyDefinitions[enemyId as keyof typeof enemyDefinitions];
-    if (!definition) {
-      throw new Error(`Unknown enemy: ${enemyId}`);
-    }
+    const definition = enemyDefinition(enemyId);
 
     const healthPercent = state.modifierIds.reduce(
       (percent, modifierId) =>
@@ -811,12 +947,24 @@ class GameSimulation implements Simulation {
       100,
     );
     const maxHealth = Math.ceil((definition.maxHealth * healthPercent) / 100);
+    const health = Math.ceil((maxHealth * startingHealthPercent) / 100);
     this.enemyCounter += 1;
     const instanceId = `enemy-${this.enemyCounter}`;
+    const preparedPath =
+      this.routePaths.get(routeId) ?? this.routePaths.get(this.defaultRouteId)!;
+    const referredReachedHalfway =
+      referred && startDistanceMilli * 2 >= preparedPath.totalDistanceMilli;
+    if (referredReachedHalfway) {
+      state.metrics.referredEnemiesReachedHalfway += 1;
+      events.push({
+        type: "referred-enemy-reached-halfway",
+        instanceId,
+      });
+    }
     state.enemies.push({
       id: instanceId,
       enemyId,
-      health: maxHealth,
+      health,
       maxHealth,
       pathDistanceMilli: startDistanceMilli,
       slowUntilTick: 0,
@@ -825,12 +973,19 @@ class GameSimulation implements Simulation {
       bossPhase: false,
       bossPhaseIndex: 0,
       wardConsumed: false,
+      referred,
+      spectral: referred,
+      referredReachedHalfway,
+      activeBossStageId: definition.initialBossStage?.id ?? null,
     });
     events.push({
       type: "enemy-spawned",
       enemyId,
       instanceId,
     });
+    if (definition.initialBossStage?.escort) {
+      this.spawnEscort(definition.initialBossStage.escort, routeId, events);
+    }
   }
 
   private spawnEscort(
@@ -875,11 +1030,7 @@ class GameSimulation implements Simulation {
             squaredDistance(pad.position, this.getEnemyPosition(enemy)) <=
             range * range,
         )
-        .sort(
-          (left, right) =>
-            right.pathDistanceMilli - left.pathDistanceMilli ||
-            left.id.localeCompare(right.id),
-        );
+        .sort((left, right) => this.compareEnemyProgress(left, right));
 
       const primaryTargets = targets.slice(0, 1 + (level.pierceCount ?? 0));
       const target = primaryTargets[0];
@@ -1014,22 +1165,24 @@ class GameSimulation implements Simulation {
       Math.floor((rawDamage * resistancePercent) / 100),
     );
 
+    const phases = this.bossPhasesFor(definition);
+    const activePhase =
+      enemy.bossPhaseIndex > 0 ? phases[enemy.bossPhaseIndex - 1] : undefined;
+    const armor =
+      definition.armor +
+      (activePhase?.armorBonus ?? definition.initialBossStage?.armorBonus ?? 0);
     const ignoredArmor = ignoresArmor
-      ? definition.armor
+      ? armor
       : damageType === "arcane"
-        ? Math.ceil(definition.armor / 2)
+        ? Math.ceil(armor / 2)
         : damageType === "sonic"
-          ? definition.armor
+          ? armor
           : 0;
-    const damage = Math.max(
-      1,
-      modifiedRawDamage - definition.armor + ignoredArmor,
-    );
+    const damage = Math.max(1, modifiedRawDamage - armor + ignoredArmor);
     let health = Math.max(0, enemy.health - damage);
     let bossPhaseIndex = enemy.bossPhaseIndex;
     let wardConsumed = enemy.wardConsumed;
 
-    const phases = this.bossPhasesFor(definition);
     while (bossPhaseIndex < phases.length) {
       const phase = phases[bossPhaseIndex]!;
       const threshold = Math.floor(
@@ -1040,12 +1193,25 @@ class GameSimulation implements Simulation {
       }
       health = threshold;
       bossPhaseIndex += 1;
-      events.push({ type: "boss-phase", instanceId });
+      events.push({
+        type: "boss-phase",
+        instanceId,
+        ...(phase.id ? { stageId: phase.id } : {}),
+        ...(phase.name ? { stageName: phase.name } : {}),
+        ...(phase.reinforcementCallId
+          ? { reinforcementCallId: phase.reinforcementCallId }
+          : {}),
+      });
       if (phase.escort) {
         this.spawnEscort(phase.escort, enemy.routeId, events);
       }
       if (phase.removesWard) {
         wardConsumed = true;
+      }
+      if (phase.reinforcementCallId) {
+        state.metrics.bossReinforcementCalls[phase.reinforcementCallId] =
+          (state.metrics.bossReinforcementCalls[phase.reinforcementCallId] ??
+            0) + 1;
       }
     }
     const bossPhase = bossPhaseIndex > 0;
@@ -1072,6 +1238,32 @@ class GameSimulation implements Simulation {
         reward: definition.reward,
       });
 
+      const referral = this.level.waves[state.waveIndex]?.referral;
+      if (
+        referral &&
+        !definition.boss &&
+        !enemy.referred &&
+        !state.metrics.referredWaveIndices.includes(state.waveIndex)
+      ) {
+        state.metrics.referredWaveIndices.push(state.waveIndex);
+        state.metrics.referredWaveIndices.sort((left, right) => left - right);
+        this.spawnEnemyInstance(
+          enemy.enemyId,
+          enemy.routeId,
+          events,
+          enemy.pathDistanceMilli,
+          true,
+          referral.reviveHealthPercent,
+        );
+        const referredEnemy = state.enemies.at(-1)!;
+        events.push({
+          type: "enemy-referred",
+          originalInstanceId: instanceId,
+          referredInstanceId: referredEnemy.id,
+          health: referredEnemy.health,
+        });
+      }
+
       const splitTrait = definition.traits?.find(
         (trait) => trait.kind === "split-on-defeat",
       );
@@ -1095,6 +1287,10 @@ class GameSimulation implements Simulation {
       bossPhase,
       bossPhaseIndex,
       wardConsumed,
+      activeBossStageId:
+        bossPhaseIndex > 0
+          ? (phases[bossPhaseIndex - 1]?.id ?? enemy.activeBossStageId)
+          : enemy.activeBossStageId,
     };
   }
 
@@ -1185,6 +1381,14 @@ class GameSimulation implements Simulation {
         continue;
       }
       if (
+        zone.activationHazardId &&
+        !this.mutableState.activeEnvironmentHazardIds.includes(
+          zone.activationHazardId,
+        )
+      ) {
+        continue;
+      }
+      if (
         progressPercent >= zone.fromPercent &&
         progressPercent <= zone.toPercent
       ) {
@@ -1236,13 +1440,32 @@ class GameSimulation implements Simulation {
           (state.metrics.leakedByEnemyId[enemy.enemyId] ?? 0) + 1;
         state.metrics.leakedByWaveIndex[String(state.waveIndex)] =
           (state.metrics.leakedByWaveIndex[String(state.waveIndex)] ?? 0) + 1;
+        if (state.activeEnvironmentHazardIds.length > 0) {
+          state.metrics.leaksDuringEnvironmentHazards += 1;
+        }
         events.push({
           type: "enemy-leaked",
           instanceId: enemy.id,
           damage: definition.lifeDamage,
         });
       } else {
-        survivors.push({ ...enemy, pathDistanceMilli: distance });
+        const reachedHalfway =
+          enemy.referred &&
+          !enemy.referredReachedHalfway &&
+          distance * 2 >= preparedPath.totalDistanceMilli;
+        if (reachedHalfway) {
+          state.metrics.referredEnemiesReachedHalfway += 1;
+          events.push({
+            type: "referred-enemy-reached-halfway",
+            instanceId: enemy.id,
+          });
+        }
+        survivors.push({
+          ...enemy,
+          pathDistanceMilli: distance,
+          referredReachedHalfway:
+            enemy.referredReachedHalfway || Boolean(reachedHalfway),
+        });
       }
     }
 

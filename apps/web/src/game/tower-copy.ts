@@ -45,7 +45,7 @@ export function towerUpgradeDescription(
     );
   }
   if (tower.id === "fork-knight" && currentRank + 1 === 4) {
-    changes.push("pierces a second target");
+    changes.push("stays focused on one target");
   }
   if (tower.id === "discount-wizard" && currentRank + 1 === 4) {
     const nextSplash = next.splashRadiusOverride;

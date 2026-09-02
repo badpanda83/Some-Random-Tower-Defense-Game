@@ -1,7 +1,8 @@
 import { z } from "zod";
 
-export const CONTENT_VERSION = 2 as const;
+export const CONTENT_VERSION = 3 as const;
 export const LEGACY_CONTENT_VERSION = 1 as const;
+export const PREVIOUS_CONTENT_VERSION = 2 as const;
 export const DEFAULT_SAVE_SLOT = "campaign" as const;
 
 const idSchema = z
@@ -66,11 +67,19 @@ export const battleCheckpointSchema = z.object({
     lastEnemyClearedTick: z
       .record(idSchema, z.number().int().min(0).max(100_000_000))
       .optional(),
+    leaksDuringEnvironmentHazards: z.number().int().min(0).max(9999).optional(),
+    exposedPadUses: z.number().int().min(0).max(9999).optional(),
+    referredEnemiesReachedHalfway: z.number().int().min(0).max(9999).optional(),
+    referredWaveIndices: z.array(z.number().int().min(0).max(100)).optional(),
+    bossReinforcementCalls: z
+      .record(idSchema, z.number().int().min(0).max(9999))
+      .optional(),
   }),
 });
 
 const supportedContentVersionSchema = z.union([
   z.literal(LEGACY_CONTENT_VERSION),
+  z.literal(PREVIOUS_CONTENT_VERSION),
   z.literal(CONTENT_VERSION),
 ]);
 
@@ -108,12 +117,15 @@ export const saveDataSchema = z.object({
 
 /**
  * Mirrors `saveDataSchema` but pinned to the legacy content version. The
- * campaign/settings/checkpoint shapes are unchanged between v1 and v2 (all
- * v2 additions are optional/backward compatible), so this schema exists
+ * campaign/settings/checkpoint shapes remain backward compatible, so these
+ * schemas exist
  * purely to accept legacy envelopes prior to migration.
  */
 export const saveDataSchemaV1 = saveDataSchema.extend({
   contentVersion: z.literal(LEGACY_CONTENT_VERSION),
+});
+export const saveDataSchemaV2 = saveDataSchema.extend({
+  contentVersion: z.literal(PREVIOUS_CONTENT_VERSION),
 });
 
 export const cloudSaveSchema = z.object({
