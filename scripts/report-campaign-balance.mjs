@@ -1,4 +1,5 @@
 import {
+  campaignNodes,
   levelDefinitions,
   referencePlanningModel,
   referenceStrategies,
@@ -15,6 +16,12 @@ for (const levelId of Object.keys(levelDefinitions)) {
   }
 }
 
+const actByLevelId = Object.fromEntries(
+  campaignNodes
+    .filter((node) => node.levelId)
+    .map((node) => [node.levelId, node.act]),
+);
+
 console.log(
   JSON.stringify(
     {
@@ -27,7 +34,18 @@ console.log(
         towerContribution:
           "Attack actions, affected-target hits, damage, and kills observed in deterministic game events.",
       },
-      reports,
+      campaign: {
+        totalNodes: campaignNodes.length,
+        playableMissions: campaignNodes.filter((node) => node.levelId).length,
+      },
+      masteryEvidence: runReferenceStrategy(
+        "siege-and-desist",
+        referenceStrategies["claims-control"],
+      ),
+      reports: reports.map((report) => ({
+        act: actByLevelId[report.levelId] ?? null,
+        ...report,
+      })),
     },
     null,
     2,

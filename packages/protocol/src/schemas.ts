@@ -45,6 +45,9 @@ export const battleCheckpointSchema = z.object({
     leakedByEnemyId: z
       .record(idSchema, z.number().int().min(0).max(9999))
       .optional(),
+    leakedByWaveIndex: z
+      .record(idSchema, z.number().int().min(0).max(9999))
+      .optional(),
     soldTowers: z.number().int().min(0).max(9999),
     usedTowerIds: z.array(idSchema).max(40),
     maxTowersPlaced: z.number().int().min(0).max(999).optional(),
@@ -54,6 +57,13 @@ export const battleCheckpointSchema = z.object({
       .min(0)
       .max(100)
       .nullable()
+      .optional(),
+    splitSpawns: z.number().int().min(0).max(999_999).optional(),
+    abilityActivations: z
+      .record(idSchema, z.number().int().min(0).max(9999))
+      .optional(),
+    lastEnemyClearedTick: z
+      .record(idSchema, z.number().int().min(0).max(100_000_000))
       .optional(),
   }),
 });

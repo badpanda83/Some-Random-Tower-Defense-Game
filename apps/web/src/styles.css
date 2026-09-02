@@ -614,6 +614,15 @@ h3,
   color: #9c95a6;
 }
 
+.campaign-node.is-preview {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.campaign-node.is-preview .node-medallion {
+  border-style: dashed;
+}
+
 .map-caption {
   position: absolute;
   right: 1rem;
@@ -902,6 +911,10 @@ h3,
   gap: 0.55rem;
   background: rgba(12, 9, 20, 0.78);
   backdrop-filter: blur(10px);
+}
+
+.game-hud.has-wave-action {
+  grid-template-columns: minmax(110px, 1fr) auto auto auto;
 }
 
 .hud-title {
@@ -1485,25 +1498,59 @@ h3,
 }
 
 .wave-launch-button {
-  position: absolute;
-  right: max(0.3rem, env(safe-area-inset-right));
-  bottom: max(0.3rem, env(safe-area-inset-bottom));
-  z-index: 4;
-  display: grid;
-  width: 52px;
-  min-width: 52px;
-  height: 48px;
-  min-height: 48px;
-  padding: 0.2rem;
-  place-content: center;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
-  font-size: 0.62rem;
-  line-height: 1;
+  display: flex;
+  width: clamp(176px, 19vw, 224px);
+  min-height: 54px;
+  padding: 0.5rem 0.8rem;
+  border: 2px solid #fff0a8;
+  border-radius: 16px;
+  align-items: flex-start;
+  flex-direction: column;
+  justify-content: center;
+  color: #201526;
+  background-color: #f6cc63;
+  background-image: linear-gradient(135deg, #fff09a, #e9ae39);
+  box-shadow:
+    0 0 0 3px rgba(255, 227, 126, 0.2),
+    0 9px 26px rgba(0, 0, 0, 0.5);
+  font-size: 1rem;
+  line-height: 1.05;
+  text-align: left;
+}
+
+.wave-launch-button.is-pulsing {
+  animation: wave-ready-pulse 1.8s ease-in-out infinite;
+}
+
+.wave-launch-button span {
+  font-weight: 950;
+  letter-spacing: 0.01em;
 }
 
 .wave-launch-button small {
-  margin-top: 0.15rem;
-  font-size: 0.52rem;
+  max-width: 100%;
+  margin-top: 0.28rem;
+  overflow: hidden;
+  color: #493118;
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes wave-ready-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(255, 227, 126, 0.18),
+      0 9px 26px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px rgba(255, 227, 126, 0.08),
+      0 11px 31px rgba(0, 0, 0, 0.58);
+  }
 }
 
 .result-backdrop,
@@ -1852,6 +1899,20 @@ h3,
 }
 
 @media (max-width: 960px) and (orientation: landscape) {
+  .game-hud.has-wave-action {
+    grid-template-columns: auto minmax(168px, 1fr) auto;
+  }
+
+  .game-hud.has-wave-action .hud-title,
+  .game-hud.has-wave-action .resource:last-child {
+    display: none;
+  }
+
+  .game-hud.has-wave-action .wave-launch-button {
+    width: min(190px, 100%);
+    justify-self: center;
+  }
+
   .battlefield-canvas {
     width: 100%;
     max-width: none;
@@ -1926,6 +1987,17 @@ h3,
 }
 
 @media (max-width: 600px) and (orientation: landscape) {
+  .wave-launch-button {
+    width: 168px;
+    min-height: 54px;
+    padding: 0.42rem 0.62rem;
+    font-size: 0.92rem;
+  }
+
+  .wave-launch-button small {
+    font-size: 0.62rem;
+  }
+
   .toast {
     top: 0.3rem;
     right: 0.3rem;
@@ -1939,6 +2011,10 @@ h3,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .wave-launch-button.is-pulsing {
+    animation: none;
+  }
+
   *,
   *::before,
   *::after {

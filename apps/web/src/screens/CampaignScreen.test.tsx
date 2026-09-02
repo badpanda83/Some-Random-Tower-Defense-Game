@@ -26,18 +26,56 @@ function renderCampaign(
   return onStart;
 }
 
-describe("Act I campaign", () => {
-  it("shows exactly four real mission nodes and an honest Act II boundary", () => {
+describe("campaign screen", () => {
+  it("shows exactly seven playable mission nodes and an honest Act III boundary", () => {
     renderCampaign();
 
     expect(
       screen.getAllByRole("button", {
-        name: /The Muddy Moat|Mimic Market|Troll Tollway|Castle Hassle/,
+        name: /The Muddy Moat|Mimic Market|Troll Tollway|Castle Hassle|Frozen Assets|Department of Unnecessary Bridges|Siege and Desist/,
       }),
-    ).toHaveLength(4);
-    expect(screen.getByText("0/4")).toBeInTheDocument();
-    expect(screen.getByText(/Coming in the next campaign layer/)).toBeVisible();
+    ).toHaveLength(7);
+    expect(screen.getByText("0/10")).toBeInTheDocument();
+    expect(screen.getByText(/Act III lies ahead/)).toBeVisible();
+    expect(
+      screen.getByText(/no preview mission is playable yet/),
+    ).toBeVisible();
     expect(screen.queryByText(/preview coming later/i)).not.toBeInTheDocument();
+  });
+
+  it("marks Act III chapters as unplayable previews rather than locked missions", () => {
+    renderCampaign();
+
+    const previewButtons = screen.getAllByRole("button", {
+      name: /Act III.*Not yet available/,
+    });
+    expect(previewButtons).toHaveLength(3);
+    for (const button of previewButtons) {
+      expect(button).toHaveAttribute("aria-disabled", "true");
+    }
+  });
+
+  it("describes the Act II finale reward without promising a playable Act III mission", () => {
+    const fresh = createFreshSave();
+    renderCampaign({
+      ...fresh,
+      campaign: {
+        ...fresh.campaign,
+        unlockedNodeIds: [
+          ...fresh.campaign.unlockedNodeIds,
+          "siege-and-desist",
+        ],
+      },
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Siege and Desist.*Unlocked/i }),
+    );
+
+    expect(screen.getByText("Act III coming next + Power Chord")).toBeVisible();
+    expect(
+      screen.queryByText(/Act III · Chapter I \+/),
+    ).not.toBeInTheDocument();
   });
 
   it("explains a locked mission without allowing it to start", () => {
@@ -105,7 +143,7 @@ describe("Act I campaign", () => {
     expect(onStart).toHaveBeenCalledWith("mimic-market", [], true);
   });
 
-  it("starts each unlocked Act I mission with its authored level id", () => {
+  it("starts each unlocked mission across Act I and Act II with its authored level id", () => {
     const fresh = createFreshSave();
     const allUnlocked = {
       ...fresh,
@@ -116,6 +154,9 @@ describe("Act I campaign", () => {
           "mimic-market",
           "troll-tollway",
           "castle-hassle",
+          "frozen-assets",
+          "department-of-unnecessary-bridges",
+          "siege-and-desist",
         ],
       },
     };
@@ -125,6 +166,12 @@ describe("Act I campaign", () => {
       ["Mimic Market", "mimic-market"],
       ["Troll Tollway", "troll-tollway"],
       ["Castle Hassle", "castle-hassle"],
+      ["Frozen Assets", "frozen-assets"],
+      [
+        "Department of Unnecessary Bridges",
+        "department-of-unnecessary-bridges",
+      ],
+      ["Siege and Desist", "siege-and-desist"],
     ] as const) {
       const onStart = renderCampaign(allUnlocked);
       fireEvent.click(

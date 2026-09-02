@@ -5,6 +5,9 @@ export interface MasteryContext {
   readonly modifierIds: readonly string[];
   readonly finalGold: number;
   readonly totalTowerTypeCount: number;
+  /** The tick count at the moment the battle was won (i.e. the current
+   * `GameState.tick`), used by rules that reason about elapsed proportion. */
+  readonly finalTick: number;
 }
 
 function assertNeverRule(rule: never): never {
@@ -25,6 +28,10 @@ export function evaluateMasteryRule(
       return context.metrics.leakedEnemies === 0;
     case "no-leaks-of":
       return (context.metrics.leakedByEnemyId[rule.enemyId] ?? 0) === 0;
+    case "no-leaks-in-wave":
+      return (
+        (context.metrics.leakedByWaveIndex[String(rule.waveIndex)] ?? 0) === 0
+      );
     case "max-spent-gold":
       return context.metrics.spentGold <= rule.maxGold;
     case "max-towers-placed":
@@ -39,6 +46,18 @@ export function evaluateMasteryRule(
       return context.finalGold >= rule.minGold;
     case "victory-under-modifier":
       return context.modifierIds.includes(rule.modifierId);
+    case "no-ability-used":
+      return (context.metrics.abilityActivations[rule.abilityId] ?? 0) === 0;
+    case "max-split-spawns":
+      return context.metrics.splitSpawns <= rule.maxSplits;
+    case "enemy-cleared-before-half-battle": {
+      const clearedAtTick = context.metrics.lastEnemyClearedTick[rule.enemyId];
+      return (
+        (context.metrics.leakedByEnemyId[rule.enemyId] ?? 0) === 0 &&
+        clearedAtTick !== undefined &&
+        clearedAtTick <= context.finalTick / 2
+      );
+    }
     case "boss-defeated-before-path-percent":
       return (
         context.metrics.bossDefeatPathPercent !== null &&

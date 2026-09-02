@@ -45,9 +45,17 @@ export function CampaignScreen({
     () => new Set(save.campaign.unlockedNodeIds),
     [save.campaign.unlockedNodeIds],
   );
+  const playableNodes = campaignNodes.filter((node) => node.levelId !== null);
+  const totalNodeCount = campaignNodes.length;
   const completedCount = campaignNodes.filter(
     (node) => (save.campaign.levels[node.levelId ?? ""]?.victories ?? 0) > 0,
   ).length;
+  const finalPlayableNode = [...playableNodes].sort(
+    (left, right) => right.order - left.order,
+  )[0];
+  const actTwoCleared =
+    (save.campaign.levels[finalPlayableNode?.levelId ?? ""]?.victories ?? 0) >
+    0;
   const initialLevelId =
     save.checkpoint?.levelId ??
     [...campaignNodes]
@@ -86,9 +94,10 @@ export function CampaignScreen({
       rewardDefinitions[rewardId as keyof typeof rewardDefinitions]?.name ??
       rewardId,
   );
-  const rewardCopy = [nextNode?.name ?? "Act II passage", ...rewardNames].join(
-    " + ",
-  );
+  const nextUnlockCopy = nextNode?.levelId
+    ? nextNode.name
+    : "Act III coming next";
+  const rewardCopy = [nextUnlockCopy, ...rewardNames].join(" + ");
 
   useEffect(() => {
     if (!pendingStart) {
@@ -181,7 +190,10 @@ export function CampaignScreen({
           </button>
           <div className="status-cluster">
             <span className="campaign-progress">
-              <strong>{completedCount}/4</strong> Act I missions
+              <strong>
+                {completedCount}/{totalNodeCount}
+              </strong>{" "}
+              missions
             </span>
             <span className={`sync-pill sync-${syncStatus}`}>
               <span className="status-dot" />
@@ -200,20 +212,23 @@ export function CampaignScreen({
 
         <section className="campaign-heading">
           <div>
-            <span className="eyebrow">Act I · Moist Consequences</span>
-            <h1>Four calamities. One aggressively affordable defense force.</h1>
+            <span className="eyebrow">
+              Act I &amp; II · {playableNodes.length} playable missions
+            </span>
+            <h1>
+              Seven authored calamities. One aggressively affordable defense
+              force.
+            </h1>
           </div>
           <p>
             Story victories open the next mission immediately. Mastery seals and
-            optional challenges add tactics, never grind.
+            optional challenges add tactics, never grind. Act III is charted but
+            not yet built.
           </p>
         </section>
 
         <div className="campaign-layout">
-          <section
-            className="campaign-map card"
-            aria-label="Act I campaign map"
-          >
+          <section className="campaign-map card" aria-label="Campaign map">
             <div className="map-river map-river-one" aria-hidden="true" />
             <div className="map-river map-river-two" aria-hidden="true" />
             <svg
@@ -230,11 +245,14 @@ export function CampaignScreen({
                 ? save.campaign.levels[node.levelId]
                 : undefined;
               const selected = node.levelId === selectedLevel.id;
+              const isPreview = node.levelId === null;
               return (
                 <button
                   key={node.id}
-                  className={`campaign-node is-playable node-${index + 1} ${
-                    isUnlocked ? "is-unlocked" : "is-locked"
+                  className={`campaign-node node-${index + 1} ${
+                    isPreview
+                      ? "is-preview"
+                      : `is-playable ${isUnlocked ? "is-unlocked" : "is-locked"}`
                   } ${selected ? "is-selected" : ""}`}
                   style={{
                     left: `${node.position.x}%`,
@@ -242,45 +260,56 @@ export function CampaignScreen({
                   }}
                   onClick={() => level && selectMission(level.id)}
                   aria-pressed={selected}
-                  aria-disabled={!isUnlocked}
+                  aria-disabled={isPreview || !isUnlocked}
                   aria-label={`${node.name}. ${
-                    isUnlocked ? "Unlocked." : "Locked."
+                    isPreview
+                      ? "Not yet available."
+                      : isUnlocked
+                        ? "Unlocked."
+                        : "Locked."
                   } ${node.description}`}
                 >
                   <span className="node-medallion">
-                    {(nodeProgress?.victories ?? 0) > 0 ? "✓" : index + 1}
+                    {isPreview
+                      ? "…"
+                      : (nodeProgress?.victories ?? 0) > 0
+                        ? "✓"
+                        : index + 1}
                   </span>
                   <span className="node-label">
                     <strong>{node.name}</strong>
                     <small>
-                      {(nodeProgress?.victories ?? 0) > 0
-                        ? `${nodeProgress!.victories} ${
-                            nodeProgress!.victories === 1
-                              ? "victory"
-                              : "victories"
-                          }`
-                        : isUnlocked
-                          ? "Ready to defend"
-                          : `Win mission ${Math.max(1, index)}`}
+                      {isPreview
+                        ? "Act III · coming later"
+                        : (nodeProgress?.victories ?? 0) > 0
+                          ? `${nodeProgress!.victories} ${
+                              nodeProgress!.victories === 1
+                                ? "victory"
+                                : "victories"
+                            }`
+                          : isUnlocked
+                            ? "Ready to defend"
+                            : `Win mission ${Math.max(1, index)}`}
                     </small>
                   </span>
                 </button>
               );
             })}
             <div className="act-boundary">
-              <span className="eyebrow">Beyond the castle</span>
+              <span className="eyebrow">Beyond the keep</span>
               <strong>
-                {(save.campaign.levels["castle-hassle"]?.victories ?? 0) > 0
-                  ? "Act II passage earned"
-                  : "Act II lies ahead"}
+                {actTwoCleared
+                  ? "Act III passage earned"
+                  : "Act III lies ahead"}
               </strong>
               <small>
-                Coming in the next campaign layer · no preview mission
+                Coming in a future campaign layer · no preview mission is
+                playable yet
               </small>
             </div>
             <div className="map-caption">
               <span>
-                Four authored battlefields. Zero procedurally renamed moats.
+                Seven authored battlefields. Zero procedurally renamed moats.
               </span>
             </div>
           </section>

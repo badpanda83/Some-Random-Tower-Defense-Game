@@ -87,37 +87,59 @@ describe("content integrity", () => {
       ),
     ).toEqual({
       "fork-knight": { cost: 57, upgrades: [52, 85, 140] },
-      "discount-wizard": { cost: 95, upgrades: [76, 119] },
-      bardbarian: { cost: 85, upgrades: [66, 105] },
+      "discount-wizard": { cost: 95, upgrades: [76, 119, 165] },
+      bardbarian: { cost: 85, upgrades: [66, 105, 150] },
     });
     expect(towerDefinitions.bardbarian.slowPercent).toBe(35);
     expect(towerDefinitions.bardbarian.slowTicks).toBe(60);
   });
 
-  it("exposes exactly four Act I playable levels and campaign nodes", () => {
+  it("exposes exactly seven playable levels across Act I and Act II, plus an honest Act III boundary", () => {
     expect(Object.keys(levelDefinitions).sort()).toEqual([
       "castle-hassle",
+      "department-of-unnecessary-bridges",
+      "frozen-assets",
       "mimic-market",
       "muddy-moat",
+      "siege-and-desist",
       "troll-tollway",
     ]);
-    expect(campaignNodes).toHaveLength(4);
-    for (const node of campaignNodes) {
-      expect(node.levelId).not.toBeNull();
-      expect(node.act).toBe(1);
+    expect(campaignNodes).toHaveLength(10);
+    const playableNodes = campaignNodes.filter((node) => node.levelId !== null);
+    expect(playableNodes).toHaveLength(7);
+    for (const node of playableNodes) {
+      expect(node.act === 1 || node.act === 2).toBe(true);
+    }
+    const previewNodes = campaignNodes.filter((node) => node.levelId === null);
+    expect(previewNodes).toHaveLength(3);
+    for (const node of previewNodes) {
+      expect(node.act).toBe(3);
+      // An honest "coming later" placeholder never unlocks through normal play.
+      expect(node.unlockConditions).toHaveLength(0);
     }
     for (const level of Object.values(levelDefinitions)) {
-      expect(level.act).toBe(1);
+      expect(level.act === 1 || level.act === 2).toBe(true);
     }
   });
 
-  it("keeps stable ids for the promoted Act I levels", () => {
+  it("keeps stable ids for the promoted Act I and Act II levels", () => {
     expect(levelDefinitions["mimic-market"]?.id).toBe("mimic-market");
     expect(levelDefinitions["troll-tollway"]?.id).toBe("troll-tollway");
+    expect(levelDefinitions["frozen-assets"]?.id).toBe("frozen-assets");
+    expect(levelDefinitions["department-of-unnecessary-bridges"]?.id).toBe(
+      "department-of-unnecessary-bridges",
+    );
+    expect(levelDefinitions["siege-and-desist"]?.id).toBe("siege-and-desist");
     expect(campaignNodes.map((node) => node.id).sort()).toEqual([
+      "act-three-preview-one",
+      "act-three-preview-three",
+      "act-three-preview-two",
       "castle-hassle",
+      "department-of-unnecessary-bridges",
+      "frozen-assets",
       "mimic-market",
       "muddy-moat",
+      "siege-and-desist",
       "troll-tollway",
     ]);
   });
@@ -127,6 +149,14 @@ describe("content integrity", () => {
     expect(levelDefinitions["mimic-market"]?.waves).toHaveLength(8);
     expect(levelDefinitions["troll-tollway"]?.waves).toHaveLength(8);
     expect(levelDefinitions["castle-hassle"]?.waves).toHaveLength(9);
+  });
+
+  it("authors the expected Act II wave counts", () => {
+    expect(levelDefinitions["frozen-assets"]?.waves).toHaveLength(8);
+    expect(
+      levelDefinitions["department-of-unnecessary-bridges"]?.waves,
+    ).toHaveLength(9);
+    expect(levelDefinitions["siege-and-desist"]?.waves).toHaveLength(9);
   });
 
   it("keeps each mission's authored pad topology and restrictions", () => {
@@ -143,6 +173,129 @@ describe("content integrity", () => {
       ),
     ).toHaveLength(2);
     expect(levelDefinitions["castle-hassle"].pads).toHaveLength(9);
+  });
+
+  it("keeps Act II's multi-route pad topology and thin-ice restrictions", () => {
+    const frozen = levelDefinitions["frozen-assets"];
+    expect(frozen.pads).toHaveLength(8);
+    expect(frozen.pads.filter((pad) => pad.laneId === "shared")).toHaveLength(
+      3,
+    );
+    expect(
+      frozen.pads.filter((pad) => pad.deniedTowerIds?.includes("fork-knight")),
+    ).toHaveLength(3);
+
+    const bridges = levelDefinitions["department-of-unnecessary-bridges"];
+    expect(bridges.pads).toHaveLength(7);
+    expect(bridges.pads.filter((pad) => pad.laneId === "shared")).toHaveLength(
+      2,
+    );
+
+    const siege = levelDefinitions["siege-and-desist"];
+    expect(siege.pads).toHaveLength(9);
+    expect(
+      siege.pads.filter((pad) => pad.clusterId === "keep-cluster"),
+    ).toHaveLength(3);
+  });
+
+  it("declares exactly two authored routes per Act II mission, both reachable from spawns", () => {
+    for (const level of [
+      levelDefinitions["frozen-assets"],
+      levelDefinitions["department-of-unnecessary-bridges"],
+      levelDefinitions["siege-and-desist"],
+    ]) {
+      expect(level.routes).toHaveLength(2);
+      const routeIds = new Set(level.routes!.map((route) => route.id));
+      expect(routeIds.size).toBe(2);
+      const usedRouteIds = new Set(
+        level.waves.flatMap((wave) =>
+          wave.spawns.map((spawn) => spawn.routeId ?? level.routes![0]!.id),
+        ),
+      );
+      for (const routeId of usedRouteIds) {
+        expect(routeIds.has(routeId)).toBe(true);
+      }
+      expect(usedRouteIds.size).toBe(2);
+    }
+  });
+
+  it("declares the new Act II enemy traits and multi-phase boss data", () => {
+    expect(enemyDefinitions["warranty-wraith"]?.traits).toEqual([
+      { kind: "damage-resistance", damageType: "arcane", percent: 50 },
+      { kind: "damage-resistance", damageType: "physical", percent: 150 },
+    ]);
+    expect(enemyDefinitions["middle-manager-mage"]?.traits).toEqual([
+      { kind: "speed-aura", radius: 110, speedPercent: 130 },
+    ]);
+    expect(enemyDefinitions["refund-slime"]?.traits).toEqual([
+      { kind: "split-on-defeat", intoEnemyId: "basic-goblin", count: 2 },
+    ]);
+    // Split children must never themselves carry split-on-defeat, keeping
+    // the total authored split count bounded by construction.
+    expect(enemyDefinitions["basic-goblin"]?.traits).toBeUndefined();
+
+    expect(enemyDefinitions["queen-of-pending-litigation"]?.traits).toEqual([
+      { kind: "first-hit-ward" },
+    ]);
+    expect(enemyDefinitions["queen-of-pending-litigation"]?.bossPhases).toEqual(
+      [
+        {
+          healthThresholdPercent: 50,
+          speedMultiplierPercent: 100,
+          escort: { enemyId: "middle-manager-mage", count: 2 },
+        },
+        {
+          healthThresholdPercent: 20,
+          speedMultiplierPercent: 180,
+          removesWard: true,
+        },
+      ],
+    );
+  });
+
+  it("gates Discount Wizard and Bardbarian rank IV behind their Act II rewards", () => {
+    const wizard = towerDefinitions["discount-wizard"];
+    expect(wizard.baseMaxLevel).toBe(3);
+    expect(wizard.levels).toHaveLength(4);
+    expect(wizard.levels[3]?.ignoresArmor).toBe(true);
+    expect(wizard.levels[3]?.splashRadiusOverride).toBeGreaterThan(
+      wizard.splashRadius,
+    );
+    expect(rewardDefinitions["wizard-actual-certification"]).toMatchObject({
+      kind: "tower-rank",
+      towerId: "discount-wizard",
+      unlockedLevel: 4,
+    });
+    expect(levelDefinitions["frozen-assets"]?.rewardIds).toContain(
+      "wizard-actual-certification",
+    );
+
+    const bardbarian = towerDefinitions["bardbarian"];
+    expect(bardbarian.baseMaxLevel).toBe(3);
+    expect(bardbarian.levels).toHaveLength(4);
+    expect(bardbarian.levels[3]?.supportPulse).toBeDefined();
+    expect(rewardDefinitions["bardbarian-power-chord"]).toMatchObject({
+      kind: "tower-rank",
+      towerId: "bardbarian",
+      unlockedLevel: 4,
+    });
+    expect(levelDefinitions["siege-and-desist"]?.rewardIds).toContain(
+      "bardbarian-power-chord",
+    );
+  });
+
+  it("orders the full ten-node campaign sequentially across three acts", () => {
+    const orders = campaignNodes
+      .map((node) => node.order)
+      .sort((a, b) => a - b);
+    expect(orders).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    const actOne = campaignNodes.filter((node) => node.act === 1);
+    const actTwo = campaignNodes.filter((node) => node.act === 2);
+    const actThree = campaignNodes.filter((node) => node.act === 3);
+    expect(actOne).toHaveLength(4);
+    expect(actTwo).toHaveLength(3);
+    expect(actThree).toHaveLength(3);
+    expect(actThree.every((node) => node.levelId === null)).toBe(true);
   });
 
   it("ends Mimic Market with an elite warded guard formation", () => {
@@ -246,15 +399,20 @@ describe("content integrity", () => {
     );
   });
 
-  it("defines the new Act I challenge modifiers plus the existing one", () => {
+  it("defines the Act I and Act II challenge modifiers", () => {
     expect(Object.keys(modifierDefinitions).sort()).toEqual([
+      "red-tape",
       "roadworks",
       "sale-rush",
       "stingy-king",
+      "thin-ice",
     ]);
     expect(modifierDefinitions.roadworks.padShutdownExtraTicks).toBeGreaterThan(
       0,
     );
+    expect(
+      modifierDefinitions["red-tape"].padShutdownExtraTicks,
+    ).toBeGreaterThan(0);
   });
 
   it("defines three typed mastery rules per level", () => {

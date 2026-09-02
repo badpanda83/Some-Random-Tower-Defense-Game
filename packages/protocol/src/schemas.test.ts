@@ -77,6 +77,36 @@ describe("protocol schemas", () => {
     ).not.toThrow();
   });
 
+  it("accepts the Act II checkpoint metrics extensions", () => {
+    expect(() =>
+      battleCheckpointSchema.parse({
+        levelId: "frozen-assets",
+        seed: 1,
+        modifierIds: ["thin-ice"],
+        tick: 500,
+        nextWave: 2,
+        lives: 10,
+        gold: 120,
+        score: 400,
+        spawnedEnemies: 30,
+        placements: [],
+        metrics: {
+          spentGold: 300,
+          leakedEnemies: 1,
+          leakedByEnemyId: { "warranty-wraith": 1 },
+          leakedByWaveIndex: { "1": 1 },
+          soldTowers: 0,
+          usedTowerIds: ["discount-wizard"],
+          maxTowersPlaced: 3,
+          bossDefeatPathPercent: null,
+          splitSpawns: 4,
+          abilityActivations: { "emergency-tea-break": 1 },
+          lastEnemyClearedTick: { "middle-manager-mage": 240 },
+        },
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects saves from an unknown content version", () => {
     expect(() =>
       saveDataSchema.parse({
@@ -185,5 +215,46 @@ describe("v1 to v2 migration", () => {
 
   it("throws for data matching neither the v1 nor v2 schema", () => {
     expect(() => migrateSaveDataV1ToV2({ nonsense: true })).toThrow();
+  });
+
+  it("round-trips a v1 checkpoint carrying the new Act II metrics without loss", () => {
+    const v1WithCheckpoint = {
+      ...v1Save,
+      checkpoint: {
+        levelId: "siege-and-desist",
+        seed: 42,
+        modifierIds: [],
+        tick: 3_200,
+        nextWave: 6,
+        lives: 11,
+        gold: 240,
+        score: 8_000,
+        spawnedEnemies: 210,
+        placements: [],
+        metrics: {
+          spentGold: 900,
+          leakedEnemies: 2,
+          leakedByEnemyId: { "refund-slime": 2 },
+          leakedByWaveIndex: { "3": 2 },
+          soldTowers: 0,
+          usedTowerIds: ["fork-knight", "discount-wizard", "bardbarian"],
+          maxTowersPlaced: 6,
+          bossDefeatPathPercent: null,
+          splitSpawns: 12,
+          abilityActivations: { "royal-forkfall": 4 },
+          lastEnemyClearedTick: { "middle-manager-mage": 1_500 },
+        },
+      },
+    };
+
+    const migrated = migrateSaveDataV1ToV2(v1WithCheckpoint);
+
+    expect(() => saveDataSchema.parse(migrated)).not.toThrow();
+    expect(migrated.checkpoint).toEqual(v1WithCheckpoint.checkpoint);
+    expect(migrated.checkpoint?.metrics.splitSpawns).toBe(12);
+    expect(migrated.checkpoint?.metrics.leakedByWaveIndex).toEqual({ "3": 2 });
+
+    const twice = migrateSaveDataV1ToV2(migrated);
+    expect(twice).toEqual(migrated);
   });
 });

@@ -47,5 +47,21 @@ export function towerUpgradeDescription(
   if (tower.id === "fork-knight" && currentRank + 1 === 4) {
     changes.push("pierces a second target");
   }
+  if (tower.id === "discount-wizard" && currentRank + 1 === 4) {
+    const nextSplash = next.splashRadiusOverride;
+    if (nextSplash !== undefined) {
+      changes.push(
+        `splash radius ${current.splashRadiusOverride ?? "base"}→${nextSplash}`,
+      );
+    }
+    if (next.ignoresArmor) {
+      changes.push("bypasses armor entirely");
+    }
+  }
+  if (tower.id === "bardbarian" && currentRank + 1 === 4 && next.supportPulse) {
+    changes.push(
+      `periodic power chord adds +${next.supportPulse.rangeBonus} range every ${next.supportPulse.periodTicks} ticks`,
+    );
+  }
   return changes.join(", ");
 }

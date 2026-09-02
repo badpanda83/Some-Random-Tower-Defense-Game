@@ -467,9 +467,13 @@ export function GameScreen({
         </span>
       </div>
 
-      <header className="game-hud">
+      <header
+        className={`game-hud ${
+          state.phase === "preparing" && !quitOpen ? "has-wave-action" : ""
+        }`}
+      >
         <div className="hud-title">
-          <span className="eyebrow">Act I</span>
+          <span className="eyebrow">Act {level.act === 2 ? "II" : "I"}</span>
           <strong>{level.name}</strong>
         </div>
         <div className="hud-resources">
@@ -489,6 +493,26 @@ export function GameScreen({
             </strong>
           </span>
         </div>
+        {state.phase === "preparing" && !quitOpen && (
+          <button
+            className={`button button-primary wave-launch-button ${
+              settings.reducedMotion || settings.lowEffects ? "" : "is-pulsing"
+            }`}
+            aria-label={`Start Wave ${state.waveIndex + 1}`}
+            aria-describedby={`wave-${state.waveIndex + 1}-threat`}
+            onClick={() => {
+              setPlacementPreview(null);
+              if (battlefield.current?.dispatch({ type: "start-wave" })) {
+                setMessage(`Wave ${state.waveIndex + 1} underway.`);
+              }
+            }}
+          >
+            <span>Start Wave {state.waveIndex + 1}</span>
+            <small id={`wave-${state.waveIndex + 1}-threat`}>
+              Next: {level.waves[state.waveIndex]?.name}
+            </small>
+          </button>
+        )}
         <div className="hud-actions">
           <button
             className={`icon-button ${settings.gameSpeed === 2 ? "is-active" : ""}`}
@@ -722,21 +746,6 @@ export function GameScreen({
               : `Arm ${selectedAbility === "royal-forkfall" ? "Forkfall" : "Tea"}`}
           </button>
         </div>
-        {state.phase === "preparing" && !placementPreview && (
-          <button
-            className="button button-primary wave-launch-button"
-            aria-label={`Start wave ${state.waveIndex + 1}`}
-            onClick={() => {
-              setPlacementPreview(null);
-              if (battlefield.current?.dispatch({ type: "start-wave" })) {
-                setMessage(`Wave ${state.waveIndex + 1} underway.`);
-              }
-            }}
-          >
-            <span>{state.waveIndex === 0 ? "Start" : "Next"}</span>
-            <small>W{state.waveIndex + 1}</small>
-          </button>
-        )}
         {paused && state.phase === "active" && (
           <div className="pause-stamp">TACTICAL THINKING BREAK</div>
         )}

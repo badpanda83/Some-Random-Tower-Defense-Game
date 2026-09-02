@@ -143,7 +143,106 @@ const BATTLEFIELD_THEMES: Record<string, BattlefieldTheme> = {
       [905, 456, 9],
     ],
   },
+  "frozen-assets": {
+    ground: 0x11202f,
+    groundAccent: 0x1d3a52,
+    border: 0x0a1520,
+    pathEdge: 0x2c4a5f,
+    path: 0x6fa7bd,
+    pathHighlight: 0xcdeffb,
+    decorations: [
+      [44, 62, 11],
+      [96, 470, 9],
+      [340, 66, 8],
+      [455, 470, 13],
+      [700, 62, 10],
+      [895, 465, 12],
+    ],
+  },
+  "department-of-unnecessary-bridges": {
+    ground: 0x2c3037,
+    groundAccent: 0x4c525c,
+    border: 0x181b20,
+    pathEdge: 0x3d434c,
+    path: 0x7d8994,
+    pathHighlight: 0xd2b469,
+    decorations: [
+      [50, 66, 10],
+      [188, 468, 9],
+      [365, 70, 12],
+      [536, 466, 8],
+      [716, 68, 11],
+      [908, 462, 13],
+    ],
+  },
+  "siege-and-desist": {
+    ground: 0x2f271a,
+    groundAccent: 0x5a4a2e,
+    border: 0x1a1610,
+    pathEdge: 0x40331f,
+    path: 0x8a6f42,
+    pathHighlight: 0xf0d68a,
+    decorations: [
+      [52, 60, 11],
+      [88, 474, 9],
+      [326, 64, 12],
+      [648, 472, 10],
+      [860, 66, 13],
+      [902, 460, 9],
+    ],
+  },
 };
+
+function routeLength(points: readonly Point[]): number {
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1]!;
+    const b = points[index]!;
+    total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return total;
+}
+
+function pointAtRoutePercent(points: readonly Point[], percent: number): Point {
+  const total = routeLength(points);
+  const target = (Math.max(0, Math.min(100, percent)) / 100) * total;
+  let traveled = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1]!;
+    const b = points[index]!;
+    const segmentLength = Math.hypot(b.x - a.x, b.y - a.y);
+    if (traveled + segmentLength >= target || index === points.length - 1) {
+      const t = segmentLength === 0 ? 0 : (target - traveled) / segmentLength;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    traveled += segmentLength;
+  }
+  return points[points.length - 1]!;
+}
+
+/** Extracts the sub-polyline of a route between two percent markers, used
+ * to draw marked speed zones directly on top of the authored path. */
+function sliceRouteByPercent(
+  points: readonly Point[],
+  fromPercent: number,
+  toPercent: number,
+): Point[] {
+  const total = routeLength(points);
+  const fromDistance = (fromPercent / 100) * total;
+  const toDistance = (toPercent / 100) * total;
+  const result: Point[] = [pointAtRoutePercent(points, fromPercent)];
+  let traveled = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1]!;
+    const b = points[index]!;
+    traveled += Math.hypot(b.x - a.x, b.y - a.y);
+    if (traveled > fromDistance && traveled < toDistance) {
+      result.push(b);
+    }
+  }
+  result.push(pointAtRoutePercent(points, toPercent));
+  return result;
+}
 
 function padShutdownState(
   pad: TowerPadDefinition,
@@ -273,6 +372,16 @@ function contextLabelPosition(
 
 function padName(padId: string): string {
   return padId.replaceAll("-", " ");
+}
+
+function towerAvailableOnPad(
+  pad: TowerPadDefinition,
+  towerId: string,
+): boolean {
+  return (
+    (!pad.allowedTowerIds || pad.allowedTowerIds.includes(towerId)) &&
+    !pad.deniedTowerIds?.includes(towerId)
+  );
 }
 
 interface EnemySnapshot extends Point {
@@ -430,6 +539,12 @@ class BattleScene extends Phaser.Scene {
     if (pad?.allowedTowerIds && !pad.allowedTowerIds.includes(towerId)) {
       this.callbacks.onError(
         `${towerDefinitions[towerId as keyof typeof towerDefinitions].name} is not licensed for this pad.`,
+      );
+      return;
+    }
+    if (pad?.deniedTowerIds?.includes(towerId)) {
+      this.callbacks.onError(
+        `${towerDefinitions[towerId as keyof typeof towerDefinitions].name} cannot be placed here.`,
       );
       return;
     }
@@ -610,15 +725,19 @@ class BattleScene extends Phaser.Scene {
       graphics.lineBetween(x, y + radius, x + ambient * 2, y - radius);
     }
 
-    const pathPoints = this.level.path.map(
-      (point) => new Phaser.Math.Vector2(point.x, point.y),
-    );
-    graphics.lineStyle(70, this.theme.pathEdge, 1);
-    graphics.strokePoints(pathPoints, false, false);
-    graphics.lineStyle(54, this.theme.path, 1);
-    graphics.strokePoints(pathPoints, false, false);
-    graphics.lineStyle(4, this.theme.pathHighlight, 0.65);
-    graphics.strokePoints(pathPoints, false, false);
+    const routes = this.level.routes ?? [{ id: "main", path: this.level.path }];
+    for (const route of routes) {
+      const pathPoints = route.path.map(
+        (point) => new Phaser.Math.Vector2(point.x, point.y),
+      );
+      graphics.lineStyle(70, this.theme.pathEdge, 1);
+      graphics.strokePoints(pathPoints, false, false);
+      graphics.lineStyle(54, this.theme.path, 1);
+      graphics.strokePoints(pathPoints, false, false);
+      graphics.lineStyle(4, this.theme.pathHighlight, 0.65);
+      graphics.strokePoints(pathPoints, false, false);
+    }
+    this.drawSpeedZones(graphics, routes, state.tick, motionEnabled);
     this.drawPortalAndTunnel(graphics, state.tick, state.phase === "active");
 
     const occupiedPads = new Set(state.towers.map((tower) => tower.padId));
@@ -707,6 +826,33 @@ class BattleScene extends Phaser.Scene {
           pad.position.y - 22,
         );
       }
+      if (pad.deniedTowerIds && pad.deniedTowerIds.length > 0) {
+        // A distinct icy "no entry" ring, independent of the allow-list
+        // stripe above, telegraphing which specific towers are rejected.
+        graphics.lineStyle(3, 0x9fe0f2, 0.85);
+        graphics.strokeCircle(pad.position.x, pad.position.y, 38);
+        graphics.lineStyle(2, 0x9fe0f2, 0.6);
+        graphics.lineBetween(
+          pad.position.x - 15,
+          pad.position.y + 24,
+          pad.position.x + 15,
+          pad.position.y + 30,
+        );
+      }
+      if (pad.clusterId) {
+        // A dashed outer ring groups pads that are telegraphed/authored
+        // together (e.g. a shared cluster shutdown schedule).
+        graphics.lineStyle(2, 0xd4af37, 0.55);
+        for (let ray = 0; ray < 10; ray += 1) {
+          const angle = (Math.PI * 2 * ray) / 10;
+          graphics.lineBetween(
+            pad.position.x + Math.cos(angle) * 40,
+            pad.position.y + Math.sin(angle) * 40,
+            pad.position.x + Math.cos(angle) * 44,
+            pad.position.y + Math.sin(angle) * 44,
+          );
+        }
+      }
     }
 
     const attackingTowerIds = new Set(
@@ -765,6 +911,40 @@ class BattleScene extends Phaser.Scene {
 
     this.renderEffects(events, state);
     this.enemySnapshots = currentSnapshots;
+  }
+
+  private drawSpeedZones(
+    graphics: Phaser.GameObjects.Graphics,
+    routes: readonly { readonly id: string; readonly path: readonly Point[] }[],
+    tick: number,
+    motionEnabled: boolean,
+  ): void {
+    const zones = this.level.speedZones;
+    if (!zones || zones.length === 0) {
+      return;
+    }
+    const pulse = motionEnabled ? 0.55 + Math.sin(tick * 0.15) * 0.15 : 0.6;
+    for (const zone of zones) {
+      const route = routes.find((candidate) => candidate.id === zone.routeId);
+      if (!route) {
+        continue;
+      }
+      const slice = sliceRouteByPercent(
+        route.path,
+        zone.fromPercent,
+        zone.toPercent,
+      );
+      if (slice.length < 2) {
+        continue;
+      }
+      const points = slice.map(
+        (point) => new Phaser.Math.Vector2(point.x, point.y),
+      );
+      graphics.lineStyle(58, 0x9fe0f2, 0.22);
+      graphics.strokePoints(points, false, false);
+      graphics.lineStyle(3, 0x9fe0f2, pulse);
+      graphics.strokePoints(points, false, false);
+    }
   }
 
   private drawPortalAndTunnel(
@@ -1041,6 +1221,149 @@ class BattleScene extends Phaser.Scene {
       graphics.lineBetween(x, y + 7, x + 18, y + 1);
       graphics.lineStyle(5, 0x78904d);
       graphics.lineBetween(x - facing * 27, y + 12, x - facing * 39, y + 29);
+    } else if (enemy.enemyId === "warranty-wraith") {
+      graphics.fillStyle(0x07090d, 0.28);
+      graphics.fillEllipse(x, position.y + 18, 38, 8);
+      const wraithAlpha = reactiveHit ? 0.55 : 0.72;
+      graphics.fillStyle(0x1c3a44, wraithAlpha * 0.9);
+      graphics.fillEllipse(x, y - 4, 34, 40);
+      // Tattered hem: a row of small triangles instead of a solid base,
+      // an accessible shape cue (not just color) for "incorporeal".
+      for (let tooth = -14; tooth <= 14; tooth += 7) {
+        graphics.fillTriangle(
+          x + tooth,
+          y + 16,
+          x + tooth + 7,
+          y + 16,
+          x + tooth + 3.5,
+          y + 26 + Math.abs(stride) * 2,
+        );
+      }
+      graphics.fillStyle(definition.color, wraithAlpha);
+      graphics.fillEllipse(x, y - 6, 30, 34);
+      graphics.lineStyle(wasHit ? 4 : 2, outline, 0.9);
+      graphics.strokeEllipse(x, y - 6, 30, 34);
+      graphics.fillStyle(0xffffff, 0.85);
+      graphics.fillCircle(x - 6 + facing, y - 12, 3);
+      graphics.fillCircle(x + 6 + facing, y - 12, 3);
+      graphics.fillStyle(0x14232a);
+      graphics.fillCircle(x - 5 + facing * 2, y - 12, 1.4);
+      graphics.fillCircle(x + 7 + facing * 2, y - 12, 1.4);
+      // Floating claim clipboard: the "warranty" identity marker.
+      graphics.fillStyle(0xf4e9c8, 0.95);
+      graphics.fillRoundedRect(x + facing * 16 - 6, y + 2, 12, 15, 2);
+      graphics.lineStyle(1, 0x8a7350, 0.9);
+      graphics.strokeRoundedRect(x + facing * 16 - 6, y + 2, 12, 15, 2);
+      graphics.lineBetween(
+        x + facing * 16 - 3,
+        y + 7,
+        x + facing * 16 + 3,
+        y + 7,
+      );
+      graphics.lineBetween(
+        x + facing * 16 - 3,
+        y + 11,
+        x + facing * 16 + 1,
+        y + 11,
+      );
+    } else if (enemy.enemyId === "middle-manager-mage") {
+      // Visible aura ring: telegraphs the speed-aura mechanic on the
+      // silhouette itself, distinct from the boss-phase ray burst above.
+      graphics.lineStyle(2, 0xe8955a, 0.3 + Math.abs(stride) * 0.12);
+      graphics.strokeCircle(x, y, 46);
+      graphics.fillStyle(0x07090d, 0.42);
+      graphics.fillEllipse(x, position.y + 17, 36, 8);
+      graphics.fillStyle(0x2b2b33);
+      graphics.fillRoundedRect(x - 15, y - 4, 30, 28, 6);
+      graphics.lineStyle(wasHit ? 4 : 3, outline);
+      graphics.strokeRoundedRect(x - 15, y - 4, 30, 28, 6);
+      graphics.fillStyle(0xf2f2f2);
+      graphics.fillRect(x - 4, y - 3, 8, 20);
+      graphics.fillStyle(definition.color);
+      graphics.fillEllipse(x, y - 14, 22, 20);
+      graphics.fillStyle(0x1c1c22);
+      graphics.fillRect(x - 10, y - 22, 20, 5);
+      graphics.fillStyle(0xfff0d9);
+      graphics.fillCircle(x - 5 + facing, y - 14, 2.6);
+      graphics.fillCircle(x + 5 + facing, y - 14, 2.6);
+      // Briefcase: readable "management" identity marker.
+      graphics.fillStyle(0x5a3d22);
+      graphics.fillRoundedRect(x + facing * 15 - 6, y + 8, 12, 9, 2);
+      graphics.lineStyle(1, 0x2c1d10);
+      graphics.strokeRoundedRect(x + facing * 15 - 6, y + 8, 12, 9, 2);
+    } else if (enemy.enemyId === "comptroller-general") {
+      graphics.fillStyle(0x07090d, 0.48);
+      graphics.fillEllipse(x + 2, position.y + 24, 54, 11);
+      graphics.fillStyle(0x3f3323);
+      graphics.fillEllipse(x, y + 4, reactiveHit ? 44 : 50, 44);
+      graphics.lineStyle(wasHit ? 6 : 4, outline);
+      graphics.strokeEllipse(x, y + 4, wasHit ? 44 : 50, 44);
+      graphics.fillStyle(definition.color);
+      graphics.fillEllipse(x, y - 10, 34, 27);
+      // General's sash: a diagonal accent stripe distinct from Tax Troll's
+      // horizontal ledger band.
+      graphics.lineStyle(6, 0xd4af37, 0.9);
+      graphics.lineBetween(x - 18, y - 2, x + 18, y + 20);
+      graphics.fillStyle(0xc9d5d5);
+      graphics.fillTriangle(x - 9, y - 19, x - 21, y - 31, x - 18, y - 11);
+      graphics.fillTriangle(x + 9, y - 19, x + 21, y - 31, x + 18, y - 11);
+      graphics.fillStyle(0xf4f0d2);
+      graphics.fillCircle(x - 6 + facing, y - 11 + directionY, 3.2);
+      graphics.fillStyle(0x18202a);
+      graphics.fillCircle(x - 5 + facing * 2, y - 11 + directionY, 1.6);
+      graphics.fillStyle(0xe6ddba);
+      graphics.fillRoundedRect(x + facing * 20 - 7, y + 4, 14, 20, 2);
+      graphics.lineStyle(2, 0x695a49);
+      graphics.strokeRoundedRect(x + facing * 20 - 7, y + 4, 14, 20, 2);
+    } else if (enemy.enemyId === "refund-slime") {
+      graphics.fillStyle(0x07090d, 0.4);
+      graphics.fillEllipse(x, position.y + 15, 34, 7);
+      // Wavy ooze silhouette built from overlapping circles rather than a
+      // single ellipse, distinguishing it by shape from every other blob.
+      const wobble = Math.abs(stride) * 3;
+      graphics.fillStyle(definition.color, 0.92);
+      graphics.fillCircle(x - 10, y + 4, 13 + wobble * 0.3);
+      graphics.fillCircle(x + 10, y + 4, 13 - wobble * 0.3);
+      graphics.fillCircle(x, y - 6, 17);
+      graphics.lineStyle(wasHit ? 4 : 2, outline, 0.85);
+      graphics.strokeCircle(x - 10, y + 4, 13 + wobble * 0.3);
+      graphics.strokeCircle(x + 10, y + 4, 13 - wobble * 0.3);
+      graphics.strokeCircle(x, y - 6, 17);
+      graphics.fillStyle(0xffffff, 0.55);
+      graphics.fillCircle(x - 6, y - 10, 4);
+      graphics.fillStyle(0x18202a);
+      graphics.fillCircle(x - 4 + facing, y - 4, 2);
+      graphics.fillCircle(x + 4 + facing, y - 4, 2);
+      // Denied-claim receipt: readable "refund" identity marker.
+      graphics.fillStyle(0xf4e9c8, 0.9);
+      graphics.fillRect(x - 5, y + 6, 10, 6);
+      graphics.lineStyle(1, 0xc0342f, 0.9);
+      graphics.lineBetween(x - 4, y + 7, x + 4, y + 11);
+      graphics.lineBetween(x + 4, y + 7, x - 4, y + 11);
+    } else if (enemy.enemyId === "queen-of-pending-litigation") {
+      graphics.fillStyle(0x07090d, 0.55);
+      graphics.fillEllipse(x, position.y + 33, 78, 14);
+      // Bell-shaped gown instead of Baron's rounded body: a distinct
+      // silhouette for the finale boss.
+      graphics.fillStyle(enemy.bossPhaseIndex >= 2 ? 0x7a1030 : 0x531a33);
+      graphics.fillTriangle(x - 40, y + 30, x + 40, y + 30, x, y - 20);
+      graphics.lineStyle(wasHit ? 7 : 5, outline);
+      graphics.strokeTriangle(x - 40, y + 30, x + 40, y + 30, x, y - 20);
+      graphics.fillStyle(definition.color);
+      graphics.fillEllipse(x, y - 24, 32, 28);
+      graphics.fillStyle(0xffe066);
+      graphics.fillTriangle(x - 16, y - 40, x - 10, y - 55, x - 3, y - 39);
+      graphics.fillTriangle(x - 5, y - 41, x, y - 58, x + 5, y - 41);
+      graphics.fillTriangle(x + 3, y - 39, x + 10, y - 55, x + 16, y - 40);
+      graphics.fillStyle(0xfff3cd);
+      graphics.fillCircle(x - 7 + facing, y - 26, 3.6);
+      graphics.fillCircle(x + 7 + facing, y - 26, 3.6);
+      graphics.fillStyle(0x201823);
+      graphics.fillCircle(x - 6 + facing * 2, y - 26, 1.8);
+      graphics.fillCircle(x + 8 + facing * 2, y - 26, 1.8);
+      graphics.lineStyle(3, 0xffd7e0);
+      graphics.lineBetween(x - 12, y + 2, x + 12, y + 2);
+      graphics.lineBetween(x - 14, y + 10, x + 14, y + 10);
     } else {
       graphics.fillStyle(0x07090d, 0.5);
       graphics.fillEllipse(x + 3, position.y + 31, 66, 12);
@@ -1118,10 +1441,21 @@ class BattleScene extends Phaser.Scene {
         : 36;
     graphics.fillStyle(0x1a1118, 0.95);
     graphics.fillRoundedRect(x - barWidth / 2, y - radius - 12, barWidth, 6, 3);
-    const phaseMaxHealth =
-      definition.boss && enemy.bossPhase
-        ? Math.max(1, Math.floor(enemy.maxHealth / 2))
-        : enemy.maxHealth;
+    const bossPhases =
+      definition.bossPhases ??
+      (definition.bossPhase ? [definition.bossPhase] : []);
+    const activeBossPhase =
+      enemy.bossPhaseIndex > 0
+        ? bossPhases[enemy.bossPhaseIndex - 1]
+        : undefined;
+    const phaseMaxHealth = activeBossPhase
+      ? Math.max(
+          1,
+          Math.floor(
+            (enemy.maxHealth * activeBossPhase.healthThresholdPercent) / 100,
+          ),
+        )
+      : enemy.maxHealth;
     graphics.fillStyle(enemy.bossPhase ? 0xffb454 : 0x7ee081);
     graphics.fillRoundedRect(
       x - barWidth / 2,
@@ -1811,9 +2145,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       ? towerDefinitions[towerInfoId as keyof typeof towerDefinitions]
       : null;
     const towerInfoUnavailable = Boolean(
-      towerInfo &&
-      wheelPad?.allowedTowerIds &&
-      !wheelPad.allowedTowerIds.includes(towerInfo.id),
+      towerInfo && wheelPad && !towerAvailableOnPad(wheelPad, towerInfo.id),
     );
 
     useEffect(() => {
@@ -1890,7 +2222,11 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
                   }}
                   className={`battlefield-pad-button ${
                     shutdown ? `is-${shutdown}` : ""
-                  } ${pad.allowedTowerIds ? "is-restricted" : ""}`}
+                  } ${
+                    pad.allowedTowerIds || pad.deniedTowerIds
+                      ? "is-restricted"
+                      : ""
+                  }`}
                   style={controlStyle(
                     canvasFrame,
                     worldToCanvasPosition(pad.position, canvasFrame, level),
@@ -1919,6 +2255,17 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
                                   )
                                   .join(" or ")}`
                               : ""
+                          }${
+                            pad.deniedTowerIds
+                              ? `. Cannot support ${pad.deniedTowerIds
+                                  .map(
+                                    (towerId) =>
+                                      towerDefinitions[
+                                        towerId as keyof typeof towerDefinitions
+                                      ].name,
+                                  )
+                                  .join(" or ")}`
+                              : ""
                           }`
                   }
                   onClick={() => scene.current?.selectPad(pad.id)}
@@ -1935,9 +2282,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
           >
             {wheelOptions.map((definition, index) => {
               const position = wheelPositions[index];
-              const available =
-                !wheelPad.allowedTowerIds ||
-                wheelPad.allowedTowerIds.includes(definition.id);
+              const available = towerAvailableOnPad(wheelPad, definition.id);
               return position ? (
                 <button
                   key={definition.id}
@@ -1947,7 +2292,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
                   }`}
                   style={controlStyle(canvasFrame, position)}
                   aria-label={`Preview ${towerChoiceName(definition)}. ${towerTacticalDescription(definition)}${
-                    available ? "" : " Not licensed for this pad."
+                    available ? "" : " Unavailable for this pad."
                   }`}
                   aria-disabled={!available}
                   aria-describedby={
@@ -1999,7 +2344,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
               <small>
                 {towerTacticalDescription(towerInfo)}
                 {towerInfoUnavailable
-                  ? " Not licensed for this pad; choose another defender."
+                  ? " Unavailable for this pad; choose another defender."
                   : ""}
               </small>
             </span>

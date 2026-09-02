@@ -8,10 +8,14 @@ function metrics(overrides: Partial<BattleMetrics> = {}): BattleMetrics {
     spentGold: 0,
     leakedEnemies: 0,
     leakedByEnemyId: {},
+    leakedByWaveIndex: {},
     soldTowers: 0,
     usedTowerIds: [],
     maxTowersPlaced: 0,
     bossDefeatPathPercent: null,
+    splitSpawns: 0,
+    abilityActivations: {},
+    lastEnemyClearedTick: {},
     ...overrides,
   };
 }
@@ -22,6 +26,7 @@ function context(overrides: Partial<MasteryContext> = {}): MasteryContext {
     modifierIds: [],
     finalGold: 0,
     totalTowerTypeCount: 3,
+    finalTick: 1000,
     ...overrides,
   };
 }
@@ -185,6 +190,112 @@ describe("evaluateMasteryRule", () => {
       evaluateMasteryRule(
         rule,
         context({ metrics: metrics({ bossDefeatPathPercent: null }) }),
+      ),
+    ).toBe(false);
+  });
+
+  it("evaluates no-leaks-in-wave", () => {
+    const rule = { kind: "no-leaks-in-wave", waveIndex: 8 } as const;
+    expect(evaluateMasteryRule(rule, context())).toBe(true);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({ metrics: metrics({ leakedByWaveIndex: { "7": 2 } }) }),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({ metrics: metrics({ leakedByWaveIndex: { "8": 1 } }) }),
+      ),
+    ).toBe(false);
+  });
+
+  it("evaluates max-split-spawns", () => {
+    const rule = { kind: "max-split-spawns", maxSplits: 40 } as const;
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({ metrics: metrics({ splitSpawns: 40 }) }),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({ metrics: metrics({ splitSpawns: 41 }) }),
+      ),
+    ).toBe(false);
+  });
+
+  it("evaluates no-ability-used", () => {
+    const rule = {
+      kind: "no-ability-used",
+      abilityId: "emergency-tea-break",
+    } as const;
+    expect(evaluateMasteryRule(rule, context())).toBe(true);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({
+          metrics: metrics({
+            abilityActivations: { "emergency-tea-break": 1 },
+          }),
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({
+          metrics: metrics({ abilityActivations: { "royal-forkfall": 3 } }),
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("evaluates enemy-cleared-before-half-battle", () => {
+    const rule = {
+      kind: "enemy-cleared-before-half-battle",
+      enemyId: "middle-manager-mage",
+    } as const;
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({
+          finalTick: 1000,
+          metrics: metrics({
+            lastEnemyClearedTick: { "middle-manager-mage": 400 },
+          }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({
+          finalTick: 1000,
+          metrics: metrics({
+            lastEnemyClearedTick: { "middle-manager-mage": 600 },
+          }),
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({
+          finalTick: 1000,
+          metrics: metrics({
+            leakedByEnemyId: { "middle-manager-mage": 1 },
+            lastEnemyClearedTick: { "middle-manager-mage": 400 },
+          }),
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateMasteryRule(
+        rule,
+        context({ finalTick: 1000, metrics: metrics() }),
       ),
     ).toBe(false);
   });
