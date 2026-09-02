@@ -25,12 +25,105 @@ function migratedAttemptId(checkpoint: {
   }`;
 }
 
-function buildRpgScaffolding() {
+const FIRST_CLEAR_CROWNS: Readonly<Record<string, number>> = {
+  "muddy-moat": 120,
+  "mimic-market": 90,
+  "troll-tollway": 90,
+  "castle-hassle": 120,
+  "frozen-assets": 90,
+  "department-of-unnecessary-bridges": 90,
+  "siege-and-desist": 120,
+  "lava-lamp-district": 90,
+  "necromancers-networking-event": 90,
+  "quarterly-dragon-review": 150,
+};
+
+const BOSS_BOUNTY_LEVELS = new Set([
+  "mimic-market",
+  "castle-hassle",
+  "department-of-unnecessary-bridges",
+  "siege-and-desist",
+  "lava-lamp-district",
+  "quarterly-dragon-review",
+]);
+
+function buildRpgScaffoldingFromCampaign(campaign: SaveData["campaign"]) {
+  const claimIds = ["veteran:welcome"];
+  let questCrowns = 120;
+  let craftingDust = 0;
+  const earned = new Map<
+    string,
+    { victorious: boolean; masteries: Set<string>; modifiers: Set<string> }
+  >();
+  for (const [levelId, progress] of Object.entries(campaign.levels)) {
+    earned.set(levelId, {
+      victorious: progress.victories > 0,
+      masteries: new Set(progress.completedMasteryIds),
+      modifiers: new Set(progress.completedModifierIds),
+    });
+  }
+  for (const result of campaign.recentResults) {
+    if (result.result !== "victory") {
+      continue;
+    }
+    const progress = earned.get(result.levelId) ?? {
+      victorious: false,
+      masteries: new Set<string>(),
+      modifiers: new Set<string>(),
+    };
+    progress.victorious = true;
+    result.completedMasteryIds.forEach((id) => progress.masteries.add(id));
+    result.modifierIds.forEach((id) => progress.modifiers.add(id));
+    earned.set(result.levelId, progress);
+  }
+  for (const [levelId, progress] of earned) {
+    if (!progress.victorious) {
+      continue;
+    }
+    const firstClear = FIRST_CLEAR_CROWNS[levelId];
+    if (firstClear !== undefined) {
+      questCrowns += firstClear;
+      claimIds.push(`first:${levelId}`);
+    }
+    for (const masteryId of progress.masteries) {
+      questCrowns += 20;
+      claimIds.push(`mastery:${levelId}:${masteryId}`);
+    }
+    for (const modifierId of progress.modifiers) {
+      questCrowns += 40;
+      claimIds.push(`challenge:${levelId}:${modifierId}`);
+    }
+    if (BOSS_BOUNTY_LEVELS.has(levelId)) {
+      questCrowns += 30;
+      craftingDust += 25;
+      claimIds.push(`boss:${levelId}`);
+    }
+  }
+  const welcomeReceipt = {
+    kind: "mission-reward" as const,
+    requestId: "migration:veteran-welcome",
+    createdAtSequence: 1,
+    attemptId: "migration:veteran-welcome",
+    questCrownsGranted: questCrowns,
+    craftingDustGranted: craftingDust,
+    claimIds,
+  };
   return {
-    economy: EMPTY_ECONOMY,
-    inventory: EMPTY_INVENTORY,
-    loadouts: EMPTY_LOADOUTS,
-    guidance: DEFAULT_GUIDANCE,
+    economy: {
+      ...EMPTY_ECONOMY,
+      questCrowns,
+      craftingDust,
+      rewardClaimIds: claimIds,
+      replayHistory: [],
+      recentReceipts: [welcomeReceipt],
+    },
+    inventory: { ...EMPTY_INVENTORY, ownedItemIds: [], metadata: {} },
+    loadouts: structuredClone(EMPTY_LOADOUTS),
+    guidance: {
+      ...DEFAULT_GUIDANCE,
+      battleTutorialComplete: true,
+      rpgTourPending: true,
+    },
   };
 }
 
@@ -52,7 +145,7 @@ export function migrateSaveDataToV4(input: unknown): SaveData {
     : v2?.success
       ? v2.data
       : saveDataSchemaV1.parse(input);
-  const rpgState = buildRpgScaffolding();
+  const rpgState = buildRpgScaffoldingFromCampaign(legacy.campaign);
   const checkpoint = legacy.checkpoint
     ? {
         ...legacy.checkpoint,

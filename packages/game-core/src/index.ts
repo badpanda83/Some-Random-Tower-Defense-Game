@@ -1,5 +1,6 @@
 export * from "./balance.js";
 export * from "./content.js";
+export * from "./economy.js";
 export * from "./equipment.js";
 export * from "./mastery.js";
 export * from "./path.js";

@@ -233,6 +233,20 @@ describe("legacy v1 migration", () => {
       ...v1Save.settings,
       keepPlayingWhileAway: false,
     });
+    expect(migrated.economy.questCrowns).toBe(300);
+    expect(migrated.economy.craftingDust).toBe(0);
+    expect(migrated.economy.rewardClaimIds).toEqual(
+      expect.arrayContaining([
+        "veteran:welcome",
+        "first:muddy-moat",
+        "mastery:muddy-moat:dry-socks",
+        "challenge:muddy-moat:stingy-king",
+      ]),
+    );
+    expect(migrated.guidance).toMatchObject({
+      battleTutorialComplete: true,
+      rpgTourPending: true,
+    });
   });
 
   it("is idempotent when applied to already-migrated data", () => {
@@ -255,6 +269,25 @@ describe("legacy v1 migration", () => {
 
   it("throws for data matching no supported save schema", () => {
     expect(() => migrateSaveDataV1ToV2({ nonsense: true })).toThrow();
+  });
+
+  it("retroactively grants recovered victories that only exist in recent results", () => {
+    const recoveredOnly = {
+      ...v1Save,
+      campaign: {
+        ...v1Save.campaign,
+        levels: {},
+      },
+    };
+    const migrated = migrateSaveDataV1ToV2(recoveredOnly);
+    expect(migrated.economy.questCrowns).toBe(300);
+    expect(migrated.economy.rewardClaimIds).toEqual(
+      expect.arrayContaining([
+        "first:muddy-moat",
+        "mastery:muddy-moat:dry-socks",
+        "challenge:muddy-moat:stingy-king",
+      ]),
+    );
   });
 
   it("round-trips a v1 checkpoint carrying the new Act II metrics without loss", () => {
@@ -415,6 +448,12 @@ describe("v1/v2/v3 migration", () => {
     expect(once.settings.keepPlayingWhileAway).toBe(true);
     expect(once.campaign).toEqual(v3.campaign);
     expect(once.checkpoint).toMatchObject(v3.checkpoint!);
+    expect(once.economy).toMatchObject({
+      questCrowns: 260,
+      craftingDust: 25,
+    });
+    expect(once.loadouts["fork-knight"].weapon).toBeNull();
+    expect(once.guidance.rpgTourPending).toBe(true);
     expect(twice).toEqual(once);
   });
 });

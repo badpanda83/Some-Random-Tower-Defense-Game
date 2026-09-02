@@ -1,6 +1,8 @@
 import {
   createSimulation,
   enemyDefinitions,
+  equipmentEffectCopy,
+  equipmentForDefender,
   levelDefinitions,
   muddyMoatLevel,
   rewardDefinitions,
@@ -12,6 +14,7 @@ import {
 } from "@srtg/game-core";
 import {
   CONTENT_VERSION,
+  DEFAULT_GUIDANCE,
   EMPTY_LOADOUTS,
   type AbilityId,
   type BattleCheckpoint,
@@ -19,6 +22,7 @@ import {
   type GameSpeed,
   type LoadoutSnapshot,
   type Settings,
+  type SaveData,
 } from "@srtg/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -47,6 +51,8 @@ interface GameScreenProps {
   readonly attemptId?: string;
   readonly loadoutSnapshot?: LoadoutSnapshot;
   readonly settings: Settings;
+  readonly guidance?: SaveData["guidance"];
+  readonly training?: boolean;
   readonly synchronizationBlocked: boolean;
   readonly pageActivity?: PageActivitySource;
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
@@ -54,6 +60,8 @@ interface GameScreenProps {
   readonly onRetry: () => Promise<void>;
   readonly onAbandon: () => Promise<void>;
   readonly onSettings: (settings: Settings) => void;
+  readonly onGuidance?: (guidance: Partial<SaveData["guidance"]>) => void;
+  readonly onTrainingComplete?: () => Promise<void>;
 }
 
 type PauseReason =
@@ -141,6 +149,8 @@ export function GameScreen({
   attemptId = `battle:${levelId}:${seed}:normal`,
   loadoutSnapshot = EMPTY_LOADOUTS,
   settings,
+  guidance = DEFAULT_GUIDANCE,
+  training = false,
   synchronizationBlocked,
   pageActivity = browserPageActivity,
   onCheckpoint,
@@ -148,6 +158,8 @@ export function GameScreen({
   onRetry,
   onAbandon,
   onSettings,
+  onGuidance = () => undefined,
+  onTrainingComplete = async () => undefined,
 }: GameScreenProps) {
   const simulation = useMemo(
     () =>
@@ -193,6 +205,8 @@ export function GameScreen({
   const [quitError, setQuitError] = useState<string | null>(null);
   const [resultSaving, setResultSaving] = useState(false);
   const [resultError, setResultError] = useState<string | null>(null);
+  const [trainingComplete, setTrainingComplete] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
   const [message, setMessage] = useState<string | null>(
     checkpoint ? "Recovered your between-wave camp." : null,
   );
@@ -348,7 +362,11 @@ export function GameScreen({
     if (next.phase !== "active") {
       setAbilityArmed(false);
     }
-    if (next.phase === "preparing") {
+    if (next.phase === "preparing" && training && next.waveIndex >= 2) {
+      setTrainingComplete(true);
+      setPauseReason("manual", true);
+    }
+    if (next.phase === "preparing" && !training) {
       const nextCheckpoint = simulation.createCheckpoint();
       const signature = nextCheckpoint ? JSON.stringify(nextCheckpoint) : "";
       if (nextCheckpoint && signature !== checkpointSignature.current) {
@@ -560,6 +578,9 @@ export function GameScreen({
   const towerInfo = towerInfoId
     ? towerDefinitions[towerInfoId as keyof typeof towerDefinitions]
     : null;
+  const towerInfoGear = towerInfo
+    ? equipmentForDefender(state.loadoutSnapshot, towerInfo.id)
+    : [];
   const activeBoss = state.enemies.find(
     (enemy) =>
       enemyDefinitions[enemy.enemyId as keyof typeof enemyDefinitions]?.boss,
@@ -597,7 +618,7 @@ export function GameScreen({
 
   return (
     <main
-      className="game-screen"
+      className={`game-screen tutorial-step-${tutorialStep}`}
       inert={quitOpen ? true : undefined}
       aria-hidden={quitOpen ? true : undefined}
     >
@@ -885,6 +906,18 @@ export function GameScreen({
             <span>
               <strong>{towerChoiceName(towerInfo)}</strong>
               <small>{towerTacticalDescription(towerInfo)}</small>
+              {towerInfoGear.length > 0 ? (
+                <small>
+                  Gear:{" "}
+                  {towerInfoGear
+                    .map(
+                      (item) => `${item.name} — ${equipmentEffectCopy(item)}`,
+                    )
+                    .join(" ")}
+                </small>
+              ) : (
+                <small>Gear: empty. This never blocks a mission.</small>
+              )}
             </span>
             <button
               type="button"
@@ -1055,6 +1088,95 @@ export function GameScreen({
                 {resultSaving ? "Saving result…" : "Continue to campaign"}
               </button>
             </div>
+          </section>
+        </div>
+      )}
+      {(training || !guidance.battleTutorialComplete) &&
+        !trainingComplete &&
+        state.phase !== "victory" &&
+        state.phase !== "defeat" && (
+          <aside className="battle-coach card" role="status" aria-live="polite">
+            <span className="eyebrow">Battle help · {tutorialStep + 1}/6</span>
+            <strong>
+              {
+                [
+                  "Pick a defender.",
+                  "Tap a glowing pad.",
+                  "Confirm the gold cost.",
+                  "Start the wave when ready.",
+                  "Upgrade between threats.",
+                  "Arm, then cast Forkfall.",
+                ][tutorialStep]
+              }
+            </strong>
+            <details>
+              <summary>Why?</summary>
+              <span>
+                {
+                  [
+                    "Fork is precise, Wizard splashes, and Bard slows groups.",
+                    "Only open pads can hold a defender.",
+                    "Gold is only spent after you confirm.",
+                    "Planning time is unlimited between waves.",
+                    "Upgrades make one defender stronger without taking another pad.",
+                    "Abilities are powerful, so arming prevents accidental casts.",
+                  ][tutorialStep]
+                }
+              </span>
+            </details>
+            <div className="coach-actions">
+              {tutorialStep > 0 && (
+                <button
+                  className="button button-ghost"
+                  onClick={() => setTutorialStep((step) => step - 1)}
+                >
+                  Back
+                </button>
+              )}
+              <button
+                className="button button-ghost"
+                onClick={() => {
+                  onGuidance({
+                    battleTutorialComplete: true,
+                    replayBattleGuidance: false,
+                  });
+                }}
+              >
+                Skip
+              </button>
+              <button
+                className="button button-primary"
+                onClick={() => {
+                  if (tutorialStep < 5) {
+                    setTutorialStep((step) => step + 1);
+                    return;
+                  }
+                  onGuidance({
+                    battleTutorialComplete: true,
+                    replayBattleGuidance: false,
+                  });
+                }}
+              >
+                {tutorialStep < 5 ? "Next" : "Got it"}
+              </button>
+            </div>
+          </aside>
+        )}
+      {trainingComplete && (
+        <div className="result-backdrop">
+          <section className="result-card result-victory">
+            <span className="eyebrow">Training Tent complete</span>
+            <h1>Two waves learned. Zero rewards granted.</h1>
+            <p>
+              Practice never changes Crowns, Dust, results, unlocks, or
+              checkpoints.
+            </p>
+            <button
+              className="button button-primary button-wide"
+              onClick={() => void onTrainingComplete()}
+            >
+              Return to campaign
+            </button>
           </section>
         </div>
       )}

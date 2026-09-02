@@ -79,7 +79,8 @@ export async function loadLocalSave(): Promise<LocalSaveRecord> {
 }
 
 export async function storeLocalSave(record: LocalSaveRecord): Promise<void> {
-  await (await database()).put("saves", record, SAVE_KEY);
+  const data = parseLocalSaveData(record.data);
+  await (await database()).put("saves", { ...record, data }, SAVE_KEY);
 }
 
 export function markLocalChange(

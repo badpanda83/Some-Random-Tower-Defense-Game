@@ -46,6 +46,99 @@ async function storedKeepPlayingWhileAway(page: Page): Promise<boolean | null> {
   });
 }
 
+async function completeRpgTour(page: Page): Promise<void> {
+  const tour = page.getByRole("dialog").filter({ hasText: "RPG tour" });
+  await expect(tour).toBeVisible();
+  await tour.getByRole("button", { name: "Next" }).click();
+  await tour.getByRole("button", { name: "Next" }).click();
+  await tour.getByRole("button", { name: "Tour complete" }).click();
+}
+
+async function prepareFirstChestSave(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction("saves", "readwrite");
+    const store = transaction.objectStore("saves");
+    const record = await new Promise<Record<string, unknown>>(
+      (resolve, reject) => {
+        const request = store.get("campaign");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      },
+    );
+    const data = record.data as {
+      campaign: {
+        unlockedNodeIds: string[];
+        levels: Record<string, unknown>;
+      };
+      economy: { questCrowns: number };
+      settings: { reducedMotion: boolean };
+      guidance: Record<string, boolean>;
+    };
+    data.campaign.unlockedNodeIds = ["muddy-moat", "mimic-market"];
+    data.campaign.levels["muddy-moat"] = {
+      bestScore: 100,
+      victories: 1,
+      completedMasteryIds: [],
+      completedModifierIds: [],
+    };
+    data.economy.questCrowns = 120;
+    data.settings.reducedMotion = true;
+    data.guidance.battleTutorialComplete = true;
+    data.guidance.rpgTourComplete = true;
+    store.put({ ...record, data, pending: true }, "campaign");
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  });
+}
+
+async function storedRpgState(page: Page) {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction("saves", "readonly");
+    const record = await new Promise<{
+      data: {
+        economy: {
+          questCrowns: number;
+          openSequence: number;
+          recentReceipts: { kind: string }[];
+        };
+        inventory: { ownedItemIds: string[] };
+        loadouts: Record<string, Record<string, string | null>>;
+        guidance: { firstEquipComplete: boolean };
+      };
+    }>((resolve, reject) => {
+      const request = transaction.objectStore("saves").get("campaign");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    database.close();
+    return {
+      crowns: record.data.economy.questCrowns,
+      openSequence: record.data.economy.openSequence,
+      receiptKinds: record.data.economy.recentReceipts.map(
+        (receipt) => receipt.kind,
+      ),
+      owned: record.data.inventory.ownedItemIds,
+      equipped: Object.values(record.data.loadouts).flatMap((loadout) =>
+        Object.values(loadout).filter(Boolean),
+      ),
+      firstEquipComplete: record.data.guidance.firstEquipComplete,
+    };
+  });
+}
+
 function towerPadName(position: {
   readonly x: number;
   readonly y: number;
@@ -644,6 +737,7 @@ test("persists a completed victory and unlocks Mimic Market offline", async ({
   ).toBeVisible({ timeout: 70_000 });
   await page.evaluate(async () => navigator.serviceWorker.ready);
   await page.getByRole("button", { name: "Continue to campaign" }).click();
+  await page.getByRole("button", { name: "Campaign" }).click();
 
   const mimicMarket = page.getByRole("button", {
     name: /Mimic Market/,
@@ -823,6 +917,7 @@ test("completes a real Act II mission (Frozen Assets) from a deterministic mid-c
   });
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
+  await completeRpgTour(page);
 
   const resumeButton = page.getByRole("button", { name: "Resume wave 8" });
   await expect(resumeButton).toBeVisible();
@@ -840,6 +935,7 @@ test("completes a real Act II mission (Frozen Assets) from a deterministic mid-c
     page.getByRole("heading", { name: "Frozen Assets is defended!" }),
   ).toBeVisible({ timeout: 100_000 });
   await page.getByRole("button", { name: "Continue to campaign" }).click();
+  await page.getByRole("button", { name: "Campaign" }).click();
 
   const frozenAssets = page.getByRole("button", { name: /Frozen Assets/ });
   await expect(frozenAssets).toContainText("1 victory");
@@ -1012,6 +1108,7 @@ test("completes Act III and persists the 10/10 campaign epilogue", async ({
   });
   await page.reload();
   await page.getByRole("button", { name: "Enter the realm" }).click();
+  await completeRpgTour(page);
   await page.getByRole("button", { name: "Resume wave 10" }).click();
   await expect(page.getByRole("button", { name: "Start Wave 10" })).toBeVisible(
     { timeout: 20_000 },
@@ -1029,6 +1126,7 @@ test("completes Act III and persists the 10/10 campaign epilogue", async ({
   ).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText(/campaign epilogue is unlocked/i)).toBeVisible();
   await page.getByRole("button", { name: "Continue to campaign" }).click();
+  await page.getByRole("button", { name: "Campaign" }).click();
 
   await expect(page.getByText("10/10").first()).toBeVisible();
   await expect(
@@ -1044,6 +1142,173 @@ test("completes Act III and persists the 10/10 campaign epilogue", async ({
   await expect(
     page.getByText("The Quarterly Review is adjourned."),
   ).toBeVisible();
+});
+
+test("opens the guided chest offline, equips it, and returns to Mission 2", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Enter the realm" }),
+  ).toBeVisible();
+  await prepareFirstChestSave(page);
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByRole("button", { name: "Chests" }).click();
+
+  await expect(page.getByText(/S or better within 5 chests/)).toBeVisible();
+  await expect(page.getByText(/C 35% · B 27% · A 19%/)).toBeVisible();
+  await context.setOffline(true);
+  await page
+    .getByRole("article")
+    .filter({ hasText: "Royal Supply Chest" })
+    .getByRole("button", { name: "Review purchase" })
+    .click();
+  await page.getByRole("button", { name: "Confirm and open one" }).click();
+  await expect(
+    page.getByRole("button", { name: "Compare & equip" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Compare & equip" }).click();
+  await page.getByRole("button", { name: "Equip" }).click();
+  await page.getByRole("button", { name: "Confirm equip" }).click();
+  await expect(page.getByText("Gear lesson complete.")).toBeVisible();
+  await page.getByRole("button", { name: "Continue to Mission 2" }).click();
+  await expect(
+    page.getByRole("button", { name: /Mimic Market\. Unlocked\./ }),
+  ).toBeVisible();
+
+  await expect
+    .poll(() => storedRpgState(page))
+    .toMatchObject({
+      crowns: 0,
+      openSequence: 1,
+      receiptKinds: expect.arrayContaining(["chest-opened", "equipped"]),
+      owned: expect.arrayContaining([expect.any(String)]),
+      equipped: expect.arrayContaining([expect.any(String)]),
+      firstEquipComplete: true,
+    });
+  await context.setOffline(false);
+});
+
+test("welcomes a veteran and keeps their checkpoint during replayable training", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "The veteran migration and training checkpoint guard run once on desktop.",
+  );
+  await page.route("**/api/**", (route) => route.abort());
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Enter the realm" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => storedCheckpoint(page))
+    .toMatchObject({
+      checkpoint: null,
+      pending: true,
+    });
+  await seedSaveData(page, {
+    contentVersion: 3,
+    campaign: {
+      unlockedNodeIds: ["muddy-moat", "frozen-assets"],
+      levels: {
+        "muddy-moat": {
+          bestScore: 100,
+          victories: 1,
+          completedMasteryIds: [],
+          completedModifierIds: [],
+        },
+      },
+      recentResults: [],
+      recordedAttemptIds: [],
+    },
+    settings: {
+      muted: true,
+      reducedMotion: true,
+      lowEffects: false,
+      gameSpeed: 1,
+    },
+    checkpoint: {
+      levelId: "muddy-moat",
+      seed: 77,
+      modifierIds: [],
+      tick: 100,
+      nextWave: 1,
+      lives: 18,
+      gold: 225,
+      score: 500,
+      spawnedEnemies: 12,
+      placements: [],
+      metrics: {
+        spentGold: 0,
+        leakedEnemies: 0,
+        soldTowers: 0,
+        usedTowerIds: [],
+      },
+    },
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+
+  const tour = page.getByRole("dialog").filter({ hasText: "RPG tour" });
+  await expect(tour).toContainText(
+    "This Veteran Welcome Grant includes 120 bonus Crowns",
+  );
+  await completeRpgTour(page);
+  await expect(tour).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Resume wave 2" }),
+  ).toBeVisible();
+
+  await page.getByText("Traveling settings cart").click();
+  await page.getByRole("button", { name: "Replay battle help" }).click();
+  await expect(page.locator(".battlefield canvas")).toBeVisible();
+  await page.getByText("Why?").click();
+  await expect(
+    page.getByText("Fork is precise, Wizard splashes, and Bard slows groups."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Leave mission" }).click();
+  await page.getByRole("button", { name: "Abandon mission" }).click();
+
+  await expect(
+    page.getByRole("button", { name: "Resume wave 2" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => storedCheckpoint(page))
+    .toMatchObject({
+      checkpoint: {
+        levelId: "muddy-moat",
+        nextWave: 1,
+      },
+    });
+});
+
+test("keeps portrait progression menus inside a 320px viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByRole("button", { name: "Defenders" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Defenders and gear" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Chests" }).click();
+  await expect(
+    page.getByRole("heading", { name: "One chest. One authored item." }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 });
 
 test("cancels and confirms mission abandonment without retaining progress", async ({
