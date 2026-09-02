@@ -51,7 +51,7 @@ interface GameScreenProps {
   readonly pageActivity?: PageActivitySource;
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
   readonly onComplete: (result: BattleResult) => Promise<void>;
-  readonly onRetry: () => void;
+  readonly onRetry: () => Promise<void>;
   readonly onAbandon: () => Promise<void>;
   readonly onSettings: (settings: Settings) => void;
 }
@@ -514,6 +514,26 @@ export function GameScreen({
         error instanceof Error
           ? error.message
           : "The result could not be stored locally.",
+      );
+      resultSavingRef.current = false;
+      setResultSaving(false);
+    }
+  }
+
+  async function retry() {
+    if (resultSavingRef.current) {
+      return;
+    }
+    resultSavingRef.current = true;
+    setResultSaving(true);
+    setResultError(null);
+    try {
+      await onRetry();
+    } catch (error) {
+      setResultError(
+        error instanceof Error
+          ? error.message
+          : "The previous checkpoint could not be cleared.",
       );
       resultSavingRef.current = false;
       setResultSaving(false);
@@ -1021,7 +1041,7 @@ export function GameScreen({
             <div className="result-actions">
               <button
                 className="button button-ghost"
-                onClick={onRetry}
+                onClick={() => void retry()}
                 disabled={resultSaving}
               >
                 Retry

@@ -1,7 +1,7 @@
 import type { BattleCheckpoint, LoadoutSnapshot } from "@srtg/protocol";
 import { describe, expect, it } from "vitest";
 
-import { levelDefinitions } from "./content.js";
+import { enemyDefinitions, levelDefinitions } from "./content.js";
 import { createEmptyLoadouts } from "./equipment.js";
 import { compareTowerInstanceIds, createSimulation } from "./simulation.js";
 import type { GameEvent } from "./types.js";
@@ -479,6 +479,101 @@ describe("equipment simulation replay", () => {
       simulation.state.metrics.equipment["robes-of-the-second-draft"]
         ?.procCount ?? 0,
     ).toBe(0);
+  });
+
+  it("prevents only the first normal leak while retaining leak metrics", () => {
+    const value = checkpoint("muddy-moat", 29);
+    value.lives = 999;
+    value.loadoutSnapshot = {
+      ...createEmptyLoadouts(),
+      "fork-knight": {
+        weapon: null,
+        armor: "oven-mitts-of-holding",
+        charm: null,
+      },
+    };
+    value.placements = [
+      {
+        id: "tower-1",
+        towerId: "fork-knight",
+        padId: "bramble-seat",
+        level: 1,
+      },
+    ];
+    value.metrics.usedTowerIds = ["fork-knight"];
+    value.metrics.maxTowersPlaced = 1;
+    const simulation = createSimulation({ checkpoint: value });
+    const events = completeCurrentWave(simulation);
+    const leaks = events.filter((event) => event.type === "enemy-leaked");
+
+    expect(leaks.length).toBeGreaterThan(1);
+    expect(leaks[0]?.damage).toBe(0);
+    expect(leaks[1]?.damage).toBe(1);
+    expect(simulation.state.metrics.leakedEnemies).toBe(leaks.length);
+    expect(
+      simulation.state.metrics.equipment["oven-mitts-of-holding"],
+    ).toMatchObject({
+      procCount: 1,
+      lifeDamagePrevented: 1,
+    });
+  });
+
+  it("never prevents boss leak damage", () => {
+    const level = levelDefinitions["mimic-market"];
+    const value = checkpoint("mimic-market", 31, level.waves.length - 1);
+    value.lives = 999;
+    value.loadoutSnapshot = {
+      ...createEmptyLoadouts(),
+      "fork-knight": {
+        weapon: null,
+        armor: "oven-mitts-of-holding",
+        charm: null,
+      },
+    };
+    const simulation = createSimulation({ checkpoint: value });
+    simulation.dispatch({ type: "start-wave" });
+
+    let bossId: string | null = null;
+    let towerPlaced = false;
+    for (let safety = 0; safety < 20_000; safety += 1) {
+      const result = simulation.step(1);
+      const bossSpawn = result.events.find(
+        (event) =>
+          event.type === "enemy-spawned" &&
+          event.enemyId === "grand-till-mimic",
+      );
+      if (bossSpawn?.type === "enemy-spawned") {
+        bossId = bossSpawn.instanceId;
+      }
+      if (
+        bossId &&
+        !towerPlaced &&
+        simulation.state.enemies.length === 1 &&
+        simulation.state.enemies[0]?.id === bossId
+      ) {
+        simulation.dispatch({
+          type: "place-tower",
+          towerId: "fork-knight",
+          padId: level.pads[0]!.id,
+        });
+        towerPlaced = true;
+      }
+      const bossLeak = result.events.find(
+        (event) => event.type === "enemy-leaked" && event.instanceId === bossId,
+      );
+      if (bossLeak?.type === "enemy-leaked") {
+        expect(towerPlaced).toBe(true);
+        expect(bossLeak.damage).toBe(
+          enemyDefinitions["grand-till-mimic"].lifeDamage,
+        );
+        expect(
+          simulation.state.metrics.equipment["oven-mitts-of-holding"]
+            ?.lifeDamagePrevented ?? 0,
+        ).toBe(0);
+        return;
+      }
+    }
+    throw new Error("Grand Till Mimic did not leak");
   });
 
   it("orders more than nine tower instances numerically on replay", () => {

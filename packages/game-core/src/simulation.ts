@@ -2042,6 +2042,64 @@ class GameSimulation implements Simulation {
     }
   }
 
+  private preventLeakDamage(
+    leakedEnemy: EnemyState,
+    incomingDamage: number,
+    events: GameEvent[],
+  ): number {
+    const state = this.mutableState;
+    if (enemyDefinition(leakedEnemy.enemyId).boss) {
+      return 0;
+    }
+    let prevented = 0;
+    for (const defenderId of [
+      "fork-knight",
+      "discount-wizard",
+      "bardbarian",
+    ] as const) {
+      const source = state.towers
+        .filter((tower) => tower.towerId === defenderId)
+        .sort((left, right) => compareTowerInstanceIds(left.id, right.id))[0];
+      if (!source) {
+        continue;
+      }
+      for (const item of equipmentForDefender(
+        state.loadoutSnapshot,
+        defenderId,
+      )) {
+        for (const effect of item.effects) {
+          if (effect.kind !== "prevent-leak-damage") {
+            continue;
+          }
+          const key = `${item.id}:${effect.id}`;
+          if (
+            state.equipmentProcState.oncePerBattleIds.includes(key) ||
+            prevented >= incomingDamage
+          ) {
+            continue;
+          }
+          const amount = Math.min(effect.amount, incomingDamage - prevented);
+          state.equipmentProcState.oncePerBattleIds.push(key);
+          prevented += amount;
+          this.recordEquipmentContribution(item.id, {
+            procCount: 1,
+            lifeDamagePrevented: amount,
+          });
+          events.push({
+            type: "equipment-effect",
+            itemId: item.id,
+            effectId: effect.id,
+            sourceInstanceId: source.id,
+            targetInstanceId: leakedEnemy.id,
+            outcome: "applied",
+            message: `Prevented ${amount} leak damage`,
+          });
+        }
+      }
+    }
+    return prevented;
+  }
+
   private isSupportPulseActive(pulse: {
     readonly periodTicks: number;
     readonly activeTicks: number;
@@ -2430,7 +2488,13 @@ class GameSimulation implements Simulation {
         this.routePaths.get(enemy.routeId) ??
         this.routePaths.get(this.defaultRouteId)!;
       if (distance >= preparedPath.totalDistanceMilli) {
-        state.lives = Math.max(0, state.lives - definition.lifeDamage);
+        const preventedDamage = this.preventLeakDamage(
+          enemy,
+          definition.lifeDamage,
+          events,
+        );
+        const lifeDamage = definition.lifeDamage - preventedDamage;
+        state.lives = Math.max(0, state.lives - lifeDamage);
         state.metrics.leakedEnemies += 1;
         state.metrics.leakedByEnemyId[enemy.enemyId] =
           (state.metrics.leakedByEnemyId[enemy.enemyId] ?? 0) + 1;
@@ -2443,7 +2507,7 @@ class GameSimulation implements Simulation {
         events.push({
           type: "enemy-leaked",
           instanceId: enemy.id,
-          damage: definition.lifeDamage,
+          damage: lifeDamage,
         });
       } else {
         const reachedHalfway =

@@ -1,4 +1,10 @@
-import type { BattleCheckpoint, LoadoutSnapshot } from "@srtg/protocol";
+import type {
+  BattleCheckpoint,
+  LoadoutSnapshot,
+  SaveData,
+} from "@srtg/protocol";
+
+import { withoutBattleCheckpoint } from "./save.js";
 
 export interface BattleSetup {
   readonly levelId: string;
@@ -39,4 +45,16 @@ export function createRetryBattleSetup(
     loadoutSnapshot: battle.loadoutSnapshot,
     key,
   };
+}
+
+export async function prepareBattleRetry(
+  battle: BattleSetup,
+  save: SaveData,
+  persist: (data: SaveData) => Promise<void>,
+  seed = randomSeed(),
+  attemptId = randomAttemptId(),
+  key = Date.now(),
+): Promise<BattleSetup> {
+  await persist(withoutBattleCheckpoint(save));
+  return createRetryBattleSetup(battle, seed, attemptId, key);
 }

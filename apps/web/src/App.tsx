@@ -38,7 +38,7 @@ import {
 } from "./save.js";
 import { reconcileCompletedSync } from "./sync-state.js";
 import {
-  createRetryBattleSetup,
+  prepareBattleRetry,
   randomAttemptId,
   randomSeed,
   type BattleSetup,
@@ -428,7 +428,14 @@ export function App() {
                 setScreen("campaign");
                 setBattle(null);
               }}
-              onRetry={() => setBattle(createRetryBattleSetup(battle))}
+              onRetry={async () => {
+                const retry = await prepareBattleRetry(
+                  battle,
+                  recordRef.current!.data,
+                  commit,
+                );
+                setBattle(retry);
+              }}
               onAbandon={async () => {
                 await commit(withoutBattleCheckpoint(recordRef.current!.data));
                 setScreen("campaign");

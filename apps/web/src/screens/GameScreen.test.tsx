@@ -119,7 +119,7 @@ function renderGame(
   checkpoint: BattleCheckpoint | null = null,
   overrides: Partial<{
     onComplete: (result: BattleResult) => Promise<void>;
-    onRetry: () => void;
+    onRetry: () => Promise<void>;
     onAbandon: () => Promise<void>;
   }> = {},
   unlockedRewardIds: readonly string[] = [],
@@ -127,7 +127,7 @@ function renderGame(
   const callbacks = {
     onCheckpoint: vi.fn(),
     onComplete: vi.fn().mockResolvedValue(undefined),
-    onRetry: vi.fn(),
+    onRetry: vi.fn().mockResolvedValue(undefined),
     onAbandon: vi.fn().mockResolvedValue(undefined),
     onSettings: vi.fn(),
     ...overrides,
