@@ -1733,7 +1733,7 @@ export const departmentOfUnnecessaryBridgesLevel: LevelDefinition = {
     {
       name: "Middle Management",
       preview:
-        "Priority target: Middle Manager Mages visibly hasten physical-resistant auditors on both routes.",
+        "Priority target: Middle Manager Mages enter both routes, but the physical-resistant auditors they hasten stay on the south route.",
       spawns: wave(
         group("middle-manager-mage", 4, 76),
         group("middle-manager-mage", 4, 74, 30, "south-route"),
@@ -2469,7 +2469,7 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     {
       name: "First Referral",
       preview:
-        "Marked: the first physical-resistant auditor defeated returns once at half health; arcane or sonic coverage finishes the referral.",
+        "Marked: whichever non-boss falls first returns once at half health; watch its resistance and finish the referral.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,
@@ -2493,7 +2493,7 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     {
       name: "Claims Follow-Up",
       preview:
-        "Marked: resistant auditors lead north while Slimes split south; the first defeat also returns.",
+        "Marked: resistant auditors lead northwest while Slimes split on both routes; the first non-boss defeated also returns.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,
@@ -2541,7 +2541,7 @@ export const necromancersNetworkingEventLevel: LevelDefinition = {
     {
       name: "Referral Capstone",
       preview:
-        "Marked: the first resistant Auditor or Wraith returns while priority Middle Managers support both routes.",
+        "Marked: the first non-boss defeated returns while priority Middle Managers support both routes.",
       referral: { reviveHealthPercent: 50 },
       spawns: pacedWave(
         170,

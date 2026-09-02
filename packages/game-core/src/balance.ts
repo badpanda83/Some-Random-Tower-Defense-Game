@@ -279,7 +279,10 @@ export const twoForkStressPadIdsByLevel = {
 export function runTwoForkStressReference(
   levelId: keyof typeof twoForkStressPadIdsByLevel,
 ): MissionBalanceReport {
-  return runReferenceStrategy(levelId, referenceStrategies["mono-fork-matrix"]);
+  return runReferenceStrategy(levelId, {
+    ...referenceStrategies["mono-fork-matrix"],
+    preferredPadIds: twoForkStressPadIdsByLevel[levelId],
+  });
 }
 
 export const referencePlanningModel = {

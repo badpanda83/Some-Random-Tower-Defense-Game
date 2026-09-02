@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { levelDefinitions, towerDefinitions } from "./content.js";
+import { levelDefinitions } from "./content.js";
 import {
   referenceStrategies,
   representativeStrategyIdsByLevel,
@@ -92,18 +92,35 @@ describe("Act I balance references", () => {
   );
 
   it.each([
-    ["frozen-assets", 1, 1_547],
-    ["department-of-unnecessary-bridges", 9, 13_544],
-    ["siege-and-desist", 5, 6_862],
-    ["lava-lamp-district", 5, 8_061],
-    ["necromancers-networking-event", 3, 3_820],
-    ["quarterly-dragon-review", 1, 1_306],
+    ["frozen-assets", 1, 1_547, 3],
+    ["department-of-unnecessary-bridges", 9, 13_544, 4],
+    ["siege-and-desist", 5, 6_862, 4],
+    ["lava-lamp-district", 5, 8_061, 4],
+    ["necromancers-networking-event", 3, 3_820, 4],
+    ["quarterly-dragon-review", 1, 1_306, 4],
   ] as const)(
     "rejects the exact no-gear mono-Fork matrix on %s",
-    (levelId, endingWave, battleTicks) => {
+    (levelId, endingWave, battleTicks, maximumRank) => {
       const report = runTwoForkStressReference(levelId);
+      const expectedPadIds = [...twoForkStressPadIdsByLevel[levelId]];
+      const placementPadIds = report.buildActions
+        .filter((action) => action.action === "place")
+        .map((action) => action.padId);
+      const maximumRankByPad = Object.fromEntries(
+        expectedPadIds.map((padId) => [
+          padId,
+          Math.max(
+            ...report.buildActions
+              .filter((action) => action.padId === padId)
+              .map((action) => action.resultingLevel),
+          ),
+        ]),
+      );
 
-      expect(twoForkStressPadIdsByLevel[levelId]).toHaveLength(2);
+      expect(placementPadIds).toEqual(expectedPadIds);
+      expect(maximumRankByPad).toEqual(
+        Object.fromEntries(expectedPadIds.map((padId) => [padId, maximumRank])),
+      );
       expect(report).toMatchObject({
         strategyId: "mono-fork-matrix",
         result: "defeat",
@@ -112,16 +129,6 @@ describe("Act I balance references", () => {
         lives: 0,
         towers: 2,
       });
-      if (levelId !== "frozen-assets") {
-        expect(
-          report.buildActions.filter(
-            (action) =>
-              action.towerId === "fork-knight" &&
-              action.resultingLevel ===
-                towerDefinitions["fork-knight"].levels.length,
-          ),
-        ).toHaveLength(2);
-      }
     },
   );
 
