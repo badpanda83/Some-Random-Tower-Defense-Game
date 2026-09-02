@@ -372,6 +372,19 @@ class GameSimulation implements Simulation {
     return pointAlongPath(preparedPath, enemy.pathDistanceMilli);
   }
 
+  private compareEnemyProgress(left: EnemyState, right: EnemyState): number {
+    const leftPath =
+      this.routePaths.get(left.routeId) ??
+      this.routePaths.get(this.defaultRouteId)!;
+    const rightPath =
+      this.routePaths.get(right.routeId) ??
+      this.routePaths.get(this.defaultRouteId)!;
+    const leftRemaining = leftPath.totalDistanceMilli - left.pathDistanceMilli;
+    const rightRemaining =
+      rightPath.totalDistanceMilli - right.pathDistanceMilli;
+    return leftRemaining - rightRemaining || left.id.localeCompare(right.id);
+  }
+
   public getTowerMaxLevel(towerId: string): number {
     if (!Object.hasOwn(towerDefinitions, towerId)) {
       throw new Error(`Unknown tower: ${towerId}`);
@@ -591,10 +604,8 @@ class GameSimulation implements Simulation {
     if (state.abilityChargeTicks < ROYAL_FORKFALL_CHARGE_TICKS) {
       throw new Error("Royal Forkfall is still charging");
     }
-    const target = [...state.enemies].sort(
-      (left, right) =>
-        right.pathDistanceMilli - left.pathDistanceMilli ||
-        left.id.localeCompare(right.id),
+    const target = [...state.enemies].sort((left, right) =>
+      this.compareEnemyProgress(left, right),
     )[0];
     if (!target) {
       throw new Error("Royal Forkfall needs an enemy target");
@@ -1019,11 +1030,7 @@ class GameSimulation implements Simulation {
             squaredDistance(pad.position, this.getEnemyPosition(enemy)) <=
             range * range,
         )
-        .sort(
-          (left, right) =>
-            right.pathDistanceMilli - left.pathDistanceMilli ||
-            left.id.localeCompare(right.id),
-        );
+        .sort((left, right) => this.compareEnemyProgress(left, right));
 
       const primaryTargets = targets.slice(0, 1 + (level.pierceCount ?? 0));
       const target = primaryTargets[0];

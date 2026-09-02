@@ -2,8 +2,14 @@ import type { BattleCheckpoint } from "@srtg/protocol";
 import { describe, expect, it } from "vitest";
 
 import { levelDefinitions } from "./content.js";
+import { preparePath } from "./path.js";
 import { createSimulation } from "./simulation.js";
-import type { GameEvent, Simulation } from "./types.js";
+import {
+  ROYAL_FORKFALL_CHARGE_TICKS,
+  type EnemyState,
+  type GameEvent,
+  type Simulation,
+} from "./types.js";
 
 const rankRewards = [
   "fork-table-service",
@@ -57,6 +63,61 @@ function finishWave(simulation: Simulation): GameEvent[] {
 }
 
 describe("Act III deterministic systems", () => {
+  it("targets the enemy closest to the exit across unequal routes", () => {
+    const level = levelDefinitions["quarterly-dragon-review"];
+    const routeLengths = new Map(
+      level.routes.map((route) => [
+        route.id,
+        preparePath(route.path).totalDistanceMilli,
+      ]),
+    );
+    const simulation = createSimulation({
+      checkpoint: {
+        ...checkpoint("quarterly-dragon-review", 1, 0),
+        spawnedEnemies: 0,
+        abilityChargeTicks: ROYAL_FORKFALL_CHARGE_TICKS,
+      },
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    let rawDistanceLeader: EnemyState | undefined;
+    let exitDistanceLeader: EnemyState | undefined;
+    for (let tick = 0; tick < 1_000; tick += 1) {
+      simulation.step();
+      const enemies = simulation.state.enemies;
+      rawDistanceLeader = [...enemies].sort(
+        (left, right) =>
+          right.pathDistanceMilli - left.pathDistanceMilli ||
+          left.id.localeCompare(right.id),
+      )[0];
+      exitDistanceLeader = [...enemies].sort((left, right) => {
+        const leftRemaining =
+          routeLengths.get(left.routeId)! - left.pathDistanceMilli;
+        const rightRemaining =
+          routeLengths.get(right.routeId)! - right.pathDistanceMilli;
+        return (
+          leftRemaining - rightRemaining || left.id.localeCompare(right.id)
+        );
+      })[0];
+      if (
+        rawDistanceLeader &&
+        exitDistanceLeader &&
+        rawDistanceLeader.id !== exitDistanceLeader.id
+      ) {
+        break;
+      }
+    }
+
+    expect(rawDistanceLeader?.id).not.toBe(exitDistanceLeader?.id);
+    const result = simulation.dispatch({ type: "activate-ability" });
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        type: "ability-activated",
+        targetInstanceId: exitDistanceLeader?.id,
+      }),
+    );
+  });
+
   it("telegraphs eruptions, exposes authored pads, and persists metrics", () => {
     const simulation = createSimulation({
       checkpoint: checkpoint("lava-lamp-district", 2, 2),

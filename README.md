@@ -24,9 +24,9 @@ Measured normal first clears for Act III are:
 | ------------------------------ | -------------------------------------------------: | ---------------------: |
 | Lava Lamp District             | 14,409 active ticks / 15.24 representative minutes | 14,295 / 15.15 minutes |
 | Necromancers' Networking Event |                             15,525 / 16.58 minutes | 15,148 / 16.35 minutes |
-| Quarterly Dragon Review        |                             17,370 / 18.61 minutes | 16,817 / 18.27 minutes |
+| Quarterly Dragon Review        |                             17,213 / 18.48 minutes | 16,919 / 18.36 minutes |
 
-Across all ten missions, the first and second measured normal composition families total 165.33 and 163.89 representative minutes (about 2 hours 45 minutes) for a no-retry campaign clear. Frozen Assets uses the compact five-tower mixed family as its second reference. Its two-rank-IV-Fork combat stress build now fails after six waves, while the two mixed references win with 14 and 8 lives.
+Across all ten missions, the first and second measured normal composition families total 165.20 and 163.98 representative minutes (about 2 hours 45 minutes) for a no-retry campaign clear. Frozen Assets uses the compact five-tower mixed family as its second reference. Its two-rank-IV-Fork combat stress build now fails after six waves, while the two mixed references win with 14 and 8 lives.
 
 ## Architecture
 
