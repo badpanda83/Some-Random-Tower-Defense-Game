@@ -246,6 +246,106 @@ describe("equipment simulation replay", () => {
     throw new Error("Boss did not cross a phase threshold");
   });
 
+  it("does not count a primary control proc rejected by immunity", () => {
+    const value = checkpoint("quarterly-dragon-review", 19, 7);
+    value.loadoutSnapshot = {
+      ...createEmptyLoadouts(),
+      "discount-wizard": {
+        weapon: "wand-of-definitely-winter",
+        armor: null,
+        charm: null,
+      },
+    };
+    value.placements = [
+      {
+        id: "tower-1",
+        towerId: "discount-wizard",
+        padId: "warehouse-door",
+        level: 4,
+      },
+    ];
+    value.metrics.usedTowerIds = ["discount-wizard"];
+    value.metrics.maxTowersPlaced = 1;
+    value.rngState = { spawn: 1, combat: 1 };
+    const simulation = createSimulation({
+      checkpoint: value,
+      unlockedRewardIds: ["wizard-actual-certification"],
+    });
+    simulation.dispatch({ type: "start-wave" });
+
+    for (let safety = 0; safety < 2_000; safety += 1) {
+      const result = simulation.step(1);
+      const immune = result.events.find(
+        (event) =>
+          event.type === "equipment-effect" &&
+          event.effectId === "definitely-winter-freeze" &&
+          event.outcome === "immune",
+      );
+      if (immune) {
+        expect(
+          simulation.state.metrics.equipment["wand-of-definitely-winter"]
+            ?.procCount ?? 0,
+        ).toBe(0);
+        return;
+      }
+    }
+    throw new Error("Queue Jumper did not reject the control proc");
+  });
+
+  it("does not count a primary control proc rejected during resolve", () => {
+    const value = checkpoint("quarterly-dragon-review", 23, 6);
+    value.loadoutSnapshot = {
+      ...createEmptyLoadouts(),
+      "discount-wizard": {
+        weapon: "wand-of-definitely-winter",
+        armor: null,
+        charm: null,
+      },
+    };
+    value.placements = levelDefinitions["quarterly-dragon-review"].pads.map(
+      (pad, index) => ({
+        id: `tower-${index + 1}`,
+        towerId: "discount-wizard",
+        padId: pad.id,
+        level: 1,
+      }),
+    );
+    value.metrics.usedTowerIds = ["discount-wizard"];
+    value.metrics.maxTowersPlaced = value.placements.length;
+    value.rngState = { spawn: 1, combat: 77_880 };
+    const simulation = createSimulation({ checkpoint: value });
+    simulation.dispatch({ type: "start-wave" });
+
+    const controlEvents: GameEvent[] = [];
+    for (let safety = 0; safety < 2_000; safety += 1) {
+      const result = simulation.step(1);
+      controlEvents.push(
+        ...result.events.filter(
+          (event) =>
+            event.type === "equipment-effect" &&
+            event.effectId === "definitely-winter-freeze",
+        ),
+      );
+      if (
+        controlEvents.some(
+          (event) =>
+            event.type === "equipment-effect" && event.outcome === "rejected",
+        )
+      ) {
+        const appliedCount = controlEvents.filter(
+          (event) =>
+            event.type === "equipment-effect" && event.outcome === "applied",
+        ).length;
+        expect(
+          simulation.state.metrics.equipment["wand-of-definitely-winter"]
+            ?.procCount ?? 0,
+        ).toBe(appliedCount);
+        return;
+      }
+    }
+    throw new Error("A synchronized control proc was not rejected by resolve");
+  });
+
   it("does not count synchronized counters suppressed by a shared cooldown", () => {
     const value = checkpoint("quarterly-dragon-review", 11);
     value.loadoutSnapshot = {

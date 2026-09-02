@@ -418,6 +418,15 @@ export function GameScreen({
         `${definition.name} enters the battlefield. Boss health and stage are now pinned.`,
       );
     }
+    const equipmentConversion = events.find(
+      (event) =>
+        event.type === "equipment-effect" &&
+        (event.outcome === "converted" ||
+          event.message.toLowerCase().includes("resist")),
+    );
+    if (equipmentConversion?.type === "equipment-effect") {
+      setMessage(equipmentConversion.message);
+    }
   }
 
   function setSpeed(speed: GameSpeed) {

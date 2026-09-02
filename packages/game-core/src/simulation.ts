@@ -1582,7 +1582,6 @@ class GameSimulation implements Simulation {
             continue;
           }
           const definition = enemyDefinition(target.enemyId);
-          this.recordEquipmentContribution(item.id, { procCount: 1 });
           if (definition.boss) {
             if (effect.boss.kind === "bonus-damage") {
               const bonus = this.damageEnemy(
@@ -1595,6 +1594,7 @@ class GameSimulation implements Simulation {
                 tower.id,
               );
               this.recordEquipmentContribution(item.id, {
+                procCount: 1,
                 directBonusDamage: bonus,
               });
               events.push({
@@ -1607,7 +1607,7 @@ class GameSimulation implements Simulation {
                 message: `Boss resisted ${effect.normal.kind} - bonus damage applied`,
               });
             } else {
-              this.applyEquipmentStatus(
+              const outcome = this.applyEquipmentStatus(
                 item.id,
                 effect.id,
                 tower.id,
@@ -1620,6 +1620,9 @@ class GameSimulation implements Simulation {
                 true,
                 events,
               );
+              if (outcome === "applied") {
+                this.recordEquipmentContribution(item.id, { procCount: 1 });
+              }
             }
           } else {
             const slowImmune =
@@ -1641,6 +1644,7 @@ class GameSimulation implements Simulation {
                 tower.id,
               );
               this.recordEquipmentContribution(item.id, {
+                procCount: 1,
                 directBonusDamage: bonus,
               });
               events.push({
@@ -1653,7 +1657,7 @@ class GameSimulation implements Simulation {
                 message: "Control immunity converted polymorph to bonus damage",
               });
             } else {
-              this.applyEquipmentStatus(
+              const outcome = this.applyEquipmentStatus(
                 item.id,
                 effect.id,
                 tower.id,
@@ -1662,6 +1666,9 @@ class GameSimulation implements Simulation {
                 false,
                 events,
               );
+              if (outcome === "applied") {
+                this.recordEquipmentContribution(item.id, { procCount: 1 });
+              }
             }
           }
           continue;
@@ -1902,14 +1909,14 @@ class GameSimulation implements Simulation {
     converted: boolean,
     events: GameEvent[],
     convertedMessage?: string,
-  ): void {
+  ): "applied" | "immune" | "rejected" | "missing" {
     const state = this.mutableState;
     const index = state.enemies.findIndex(
       (enemy) => enemy.id === targetInstanceId,
     );
     const enemy = state.enemies[index];
     if (!enemy) {
-      return;
+      return "missing";
     }
     const definition = enemyDefinition(enemy.enemyId);
     const slowImmune =
@@ -1951,6 +1958,7 @@ class GameSimulation implements Simulation {
               ? "Control rejected during resolve"
               : `${request.kind} applied`),
     });
+    return application.outcome;
   }
 
   private recordEquipmentContribution(
