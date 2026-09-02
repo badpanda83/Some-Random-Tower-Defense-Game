@@ -69,5 +69,17 @@ describe("local save writer", () => {
       "mimic-market",
       "troll-tollway",
     ]);
+    expect(loaded.settings.keepPlayingWhileAway).toBe(false);
+  });
+
+  it("reloads the background-play preference without changing other save data", () => {
+    const fresh = createFreshSave();
+    const loaded = parseLocalSaveData({
+      ...fresh,
+      settings: { ...fresh.settings, keepPlayingWhileAway: true },
+    });
+
+    expect(loaded.settings.keepPlayingWhileAway).toBe(true);
+    expect(loaded.campaign).toEqual(fresh.campaign);
   });
 });

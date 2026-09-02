@@ -22,6 +22,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -36,7 +37,6 @@ import {
 export interface BattlefieldHandle {
   dispatch(command: GameCommand): boolean;
   confirmPlacement(preview: PlacementPreview): boolean;
-  setPaused(paused: boolean): void;
   setSpeed(speed: GameSpeed): void;
 }
 
@@ -49,13 +49,13 @@ interface BattlefieldProps {
   readonly simulation: Simulation;
   readonly placementPreview: PlacementPreview | null;
   readonly managementDisabled: boolean;
+  readonly paused: boolean;
   readonly gameSpeed: GameSpeed;
   readonly lowEffects: boolean;
   readonly reducedMotion: boolean;
   readonly onState: (state: GameState, events: readonly GameEvent[]) => void;
   readonly onTowerSelected: (tower: TowerState | null) => void;
   readonly onPlacementPreview: (preview: PlacementPreview | null) => void;
-  readonly onPauseChanged: (paused: boolean) => void;
   readonly onError: (message: string) => void;
 }
 
@@ -63,7 +63,6 @@ interface SceneCallbacks {
   readonly onState: BattlefieldProps["onState"];
   readonly onTowerSelected: BattlefieldProps["onTowerSelected"];
   readonly onPlacementPreview: BattlefieldProps["onPlacementPreview"];
-  readonly onPauseChanged: BattlefieldProps["onPauseChanged"];
   readonly onError: BattlefieldProps["onError"];
   readonly onControlsChanged: (controls: CanvasControlState) => void;
 }
@@ -400,7 +399,7 @@ class BattleScene extends Phaser.Scene {
   private mapGraphics!: Phaser.GameObjects.Graphics;
   private effectsGraphics!: Phaser.GameObjects.Graphics;
   private accumulator = 0;
-  private pausedByPlayer = false;
+  private paused: boolean;
   private speed: GameSpeed = 1;
   private selectedTowerInstanceId: string | null = null;
   private placementPreview: PlacementPreview | null = null;
@@ -417,6 +416,7 @@ class BattleScene extends Phaser.Scene {
     private reducedMotion: boolean,
     private managementDisabled: boolean,
     initialPlacementPreview: PlacementPreview | null,
+    initialPaused: boolean,
   ) {
     super({ key: "battle" });
     const level =
@@ -431,6 +431,7 @@ class BattleScene extends Phaser.Scene {
       BATTLEFIELD_THEMES[simulation.state.levelId] ??
       BATTLEFIELD_THEMES["muddy-moat"]!;
     this.placementPreview = initialPlacementPreview;
+    this.paused = initialPaused;
   }
 
   public create(): void {
@@ -440,13 +441,11 @@ class BattleScene extends Phaser.Scene {
       "pointerdown",
       this.handleCanvasPointerDown,
     );
-    document.addEventListener("visibilitychange", this.handleVisibility);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.canvas.removeEventListener(
         "pointerdown",
         this.handleCanvasPointerDown,
       );
-      document.removeEventListener("visibilitychange", this.handleVisibility);
     });
     this.publishControls();
     this.renderState(this.simulation.state, []);
@@ -454,7 +453,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   public override update(_time: number, delta: number): void {
-    if (this.pausedByPlayer || this.simulation.state.phase !== "active") {
+    if (this.paused || this.simulation.state.phase !== "active") {
       return;
     }
 
@@ -568,8 +567,7 @@ class BattleScene extends Phaser.Scene {
   }
 
   public setPaused(paused: boolean): void {
-    this.pausedByPlayer = paused;
-    this.callbacks.onPauseChanged(paused);
+    this.paused = paused;
   }
 
   public setSpeed(speed: GameSpeed): void {
@@ -581,12 +579,6 @@ class BattleScene extends Phaser.Scene {
     this.reducedMotion = reducedMotion;
     this.renderState(this.simulation.state, []);
   }
-
-  private readonly handleVisibility = (): void => {
-    if (document.hidden && this.simulation.state.phase === "active") {
-      this.setPaused(true);
-    }
-  };
 
   private readonly handleCanvasPointerDown = (event: PointerEvent): void => {
     const bounds = this.game.canvas.getBoundingClientRect();
@@ -1888,13 +1880,13 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       simulation,
       placementPreview,
       managementDisabled,
+      paused,
       gameSpeed,
       lowEffects,
       reducedMotion,
       onState,
       onTowerSelected,
       onPlacementPreview,
-      onPauseChanged,
       onError,
     },
     ref,
@@ -1908,6 +1900,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     }
     const host = useRef<HTMLDivElement>(null);
     const scene = useRef<BattleScene | null>(null);
+    const pausedRef = useRef(paused);
     const padButtons = useRef(new Map<string, HTMLButtonElement>());
     const overlayPrimaryAction = useRef<HTMLButtonElement>(null);
     const previousControlPadId = useRef<string | null>(null);
@@ -1922,16 +1915,15 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       onState,
       onTowerSelected,
       onPlacementPreview,
-      onPauseChanged,
       onError,
     });
     callbacks.current = {
       onState,
       onTowerSelected,
       onPlacementPreview,
-      onPauseChanged,
       onError,
     };
+    pausedRef.current = paused;
 
     useImperativeHandle(ref, () => ({
       dispatch(command) {
@@ -1939,9 +1931,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
       },
       confirmPlacement(preview) {
         return scene.current?.confirmPlacement(preview) ?? false;
-      },
-      setPaused(paused) {
-        scene.current?.setPaused(paused);
       },
       setSpeed(speed) {
         scene.current?.setSpeed(speed);
@@ -1951,6 +1940,10 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
     useEffect(() => {
       scene.current?.setSpeed(gameSpeed);
     }, [gameSpeed]);
+
+    useLayoutEffect(() => {
+      scene.current?.setPaused(paused);
+    }, [paused]);
 
     useEffect(() => {
       scene.current?.setPlacementPreview(placementPreview);
@@ -1977,7 +1970,6 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
           onTowerSelected: (tower) => callbacks.current.onTowerSelected(tower),
           onPlacementPreview: (preview) =>
             callbacks.current.onPlacementPreview(preview),
-          onPauseChanged: (paused) => callbacks.current.onPauseChanged(paused),
           onError: (message) => callbacks.current.onError(message),
           onControlsChanged: setControls,
         },
@@ -1985,6 +1977,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
         reducedMotion,
         managementDisabled,
         placementPreview,
+        paused,
       );
       battleScene.setSpeed(gameSpeed);
       let game: Phaser.Game | null = null;
@@ -2010,6 +2003,7 @@ export const Battlefield = forwardRef<BattlefieldHandle, BattlefieldProps>(
           return;
         }
         container.replaceChildren();
+        battleScene.setPaused(pausedRef.current);
         scene.current = battleScene;
         game = new Phaser.Game({
           type: Phaser.AUTO,

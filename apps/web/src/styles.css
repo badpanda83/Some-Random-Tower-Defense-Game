@@ -840,7 +840,7 @@ h3,
 
 .settings-grid label {
   display: flex;
-  min-height: 32px;
+  min-height: 44px;
   align-items: center;
   gap: 0.65rem;
   color: var(--muted);
@@ -1016,7 +1016,7 @@ h3,
   z-index: 8;
   display: grid;
   width: max-content;
-  min-width: 170px;
+  width: min(330px, calc(100vw - 1rem));
   padding: 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 12px;
@@ -1027,11 +1027,38 @@ h3,
 
 .battle-menu-popover label {
   display: flex;
-  min-height: 32px;
+  min-height: 44px;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.setting-with-help {
+  align-items: flex-start !important;
+}
+
+.setting-with-help > span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.setting-with-help strong,
+.setting-with-help small {
+  display: block;
+}
+
+.setting-with-help small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.battle-menu-popover input,
+.settings-grid input {
+  min-width: 22px;
+  min-height: 22px;
 }
 
 .icon-button.is-active {

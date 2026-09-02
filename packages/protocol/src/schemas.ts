@@ -17,6 +17,7 @@ export const settingsSchema = z.object({
   reducedMotion: z.boolean().default(false),
   lowEffects: z.boolean().default(false),
   gameSpeed: gameSpeedSchema.default(1),
+  keepPlayingWhileAway: z.boolean().default(false),
 });
 
 export const towerPlacementSchema = z.object({

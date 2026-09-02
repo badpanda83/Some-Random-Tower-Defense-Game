@@ -26,6 +26,26 @@ async function storedCheckpoint(page: Page) {
   });
 }
 
+async function storedKeepPlayingWhileAway(page: Page): Promise<boolean | null> {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("dubious-realm", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const record = await new Promise<{
+      data?: { settings?: { keepPlayingWhileAway?: boolean } };
+    } | null>((resolve, reject) => {
+      const transaction = database.transaction("saves", "readonly");
+      const request = transaction.objectStore("saves").get("campaign");
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error);
+    });
+    database.close();
+    return record?.data?.settings?.keepPlayingWhileAway ?? null;
+  });
+}
+
 function towerPadName(position: {
   readonly x: number;
   readonly y: number;
@@ -893,4 +913,50 @@ test("cancels and confirms mission abandonment without retaining progress", asyn
   ).not.toBeVisible();
   await expect(page.getByText("0 victories")).toBeVisible();
   await context.setOffline(false);
+});
+
+test("persists background play and explains its limits in campaign and battle settings", async ({
+  page,
+}) => {
+  await page.route("**/api/**", (route) => route.abort());
+  await page.goto("/");
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByText("Traveling settings cart").click();
+
+  const campaignToggle = page.getByRole("checkbox", {
+    name: /Keep playing while away/i,
+  });
+  await expect(campaignToggle).not.toBeChecked();
+  await expect(
+    page.getByText(/mobile browsers and operating systems may throttle/i),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/uninterrupted play cannot be guaranteed/i),
+  ).toBeVisible();
+  const campaignLabel = campaignToggle.locator("..");
+  expect((await campaignLabel.boundingBox())?.height).toBeGreaterThanOrEqual(
+    44,
+  );
+
+  await campaignToggle.check();
+  await expect.poll(() => storedKeepPlayingWhileAway(page)).toBe(true);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Enter the realm" }).click();
+  await page.getByText("Traveling settings cart").click();
+  await expect(
+    page.getByRole("checkbox", { name: /Keep playing while away/i }),
+  ).toBeChecked();
+
+  await page.getByRole("button", { name: "Begin defense" }).click();
+  await page.getByLabel("Battle settings").click();
+  const battleToggle = page.getByRole("checkbox", {
+    name: /Keep playing while away/i,
+  });
+  await expect(battleToggle).toBeChecked();
+  await expect(
+    page.getByText(/switching tabs or windows will not intentionally pause/i),
+  ).toBeVisible();
+  const battleLabel = battleToggle.locator("..");
+  expect((await battleLabel.boundingBox())?.height).toBeGreaterThanOrEqual(44);
 });

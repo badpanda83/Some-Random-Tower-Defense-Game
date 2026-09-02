@@ -33,6 +33,7 @@ describe("protocol schemas", () => {
 
     expect(save.settings.gameSpeed).toBe(1);
     expect(save.settings.muted).toBe(false);
+    expect(save.settings.keepPlayingWhileAway).toBe(false);
     expect(save.campaign.recordedAttemptIds).toEqual([]);
   });
 
@@ -192,7 +193,10 @@ describe("v1 to v2 migration", () => {
     expect(migrated.campaign.recentResults).toEqual(
       v1Save.campaign.recentResults,
     );
-    expect(migrated.settings).toEqual(v1Save.settings);
+    expect(migrated.settings).toEqual({
+      ...v1Save.settings,
+      keepPlayingWhileAway: false,
+    });
   });
 
   it("is idempotent when applied to already-migrated data", () => {
