@@ -907,6 +907,7 @@ test("completes a real Act II mission (Frozen Assets) from a deterministic mid-c
     testInfo.project.name !== "desktop-chromium",
     "Full Act II victory flow runs once on desktop.",
   );
+  await page.route("**/api/**", (route) => route.abort());
 
   // Deterministic setup: seed Act I as already beaten (unlocking Frozen
   // Assets) plus an authored, previously-validated checkpoint sitting at the
@@ -1071,6 +1072,7 @@ test("completes Act III and persists the 10/10 campaign epilogue", async ({
     testInfo.project.name !== "desktop-chromium",
     "The final campaign completion flow runs once on desktop.",
   );
+  await page.route("**/api/**", (route) => route.abort());
 
   const victory = {
     bestScore: 10_000,
