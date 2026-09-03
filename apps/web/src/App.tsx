@@ -57,14 +57,17 @@ const GameScreen = lazy(async () => {
   return { default: module.GameScreen };
 });
 
-const DeveloperToolsPanel = import.meta.env.DEV
+const developmentToolsEnabled =
+  import.meta.env.DEV && import.meta.env.MODE === "development";
+
+const DeveloperToolsPanel = developmentToolsEnabled
   ? lazy(async () => {
       const module = await import("./components/DeveloperToolsPanel.js");
       return { default: module.DeveloperToolsPanel };
     })
   : null;
 
-const DeveloperMissionBadge = import.meta.env.DEV
+const DeveloperMissionBadge = developmentToolsEnabled
   ? lazy(async () => {
       const module = await import("./components/DeveloperToolsPanel.js");
       return { default: module.DeveloperMissionBadge };

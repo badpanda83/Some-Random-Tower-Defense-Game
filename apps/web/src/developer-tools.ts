@@ -3,6 +3,8 @@ import { parseSaveDataWithMigration, type SaveData } from "@srtg/protocol";
 export const TEST_RESOURCE_AMOUNT = 10_000;
 
 const STORAGE_KEY = "dubious-realm-development-tools";
+const DEVELOPMENT_RUNTIME =
+  import.meta.env.DEV && import.meta.env.MODE !== "production";
 
 export interface DevelopmentState {
   readonly snapshot: SaveData;
@@ -10,7 +12,7 @@ export interface DevelopmentState {
 }
 
 export function assertDevelopmentRuntime(
-  development = import.meta.env.DEV,
+  development = DEVELOPMENT_RUNTIME,
 ): void {
   if (!development) {
     throw new Error("Development tools are unavailable in this build.");
@@ -23,7 +25,7 @@ function cloneSave(save: SaveData): SaveData {
 
 export function grantTestResources(
   save: SaveData,
-  development = import.meta.env.DEV,
+  development = DEVELOPMENT_RUNTIME,
 ): SaveData {
   assertDevelopmentRuntime(development);
   return {
@@ -40,7 +42,7 @@ export function activateDevelopmentState(
   save: SaveData,
   current: DevelopmentState | null,
   missionGoldEnabled: boolean,
-  development = import.meta.env.DEV,
+  development = DEVELOPMENT_RUNTIME,
 ): DevelopmentState {
   assertDevelopmentRuntime(development);
   return {
@@ -51,14 +53,14 @@ export function activateDevelopmentState(
 
 export function restoreDevelopmentSnapshot(
   state: DevelopmentState,
-  development = import.meta.env.DEV,
+  development = DEVELOPMENT_RUNTIME,
 ): SaveData {
   assertDevelopmentRuntime(development);
   return cloneSave(state.snapshot);
 }
 
 export function loadDevelopmentState(
-  development = import.meta.env.DEV,
+  development = DEVELOPMENT_RUNTIME,
 ): DevelopmentState | null {
   assertDevelopmentRuntime(development);
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -83,13 +85,13 @@ export function loadDevelopmentState(
 
 export function storeDevelopmentState(
   state: DevelopmentState,
-  development = import.meta.env.DEV,
+  development = DEVELOPMENT_RUNTIME,
 ): void {
   assertDevelopmentRuntime(development);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-export function clearDevelopmentState(development = import.meta.env.DEV): void {
+export function clearDevelopmentState(development = DEVELOPMENT_RUNTIME): void {
   assertDevelopmentRuntime(development);
   localStorage.removeItem(STORAGE_KEY);
 }
