@@ -71,7 +71,10 @@ corepack pnpm db:migrate
 corepack pnpm dev
 ```
 
-The Vite client runs at <http://localhost:5173> and proxies the API at <http://localhost:3001>. Magic links are captured by Mailpit.
+On a fresh checkout, `pnpm dev` first builds the protocol and game-core package
+exports, then keeps both shared packages in TypeScript watch mode alongside the
+Fastify and Vite watchers. The Vite client runs at <http://localhost:5173> and
+proxies the API at <http://localhost:3001>. Magic links are captured by Mailpit.
 
 ### Development-only test resources
 
@@ -101,6 +104,7 @@ activation is intentionally discarded.
 
 ```powershell
 corepack pnpm dev              # Vite and Fastify watchers
+corepack pnpm dev:prepare      # Build shared package exports used by dev
 corepack pnpm build            # All production bundles
 corepack pnpm typecheck
 corepack pnpm lint
@@ -108,6 +112,7 @@ corepack pnpm test             # Unit and injected API tests
 corepack pnpm test:integration # Requires TEST_DATABASE_URL and migrated PostgreSQL
 corepack pnpm test:e2e         # Requires a migrated database and built app
 corepack pnpm test:production-boundary # Scans a completed production build
+corepack pnpm test:dev-workflow # Verifies fresh-checkout shared imports
 corepack pnpm db:generate      # Generate a migration after schema changes
 corepack pnpm db:migrate       # Apply checked-in migrations
 ```
