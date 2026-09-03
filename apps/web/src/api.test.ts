@@ -84,12 +84,43 @@ describe("cloud identity boundaries", () => {
     expect(migrated?.data.settings.keepPlayingWhileAway).toBe(false);
   });
 
-  it("surfaces equal revision numbers as a conflict when owners differ", async () => {
-    mockCloud(remoteSave(false));
+  it("keeps meaningful guest progress separate when a returning account signs in", async () => {
+    const local = localSave(true);
+    const remote = remoteSave(false);
+    mockCloud(remote);
 
-    const result = await synchronizeSave(localSave(true));
+    const result = await synchronizeSave(local);
 
     expect(result.type).toBe("conflict");
+    if (result.type === "conflict") {
+      expect(result.local).toBe(local);
+      expect(result.remote).toEqual(remote);
+    }
+  });
+
+  it("loads a returning account's cloud save on a fresh device", async () => {
+    const remote = remoteSave(true);
+    remote.data.campaign.unlockedNodeIds = ["muddy-moat", "mimic-market"];
+    mockCloud(remote);
+    const freshDevice: LocalSaveRecord = {
+      data: createFreshSave(),
+      cloudOwnerId: "fresh-anonymous-user",
+      cloudRevision: 1,
+      pending: false,
+      updatedAt: "2026-08-31T11:00:00.000Z",
+    };
+
+    const result = await synchronizeSave(freshDevice);
+
+    expect(result.type).toBe("synced");
+    if (result.type === "synced") {
+      expect(result.profile).toEqual(linkedProfile);
+      expect(result.record.cloudOwnerId).toBe(linkedProfile.id);
+      expect(result.record.pending).toBe(false);
+      expect(result.record.data.campaign.unlockedNodeIds).toContain(
+        "mimic-market",
+      );
+    }
   });
 
   it("rebinds an identical migrated guest save to the linked owner", async () => {

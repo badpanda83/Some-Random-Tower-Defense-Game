@@ -299,6 +299,15 @@ test("installs as a local-first PWA and opens the campaign", async ({
   await expect(
     page.getByRole("heading", { name: /The Dubious Realm/i }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Save this guest progress" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Continue on another device" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/neither is silently overwritten/i),
+  ).toBeVisible();
 
   const manifest = await page
     .locator('link[rel="manifest"]')

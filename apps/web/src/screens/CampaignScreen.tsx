@@ -9,14 +9,17 @@ import {
 import type { Profile, SaveData, Settings } from "@srtg/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { AccountPanel } from "../components/AccountPanel.js";
+import {
+  AccountPanel,
+  type AccountSyncStatus,
+} from "../components/AccountPanel.js";
 import { HubNavigation, type HubTab } from "../components/HubNavigation.js";
 import { victoriousLevelIds } from "../save.js";
 
 interface CampaignScreenProps {
   readonly save: SaveData;
   readonly profile: Profile | null;
-  readonly syncStatus: string;
+  readonly syncStatus: AccountSyncStatus;
   readonly installAvailable: boolean;
   readonly onInstall: () => void;
   readonly onStart: (
@@ -27,6 +30,7 @@ interface CampaignScreenProps {
   readonly onResume: () => void;
   readonly onSettings: (settings: Settings) => void;
   readonly onHome: () => void;
+  readonly onSignOut: () => Promise<void>;
   readonly onNavigate?: (tab: HubTab) => void;
   readonly onTraining?: () => void;
   readonly onReplayBattleGuidance?: () => void;
@@ -46,6 +50,7 @@ export function CampaignScreen({
   onResume,
   onSettings,
   onHome,
+  onSignOut,
   onNavigate = () => undefined,
   onTraining = () => undefined,
   onReplayBattleGuidance = () => undefined,
@@ -543,7 +548,11 @@ export function CampaignScreen({
               </div>
             </details>
 
-            <AccountPanel profile={profile} />
+            <AccountPanel
+              profile={profile}
+              syncStatus={syncStatus}
+              onSignOut={onSignOut}
+            />
           </aside>
         </div>
       </div>
