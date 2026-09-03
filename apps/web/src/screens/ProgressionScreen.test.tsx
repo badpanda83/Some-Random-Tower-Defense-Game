@@ -35,6 +35,9 @@ describe("RPG progression screen", () => {
     );
 
     expect(screen.getByText(/C 35% · B 27% · A 19% · S 11%/)).toBeVisible();
+    expect(
+      screen.getAllByText(/base-roll odds before guarantees/i),
+    ).not.toHaveLength(0);
     expect(screen.getByText(/S or better within 5 chests/)).toBeVisible();
     fireEvent.click(
       screen.getAllByRole("button", { name: "Review purchase" })[0]!,

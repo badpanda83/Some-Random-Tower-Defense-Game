@@ -389,6 +389,19 @@ function replayReward(save: SaveData, levelId: string): MissionRewardLine {
   };
 }
 
+export function battleAttemptKey(result: BattleResult): string {
+  if (result.attemptId) {
+    return `attempt:${result.attemptId}`;
+  }
+  return [
+    result.contentVersion,
+    result.levelId,
+    result.seed,
+    [...result.modifierIds].sort().join(","),
+    result.completedAt,
+  ].join(":");
+}
+
 export function grantMissionRewards(
   save: SaveData,
   result: BattleResult,
@@ -396,22 +409,15 @@ export function grantMissionRewards(
   if (result.result !== "victory") {
     return { save, receipt: null, lines: [] };
   }
-  const attemptId =
-    result.attemptId ??
-    [
-      result.levelId,
-      result.seed,
-      [...result.modifierIds].sort().join(".") || "normal",
-      result.completedAt,
-    ].join(":");
-  const requestId = `mission:${attemptId}`;
+  const attemptKey = battleAttemptKey(result);
+  const requestId = `mission:${result.attemptId ?? attemptKey}`;
   const existing = findReceipt(save, requestId);
+  if (save.campaign.recordedAttemptIds.includes(attemptKey)) {
+    return { save, receipt: null, lines: [] };
+  }
   if (existing) {
     if (existing.kind !== "mission-reward") {
       throw new Error("The mission request ID belongs to another action.");
-    }
-    if (save.campaign.recordedAttemptIds.includes(`attempt:${attemptId}`)) {
-      return { save, receipt: null, lines: [] };
     }
     return {
       save,
@@ -444,7 +450,7 @@ export function grantMissionRewards(
   }
 
   const completedMasteries = new Set(progress?.completedMasteryIds ?? []);
-  for (const masteryId of result.completedMasteryIds) {
+  for (const masteryId of new Set(result.completedMasteryIds)) {
     if (!completedMasteries.has(masteryId)) {
       lines.push({
         kind: "mastery",
@@ -457,7 +463,7 @@ export function grantMissionRewards(
   }
 
   const completedModifiers = new Set(progress?.completedModifierIds ?? []);
-  for (const modifierId of result.modifierIds) {
+  for (const modifierId of new Set(result.modifierIds)) {
     if (!completedModifiers.has(modifierId)) {
       lines.push({
         kind: "challenge",
@@ -496,7 +502,7 @@ export function grantMissionRewards(
     kind: "mission-reward",
     requestId,
     createdAtSequence: nextReceiptSequence(save),
-    attemptId,
+    attemptId: result.attemptId ?? attemptKey,
     questCrownsGranted,
     craftingDustGranted,
     claimIds,

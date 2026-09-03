@@ -7,6 +7,7 @@ import {
   MVP_EQUIPMENT,
   PITY_THRESHOLDS,
   SALVAGE_DUST,
+  battleAttemptKey,
   craftItem,
   equipItem,
   grantMissionRewards,
@@ -166,6 +167,69 @@ describe("RPG economy", () => {
     const retry = grantMissionRewards(first.save, result);
     expect(retry.save).toBe(first.save);
     expect(retry.receipt).toEqual(first.receipt);
+  });
+
+  it("does not regrant a recorded mission after its receipt is evicted", () => {
+    const result = victory({ attemptId: "attempt-evicted" });
+    const first = grantMissionRewards(save(), result);
+    const recorded = {
+      ...first.save,
+      campaign: {
+        ...first.save.campaign,
+        recordedAttemptIds: ["attempt:attempt-evicted"],
+      },
+      economy: {
+        ...first.save.economy,
+        recentReceipts: [],
+      },
+    };
+
+    const retry = grantMissionRewards(recorded, result);
+    expect(retry).toEqual({ save: recorded, receipt: null, lines: [] });
+  });
+
+  it("uses the durable campaign key for legacy results without attempt IDs", () => {
+    const result = victory({ attemptId: undefined });
+    const first = grantMissionRewards(save(), result);
+    const recorded = {
+      ...first.save,
+      campaign: {
+        ...first.save.campaign,
+        recordedAttemptIds: [battleAttemptKey(result)],
+      },
+      economy: {
+        ...first.save.economy,
+        recentReceipts: [],
+      },
+    };
+
+    expect(grantMissionRewards(recorded, result)).toEqual({
+      save: recorded,
+      receipt: null,
+      lines: [],
+    });
+  });
+
+  it("deduplicates mastery and challenge IDs before granting rewards", () => {
+    const result = grantMissionRewards(
+      save(),
+      victory({
+        levelId: "mimic-market",
+        completedMasteryIds: ["mimic-master", "mimic-master"],
+        modifierIds: ["toll-free-tuesday", "toll-free-tuesday"],
+      }),
+    );
+
+    expect(result.receipt).toMatchObject({
+      kind: "mission-reward",
+      questCrownsGranted: 150,
+    });
+    expect(result.lines.filter((line) => line.kind === "mastery")).toHaveLength(
+      1,
+    );
+    expect(
+      result.lines.filter((line) => line.kind === "challenge"),
+    ).toHaveLength(1);
   });
 
   it("uses varied and diminishing replay rewards without reaching zero", () => {

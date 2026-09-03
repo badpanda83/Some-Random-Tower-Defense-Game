@@ -119,6 +119,9 @@ export function RewardSummaryScreen({
                   {metrics.procCount} procs ·{" "}
                   {metrics.directBonusDamage + metrics.echoDamage} bonus damage
                   · {metrics.controlTicksApplied} control ticks
+                  {metrics.controlTicksRejected > 0
+                    ? ` · ${metrics.controlTicksRejected} control ticks resisted`
+                    : ""}
                 </small>
               </article>
             ))}

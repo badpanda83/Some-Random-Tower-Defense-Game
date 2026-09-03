@@ -30,6 +30,18 @@ describe("reward summary", () => {
           completedAt: "2026-09-02T12:00:00.000Z",
           attemptId: "reward-test",
           defeatedBossEnemyIds: ["grand-till-mimic"],
+          equipmentMetrics: {
+            "wand-of-definitely-winter": {
+              procCount: 2,
+              directBonusDamage: 0,
+              echoDamage: 0,
+              controlTicksApplied: 20,
+              controlTicksRejected: 15,
+              goldSaved: 0,
+              lifeDamagePrevented: 0,
+              teamBuffUptimeTicks: 0,
+            },
+          },
         }}
         lines={[
           {
@@ -56,6 +68,9 @@ describe("reward summary", () => {
     expect(screen.getByText("+25 Dust")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Open your first chest" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/2 procs.*20 control ticks.*15 control ticks resisted/),
     ).toBeVisible();
   });
 });

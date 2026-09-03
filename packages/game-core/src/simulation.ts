@@ -1950,16 +1950,16 @@ class GameSimulation implements Simulation {
       targetInstanceId,
       outcome,
       message:
-        convertedMessage ??
-        (outcome === "converted"
-          ? `Boss resisted control - ${request.kind} conversion applied`
+        outcome === "converted"
+          ? (convertedMessage ??
+            `Boss resisted control - ${request.kind} conversion applied`)
           : outcome === "immune"
             ? "Immune"
             : outcome === "rejected"
               ? application.rejectionReason === "dominated-slow"
                 ? "Stronger or longer slow already active"
                 : "Control rejected during resolve"
-              : `${request.kind} applied`),
+              : `${request.kind} applied`,
     });
     return application.outcome;
   }

@@ -1073,13 +1073,15 @@ export function GameScreen({
               </p>
             )}
             <div className="result-actions">
-              <button
-                className="button button-ghost"
-                onClick={() => void retry()}
-                disabled={resultSaving}
-              >
-                Retry
-              </button>
+              {(state.phase !== "victory" || training) && (
+                <button
+                  className="button button-ghost"
+                  onClick={() => void retry()}
+                  disabled={resultSaving}
+                >
+                  Retry
+                </button>
+              )}
               <button
                 className="button button-primary"
                 onClick={() => void finish()}

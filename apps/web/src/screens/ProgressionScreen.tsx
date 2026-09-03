@@ -771,7 +771,8 @@ function ChestsView({
                   : `Class gear for ${DEFENDER_NAMES[focusDefender]} plus universal gear.`}
               </p>
               <p className="odds-copy">
-                <strong>Exact odds:</strong> {oddsCopy(chestType)}
+                <strong>Exact base-roll odds before guarantees:</strong>{" "}
+                {oddsCopy(chestType)}
               </p>
               <p>
                 Every chest gives {chest.dust} Dust. Duplicates become{" "}
@@ -814,7 +815,8 @@ function ChestsView({
               {save.economy.questCrowns} Crowns.
             </p>
             <p>
-              <strong>Odds:</strong> {oddsCopy(confirmType)}
+              <strong>Base-roll odds before guarantees:</strong>{" "}
+              {oddsCopy(confirmType)}
             </p>
             <div className="result-actions">
               <button

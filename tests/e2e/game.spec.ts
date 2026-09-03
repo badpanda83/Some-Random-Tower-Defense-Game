@@ -1258,6 +1258,7 @@ test("opens the guided chest offline, equips it, and returns to Mission 2", asyn
   page,
   context,
 }) => {
+  await page.route("**/api/**", (route) => route.abort());
   await page.goto("/");
   await expect(
     page.getByRole("button", { name: "Enter the realm" }),
