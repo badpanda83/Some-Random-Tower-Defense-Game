@@ -24,6 +24,7 @@ function renderCampaign(
       onSettings={vi.fn()}
       onHome={vi.fn()}
       developmentTools={developmentTools}
+      onSignOut={vi.fn().mockResolvedValue(undefined)}
     />,
   );
   return onStart;

@@ -35,3 +35,10 @@ export async function sendMagicLink(email: string): Promise<void> {
     throw new Error(response.error.message ?? "Could not send the magic link");
   }
 }
+
+export async function signOutAccount(): Promise<void> {
+  const response = await authClient.signOut();
+  if (response.error) {
+    throw new Error(response.error.message ?? "Could not sign out");
+  }
+}

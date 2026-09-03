@@ -1,13 +1,26 @@
+import type { Profile } from "@srtg/protocol";
+
+import {
+  AccountPanel,
+  type AccountSyncStatus,
+} from "../components/AccountPanel.js";
+
 interface TitleScreenProps {
   readonly installAvailable: boolean;
+  readonly profile: Profile | null;
+  readonly syncStatus: AccountSyncStatus;
   readonly onInstall: () => void;
   readonly onContinue: () => void;
+  readonly onSignOut: () => Promise<void>;
 }
 
 export function TitleScreen({
   installAvailable,
+  profile,
+  syncStatus,
   onInstall,
   onContinue,
+  onSignOut,
 }: TitleScreenProps) {
   return (
     <main className="title-screen">
@@ -38,6 +51,13 @@ export function TitleScreen({
         <p className="title-footnote">
           Plays offline. Saves locally. No ads lurking under the bridge.
         </p>
+        <div className="title-account">
+          <AccountPanel
+            profile={profile}
+            syncStatus={syncStatus}
+            onSignOut={onSignOut}
+          />
+        </div>
       </section>
       <div className="title-silhouette" aria-hidden="true">
         <span className="tower-silhouette tower-silhouette-one">♜</span>

@@ -24,7 +24,8 @@ import {
   overwriteCloudSave,
   synchronizeSave,
 } from "./api.js";
-import { ensureGuestSession } from "./auth.js";
+import { ensureGuestSession, signOutAccount } from "./auth.js";
+import type { AccountSyncStatus } from "./components/AccountPanel.js";
 import { CampaignScreen } from "./screens/CampaignScreen.js";
 import { ProgressionScreen } from "./screens/ProgressionScreen.js";
 import { RewardSummaryScreen } from "./screens/RewardSummaryScreen.js";
@@ -72,8 +73,7 @@ const DeveloperMissionBadge = import.meta.env.DEV
 
 type Screen =
   "title" | "campaign" | "defenders" | "chests" | "rewards" | "game";
-type SyncStatus =
-  "local" | "local-only" | "syncing" | "synced" | "offline" | "conflict";
+type SyncStatus = AccountSyncStatus;
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("title");
@@ -101,13 +101,25 @@ export function App() {
   const saveWriter = useRef(createLocalSaveWriter());
   const syncQueue = useRef<Promise<void>>(Promise.resolve());
   const submittedSaveData = useRef<SaveData[]>([]);
+  const authGenerationRef = useRef(0);
+  const authTransitionRef = useRef(false);
 
   useRegisterSW({
     onNeedReload: () => setUpdateReady(true),
   });
 
   const scheduleSync = useCallback(() => {
+    if (authTransitionRef.current) {
+      return Promise.resolve();
+    }
+    const authGeneration = authGenerationRef.current;
     const run = async () => {
+      if (
+        authTransitionRef.current ||
+        authGeneration !== authGenerationRef.current
+      ) {
+        return;
+      }
       await saveWriter.current.flush();
       await Promise.resolve();
       const local = recordRef.current;
@@ -132,6 +144,12 @@ export function App() {
           local.data,
         ].slice(-20);
         const result = await synchronizeSave(local, submittedSaveData.current);
+        if (
+          authTransitionRef.current ||
+          authGeneration !== authGenerationRef.current
+        ) {
+          return;
+        }
         if (result.type === "conflict") {
           setProfile(result.profile);
           if (recordRef.current?.localOnly) {
@@ -168,6 +186,12 @@ export function App() {
               : "synced",
         );
       } catch (error) {
+        if (
+          authTransitionRef.current ||
+          authGeneration !== authGenerationRef.current
+        ) {
+          return;
+        }
         if (recordRef.current?.localOnly) {
           setSyncStatus("local-only");
           return;
@@ -242,6 +266,35 @@ export function App() {
     await installPrompt.prompt();
     await installPrompt.userChoice;
     setInstallPrompt(null);
+  }
+
+  async function signOut() {
+    authTransitionRef.current = true;
+    authGenerationRef.current += 1;
+    let signedOut = false;
+    try {
+      await saveWriter.current.flush();
+      await syncQueue.current;
+      await signOutAccount();
+      signedOut = true;
+      authGenerationRef.current += 1;
+      setProfile(null);
+      setSyncStatus(recordRef.current?.localOnly ? "local-only" : "local");
+    } catch (error) {
+      setSyncStatus(
+        recordRef.current?.localOnly
+          ? "local-only"
+          : navigator.onLine
+            ? "local"
+            : "offline",
+      );
+      throw error;
+    } finally {
+      authTransitionRef.current = false;
+      if (!signedOut) {
+        void scheduleSync();
+      }
+    }
   }
 
   async function commit(data: SaveData): Promise<void> {
@@ -493,8 +546,11 @@ export function App() {
         {screen === "title" && (
           <TitleScreen
             installAvailable={Boolean(installPrompt)}
+            profile={profile}
+            syncStatus={syncStatus}
             onInstall={() => void install()}
             onContinue={() => setScreen("campaign")}
+            onSignOut={signOut}
           />
         )}
 
@@ -515,6 +571,7 @@ export function App() {
             }
             onSettings={updateSettings}
             onHome={() => setScreen("title")}
+            onSignOut={signOut}
             onNavigate={navigateHub}
             onTraining={() => beginBattle("muddy-moat", [], null, true)}
             onReplayBattleGuidance={() => {
