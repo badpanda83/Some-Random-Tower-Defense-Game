@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { sendMagicLink } from "../auth.js";
 
 export type AccountSyncStatus =
-  "local" | "syncing" | "synced" | "offline" | "conflict";
+  "local" | "local-only" | "syncing" | "synced" | "offline" | "conflict";
 
 interface AccountPanelProps {
   readonly profile: Profile | null;
@@ -14,6 +14,7 @@ interface AccountPanelProps {
 
 const SYNC_COPY: Record<AccountSyncStatus, string> = {
   local: "Saved on this device. Cloud sync is waiting.",
+  "local-only": "Test save is local-only. Cloud sync is blocked.",
   syncing: "Saving to the cloud now…",
   synced: "Cloud save is up to date.",
   offline: "Offline. Progress is safe here and will sync later.",

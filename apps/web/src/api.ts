@@ -115,6 +115,7 @@ function fromCloud(remote: CloudSave, ownerId: string): LocalSaveRecord {
     cloudOwnerId: ownerId,
     cloudRevision: remote.revision,
     pending: false,
+    localOnly: false,
     updatedAt: remote.updatedAt,
   };
 }
@@ -123,6 +124,9 @@ export async function synchronizeSave(
   local: LocalSaveRecord,
   knownSubmittedData: readonly LocalSaveRecord["data"][] = [],
 ): Promise<SyncResult> {
+  if (local.localOnly) {
+    throw new Error("Local-only saves cannot be synchronized.");
+  }
   await ensureGuestSession();
   const [profile, remote] = await Promise.all([getProfile(), getCloudSave()]);
 
@@ -233,6 +237,9 @@ export async function overwriteCloudSave(
   remoteRevision: number,
   ownerId: string,
 ): Promise<LocalSaveRecord> {
+  if (local.localOnly) {
+    throw new Error("Local-only saves cannot overwrite a cloud save.");
+  }
   return fromCloud(await putCloudSave(local.data, remoteRevision), ownerId);
 }
 

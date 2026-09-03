@@ -38,6 +38,7 @@ function localSave(muted: boolean): LocalSaveRecord {
     cloudOwnerId: "guest-user",
     cloudRevision: 1,
     pending: false,
+    localOnly: false,
     updatedAt: "2026-08-31T11:00:00.000Z",
   };
 }
@@ -63,6 +64,16 @@ afterEach(() => {
 });
 
 describe("cloud identity boundaries", () => {
+  it("rejects local-only saves before making any cloud request", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      synchronizeSave({ ...localSave(true), localOnly: true }),
+    ).rejects.toThrow("Local-only saves cannot be synchronized.");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("migrates a legacy cloud payload before current-schema validation", async () => {
     const remote = remoteSave(false);
     mockCloud({
@@ -107,6 +118,7 @@ describe("cloud identity boundaries", () => {
       cloudOwnerId: "fresh-anonymous-user",
       cloudRevision: 1,
       pending: false,
+      localOnly: false,
       updatedAt: "2026-08-31T11:00:00.000Z",
     };
 

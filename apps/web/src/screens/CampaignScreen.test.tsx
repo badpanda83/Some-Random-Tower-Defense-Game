@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFreshSave } from "../save.js";
@@ -9,6 +10,7 @@ afterEach(cleanup);
 function renderCampaign(
   save = createFreshSave(),
   onStart = vi.fn().mockResolvedValue(undefined),
+  developmentTools: ReactNode = null,
 ) {
   render(
     <CampaignScreen
@@ -21,6 +23,7 @@ function renderCampaign(
       onResume={vi.fn()}
       onSettings={vi.fn()}
       onHome={vi.fn()}
+      developmentTools={developmentTools}
       onSignOut={vi.fn().mockResolvedValue(undefined)}
     />,
   );
@@ -28,6 +31,22 @@ function renderCampaign(
 }
 
 describe("campaign screen", () => {
+  it("places development-only content inside the settings route", () => {
+    renderCampaign(
+      createFreshSave(),
+      vi.fn().mockResolvedValue(undefined),
+      <section aria-label="Development-only test panel">
+        Developer tools
+      </section>,
+    );
+
+    expect(
+      screen.getByLabelText("Development-only test panel"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Traveling settings cart"));
+    expect(screen.getByText("Developer tools")).toBeVisible();
+  });
+
   it("shows the background-play setting with its mobile limitation", () => {
     renderCampaign();
 

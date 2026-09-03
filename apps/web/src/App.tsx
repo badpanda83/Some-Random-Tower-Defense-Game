@@ -6,7 +6,7 @@ import type {
   SaveData,
   Settings,
 } from "@srtg/protocol";
-import { grantMissionRewards, type MissionRewardLine } from "@srtg/game-core";
+import type { MissionRewardLine } from "@srtg/game-core";
 import {
   lazy,
   Suspense,
@@ -20,10 +20,11 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import {
   acceptCloudSave,
   CloudSaveConflictError,
+  getProfile,
   overwriteCloudSave,
   synchronizeSave,
 } from "./api.js";
-import { signOutAccount } from "./auth.js";
+import { ensureGuestSession, signOutAccount } from "./auth.js";
 import type { AccountSyncStatus } from "./components/AccountPanel.js";
 import { CampaignScreen } from "./screens/CampaignScreen.js";
 import { ProgressionScreen } from "./screens/ProgressionScreen.js";
@@ -38,7 +39,6 @@ import {
 } from "./storage.js";
 import {
   unlockedRewardIds,
-  withBattleResult,
   withCheckpoint,
   withoutBattleCheckpoint,
 } from "./save.js";
@@ -48,6 +48,7 @@ import {
   prepareBattleRetry,
   randomAttemptId,
   randomSeed,
+  resolveBattleCompletion,
   type BattleSetup,
 } from "./battle-setup.js";
 
@@ -55,6 +56,23 @@ const GameScreen = lazy(async () => {
   const module = await import("./screens/GameScreen.js");
   return { default: module.GameScreen };
 });
+
+const developmentToolsEnabled =
+  import.meta.env.DEV && import.meta.env.MODE === "development";
+
+const DeveloperToolsPanel = developmentToolsEnabled
+  ? lazy(async () => {
+      const module = await import("./components/DeveloperToolsPanel.js");
+      return { default: module.DeveloperToolsPanel };
+    })
+  : null;
+
+const DeveloperMissionBadge = developmentToolsEnabled
+  ? lazy(async () => {
+      const module = await import("./components/DeveloperToolsPanel.js");
+      return { default: module.DeveloperMissionBadge };
+    })
+  : null;
 
 type Screen =
   "title" | "campaign" | "defenders" | "chests" | "rewards" | "game";
@@ -79,6 +97,7 @@ export function App() {
   } | null>(null);
   const [tourStep, setTourStep] = useState(0);
   const [training, setTraining] = useState(false);
+  const [goldFloor, setGoldFloor] = useState<number | null>(null);
   const recordRef = useRef<LocalSaveRecord | null>(null);
   const conflictRef = useRef<CloudSave | null>(null);
   const conflictResolutionRef = useRef(false);
@@ -110,6 +129,16 @@ export function App() {
       if (!local || conflictRef.current) {
         return;
       }
+      if (local.localOnly) {
+        setSyncStatus("local-only");
+        try {
+          await ensureGuestSession();
+          setProfile(await getProfile());
+        } catch {
+          setProfile(null);
+        }
+        return;
+      }
 
       setSyncStatus("syncing");
       try {
@@ -126,6 +155,10 @@ export function App() {
         }
         if (result.type === "conflict") {
           setProfile(result.profile);
+          if (recordRef.current?.localOnly) {
+            setSyncStatus("local-only");
+            return;
+          }
           conflictRef.current = result.remote;
           setConflict(result.remote);
           setSyncStatus("conflict");
@@ -148,12 +181,22 @@ export function App() {
         recordRef.current = resolved;
         setRecord(resolved);
         await saveWriter.current.store(resolved);
-        setSyncStatus(resolved.pending ? "local" : "synced");
+        setSyncStatus(
+          resolved.localOnly
+            ? "local-only"
+            : resolved.pending
+              ? "local"
+              : "synced",
+        );
       } catch (error) {
         if (
           authTransitionRef.current ||
           authGeneration !== authGenerationRef.current
         ) {
+          return;
+        }
+        if (recordRef.current?.localOnly) {
+          setSyncStatus("local-only");
           return;
         }
         if (error instanceof CloudSaveConflictError) {
@@ -179,6 +222,9 @@ export function App() {
         }
         recordRef.current = loaded;
         setRecord(loaded);
+        if (loaded.localOnly) {
+          setSyncStatus("local-only");
+        }
         await saveWriter.current.store(loaded);
         scheduleSync();
       })
@@ -236,9 +282,15 @@ export function App() {
       signedOut = true;
       authGenerationRef.current += 1;
       setProfile(null);
-      setSyncStatus("local");
+      setSyncStatus(recordRef.current?.localOnly ? "local-only" : "local");
     } catch (error) {
-      setSyncStatus(navigator.onLine ? "local" : "offline");
+      setSyncStatus(
+        recordRef.current?.localOnly
+          ? "local-only"
+          : navigator.onLine
+            ? "local"
+            : "offline",
+      );
       throw error;
     } finally {
       authTransitionRef.current = false;
@@ -254,6 +306,51 @@ export function App() {
       throw new Error("The local save is not ready.");
     }
     const next = markLocalChange(current, data);
+    recordRef.current = next;
+    setRecord(next);
+    setSyncStatus(
+      next.localOnly ? "local-only" : navigator.onLine ? "local" : "offline",
+    );
+    try {
+      await saveWriter.current.store(next);
+      if (!next.localOnly) {
+        scheduleSync();
+      }
+    } catch (error) {
+      if (recordRef.current === next) {
+        recordRef.current = current;
+        setRecord(current);
+      }
+      throw error;
+    }
+  }
+
+  async function commitLocalOnly(data: SaveData): Promise<void> {
+    const current = recordRef.current;
+    if (!current) {
+      throw new Error("The local save is not ready.");
+    }
+    const next = { ...markLocalChange(current, data), localOnly: true };
+    recordRef.current = next;
+    setRecord(next);
+    setSyncStatus("local-only");
+    try {
+      await saveWriter.current.store(next);
+    } catch (error) {
+      if (recordRef.current === next) {
+        recordRef.current = current;
+        setRecord(current);
+      }
+      throw error;
+    }
+  }
+
+  async function restoreSynchronizedSave(data: SaveData): Promise<void> {
+    const current = recordRef.current;
+    if (!current) {
+      throw new Error("The local save is not ready.");
+    }
+    const next = { ...markLocalChange(current, data), localOnly: false };
     recordRef.current = next;
     setRecord(next);
     setSyncStatus(navigator.onLine ? "local" : "offline");
@@ -487,6 +584,22 @@ export function App() {
               });
               beginBattle("muddy-moat", [], null, true);
             }}
+            developmentTools={
+              DeveloperToolsPanel ? (
+                <Suspense fallback={null}>
+                  <DeveloperToolsPanel
+                    save={record.data}
+                    localOnly={record.localOnly}
+                    cloudLinked={Boolean(profile && !profile.isAnonymous)}
+                    identityPending={!profile}
+                    synchronizationConflict={Boolean(conflict)}
+                    onApplyLocalOnly={commitLocalOnly}
+                    onRestore={restoreSynchronizedSave}
+                    onGoldFloorChange={setGoldFloor}
+                  />
+                </Suspense>
+              ) : null
+            }
           />
         )}
 
@@ -535,6 +648,7 @@ export function App() {
               settings={record.data.settings}
               guidance={record.data.guidance}
               training={training}
+              goldFloor={goldFloor ?? undefined}
               synchronizationBlocked={Boolean(conflict)}
               onCheckpoint={(checkpoint) => {
                 void commit(
@@ -554,13 +668,19 @@ export function App() {
                   setTraining(false);
                   return;
                 }
-                const reward = grantMissionRewards(
+                const completion = resolveBattleCompletion(
                   recordRef.current!.data,
                   result,
+                  !recordRef.current!.localOnly,
                 );
-                await commit(withBattleResult(reward.save, result));
+                await commit(completion.save);
+                if (!completion.recorded) {
+                  setScreen("campaign");
+                  setBattle(null);
+                  return;
+                }
                 if (result.result === "victory") {
-                  setLastRewards({ result, lines: reward.lines });
+                  setLastRewards({ result, lines: completion.lines });
                   setScreen("rewards");
                 } else {
                   setScreen("campaign");
@@ -597,6 +717,11 @@ export function App() {
                 setTraining(false);
               }}
             />
+          </Suspense>
+        )}
+        {screen === "game" && goldFloor !== null && DeveloperMissionBadge && (
+          <Suspense fallback={null}>
+            <DeveloperMissionBadge gold={goldFloor} />
           </Suspense>
         )}
       </div>

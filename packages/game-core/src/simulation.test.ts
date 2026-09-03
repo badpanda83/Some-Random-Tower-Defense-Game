@@ -79,6 +79,26 @@ describe("game simulation", () => {
     expect(simulation.state.metrics.spentGold).toBe(57);
   });
 
+  it("applies a battle-only gold floor without recording synthetic spending", () => {
+    const fresh = createSimulation({ seed: 7, goldFloor: 10_000 });
+
+    expect(fresh.state.gold).toBe(10_000);
+    expect(fresh.state.metrics.spentGold).toBe(0);
+    expect(fresh.state.metrics.authoredSpentGold).toBe(0);
+
+    const checkpoint = fresh.createCheckpoint();
+    expect(checkpoint).not.toBeNull();
+    const resumed = createSimulation({
+      checkpoint: { ...checkpoint!, gold: 125 },
+      goldFloor: 10_000,
+    });
+    expect(resumed.state.gold).toBe(10_000);
+    expect(resumed.state.metrics.spentGold).toBe(0);
+
+    const normal = createSimulation({ seed: 7 });
+    expect(normal.state.gold).toBe(muddyMoatLevel.startingGold);
+  });
+
   it("counts total placements for mastery even after a tower is sold", () => {
     const simulation = createSimulation();
     simulation.dispatch({

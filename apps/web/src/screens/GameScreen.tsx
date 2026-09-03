@@ -53,6 +53,7 @@ interface GameScreenProps {
   readonly settings: Settings;
   readonly guidance?: SaveData["guidance"];
   readonly training?: boolean;
+  readonly goldFloor?: number | undefined;
   readonly synchronizationBlocked: boolean;
   readonly pageActivity?: PageActivitySource;
   readonly onCheckpoint: (checkpoint: BattleCheckpoint) => void;
@@ -151,6 +152,7 @@ export function GameScreen({
   settings,
   guidance = DEFAULT_GUIDANCE,
   training = false,
+  goldFloor,
   synchronizationBlocked,
   pageActivity = browserPageActivity,
   onCheckpoint,
@@ -165,7 +167,7 @@ export function GameScreen({
     () =>
       createSimulation(
         checkpoint
-          ? { checkpoint, unlockedRewardIds }
+          ? { checkpoint, unlockedRewardIds, goldFloor }
           : {
               seed,
               levelId,
@@ -173,11 +175,13 @@ export function GameScreen({
               unlockedRewardIds,
               attemptId,
               loadoutSnapshot,
+              goldFloor,
             },
       ),
     [
       attemptId,
       checkpoint,
+      goldFloor,
       levelId,
       loadoutSnapshot,
       modifierIds,

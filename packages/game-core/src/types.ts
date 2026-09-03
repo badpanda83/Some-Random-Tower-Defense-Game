@@ -600,6 +600,8 @@ export interface SimulationOptions {
   readonly modifierIds?: readonly string[];
   readonly checkpoint?: BattleCheckpoint;
   readonly loadoutSnapshot?: LoadoutSnapshot;
+  /** Optional starting/current gold floor for an explicitly controlled test run. */
+  readonly goldFloor?: number | undefined;
   /** Reward ids (see `RewardDefinition`) unlocked for this run, e.g. from campaign progress. */
   readonly unlockedRewardIds?: readonly string[];
 }

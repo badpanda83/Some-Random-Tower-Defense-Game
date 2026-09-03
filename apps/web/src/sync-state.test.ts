@@ -18,11 +18,43 @@ function record(
     cloudOwnerId: owner,
     cloudRevision: revision,
     pending: false,
+    localOnly: false,
     updatedAt,
   };
 }
 
 describe("concurrent save synchronization", () => {
+  it("keeps a local-only mutation isolated when an earlier sync completes", () => {
+    const submitted = record("user-1", 1, "2026-08-31T10:00:00.000Z");
+    const latest = {
+      ...record("user-1", 1, "2026-08-31T10:01:00.000Z", true),
+      localOnly: true,
+      pending: true,
+    };
+    const uploaded = {
+      ...record("user-1", 2, "2026-08-31T10:02:00.000Z"),
+      data: {
+        ...createFreshSave(),
+        campaign: {
+          ...createFreshSave().campaign,
+          unlockedNodeIds: ["muddy-moat", "mimic-market"],
+        },
+      },
+    };
+
+    const resolution = reconcileCompletedSync(submitted, latest, uploaded);
+
+    expect(resolution.type).toBe("resolved");
+    if (resolution.type === "resolved") {
+      expect(resolution.record).toMatchObject({
+        localOnly: true,
+        pending: true,
+        cloudRevision: 2,
+      });
+      expect(resolution.record.data.settings.muted).toBe(true);
+    }
+  });
+
   it("does not rebase local edits over unseen remote data", () => {
     const submitted = record("user-1", 1, "2026-08-31T10:00:00.000Z");
     const latest = {
