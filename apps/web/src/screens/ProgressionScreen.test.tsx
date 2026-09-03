@@ -4,7 +4,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
+import { MVP_EQUIPMENT } from "@srtg/game-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFreshSave } from "../save.js";
@@ -13,6 +15,42 @@ import { ProgressionScreen } from "./ProgressionScreen.js";
 afterEach(cleanup);
 
 describe("RPG progression screen", () => {
+  it("shows the complete chest catalog and badges only owned quantities", () => {
+    const fresh = createFreshSave();
+    render(
+      <ProgressionScreen
+        tab="chests"
+        save={{
+          ...fresh,
+          inventory: {
+            ownedItemIds: [MVP_EQUIPMENT[0]!.id, MVP_EQUIPMENT[1]!.id],
+            metadata: {},
+          },
+        }}
+        syncStatus="local"
+        selectedItemId={null}
+        onSelectedItem={vi.fn()}
+        onCommit={vi.fn().mockResolvedValue(undefined)}
+        onHome={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    const catalog = screen.getByRole("region", {
+      name: "Everything the chests can cough up",
+    });
+    expect(within(catalog).getAllByRole("article")).toHaveLength(
+      MVP_EQUIPMENT.length,
+    );
+    for (const item of MVP_EQUIPMENT) {
+      expect(within(catalog).getByText(item.name)).toBeVisible();
+    }
+    expect(within(catalog).getAllByLabelText("Owned quantity: 1")).toHaveLength(
+      2,
+    );
+    expect(within(catalog).queryByLabelText("Owned quantity: 0")).toBeNull();
+  });
+
   it("publishes exact odds and commits one deliberate first chest transaction", async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined);
     const fresh = createFreshSave();
