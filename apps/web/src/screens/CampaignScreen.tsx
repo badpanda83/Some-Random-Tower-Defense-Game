@@ -1,5 +1,6 @@
 import {
   campaignNodes,
+  enemyDefinitions,
   levelDefinitions,
   muddyMoatLevel,
   modifierDefinitions,
@@ -9,6 +10,7 @@ import type { Profile, SaveData, Settings } from "@srtg/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AccountPanel } from "../components/AccountPanel.js";
+import { HubNavigation, type HubTab } from "../components/HubNavigation.js";
 import { victoriousLevelIds } from "../save.js";
 
 interface CampaignScreenProps {
@@ -25,6 +27,9 @@ interface CampaignScreenProps {
   readonly onResume: () => void;
   readonly onSettings: (settings: Settings) => void;
   readonly onHome: () => void;
+  readonly onNavigate?: (tab: HubTab) => void;
+  readonly onTraining?: () => void;
+  readonly onReplayBattleGuidance?: () => void;
 }
 
 function levelById(levelId: string) {
@@ -41,17 +46,16 @@ export function CampaignScreen({
   onResume,
   onSettings,
   onHome,
+  onNavigate = () => undefined,
+  onTraining = () => undefined,
+  onReplayBattleGuidance = () => undefined,
 }: CampaignScreenProps) {
   const unlocked = useMemo(
     () => new Set(save.campaign.unlockedNodeIds),
     [save.campaign.unlockedNodeIds],
   );
   const playableNodes = campaignNodes.filter((node) => node.levelId !== null);
-  const totalNodeCount = playableNodes.length;
   const victoriousLevels = victoriousLevelIds(save);
-  const completedCount = campaignNodes.filter((node) =>
-    victoriousLevels.has(node.levelId ?? ""),
-  ).length;
   const finalPlayableNode = [...playableNodes].sort(
     (left, right) => right.order - left.order,
   )[0];
@@ -109,6 +113,13 @@ export function CampaignScreen({
     ? nextNode.name
     : "Campaign epilogue";
   const rewardCopy = [nextUnlockCopy, ...rewardNames].join(" + ");
+  const missionBoss = selectedLevel.waves
+    .flatMap((wave) => wave.spawns)
+    .map((spawn) => spawn.enemyId)
+    .map(
+      (enemyId) => enemyDefinitions[enemyId as keyof typeof enemyDefinitions],
+    )
+    .find((enemy) => enemy?.boss);
 
   useEffect(() => {
     if (!pendingStart) {
@@ -194,32 +205,15 @@ export function CampaignScreen({
         inert={pendingStart ? true : undefined}
         aria-hidden={pendingStart ? true : undefined}
       >
-        <header className="topbar">
-          <button className="brand-button" onClick={onHome}>
-            <img src="/crest.svg" alt="" />
-            <span>The Dubious Realm</span>
-          </button>
-          <div className="status-cluster">
-            <span className="campaign-progress">
-              <strong>
-                {completedCount}/{totalNodeCount}
-              </strong>{" "}
-              missions
-            </span>
-            <span className={`sync-pill sync-${syncStatus}`}>
-              <span className="status-dot" />
-              {syncStatus}
-            </span>
-            {installAvailable && (
-              <button
-                className="button button-small button-ghost"
-                onClick={onInstall}
-              >
-                Install
-              </button>
-            )}
-          </div>
-        </header>
+        <HubNavigation
+          active="campaign"
+          save={save}
+          syncStatus={syncStatus}
+          installAvailable={installAvailable}
+          onInstall={onInstall}
+          onHome={onHome}
+          onNavigate={onNavigate}
+        />
 
         <section className="campaign-heading">
           <div>
@@ -331,6 +325,23 @@ export function CampaignScreen({
               <p className="mission-mechanic">
                 {selectedLevel.mechanicSummary}
               </p>
+              <details className="mission-new">
+                <summary>What is new here?</summary>
+                <p>
+                  {selectedLevel.mechanicSummary} Try mixing a precise defender
+                  with splash or slow support.
+                </p>
+              </details>
+              {missionBoss && (
+                <div className="boss-briefing">
+                  <strong>{missionBoss.name} resists hard control</strong>
+                  <span>
+                    Freeze, slime polymorph, and push use their listed boss-safe
+                    slow, mark, or bonus-damage effect instead. Damage and
+                    support still work.
+                  </span>
+                </div>
+              )}
               <p className="mission-threat">
                 <strong>Threats:</strong> {selectedLevel.threatSummary}
               </p>
@@ -446,6 +457,32 @@ export function CampaignScreen({
             <details className="settings-card card">
               <summary>Traveling settings cart</summary>
               <div className="settings-grid">
+                <button className="button button-ghost" onClick={onTraining}>
+                  Enter Training Tent
+                </button>
+                <button
+                  className="button button-ghost"
+                  onClick={onReplayBattleGuidance}
+                >
+                  Replay battle help
+                </button>
+                <details className="glossary">
+                  <summary>RPG glossary</summary>
+                  <dl>
+                    <dt>Splash</dt>
+                    <dd>Hits enemies near the main target.</dd>
+                    <dt>Slow</dt>
+                    <dd>Makes route movement slower for a short time.</dd>
+                    <dt>Freeze</dt>
+                    <dd>Stops a normal enemy for up to one second.</dd>
+                    <dt>Proc</dt>
+                    <dd>An item trick that triggers on some primary hits.</dd>
+                    <dt>Pity</dt>
+                    <dd>A visible maximum wait for guaranteed rarity.</dd>
+                    <dt>Boss resistance</dt>
+                    <dd>Turns hard control into a safe listed effect.</dd>
+                  </dl>
+                </details>
                 <label className="setting-with-help">
                   <input
                     type="checkbox"

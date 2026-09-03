@@ -302,12 +302,13 @@ describe("mission abandonment", () => {
         return callbacks;
       }
 
-      it("does not record progress when Retry is chosen", () => {
+      it("requires saving a victory before starting another attempt", () => {
         const callbacks = reachVictory();
 
-        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-
-        expect(callbacks.onRetry).toHaveBeenCalledOnce();
+        expect(
+          screen.queryByRole("button", { name: "Retry" }),
+        ).not.toBeInTheDocument();
+        expect(callbacks.onRetry).not.toHaveBeenCalled();
         expect(callbacks.onComplete).not.toHaveBeenCalled();
       });
 

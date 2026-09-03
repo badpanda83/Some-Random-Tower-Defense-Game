@@ -1,4 +1,9 @@
-import { CONTENT_VERSION, type SaveData } from "@srtg/protocol";
+import {
+  CONTENT_VERSION,
+  EMPTY_ECONOMY,
+  parseSaveDataWithMigration,
+  type SaveData,
+} from "@srtg/protocol";
 import { equipmentDefinitions } from "@srtg/game-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -310,6 +315,27 @@ describe("API", () => {
           (_, index) => `attempt-${String(index).padStart(4, "0")}`,
         ),
       },
+      economy: {
+        ...EMPTY_ECONOMY,
+        rewardClaimIds: Array.from(
+          { length: 4_800 },
+          (_, index) => `request:${index.toString(36).padStart(14, "0")}`,
+        ),
+        recentReceipts: Array.from({ length: 100 }, (_, index) => ({
+          kind: "chest-opened" as const,
+          requestId: `open-${index.toString(36).padStart(16, "0")}`,
+          createdAtSequence: index + 1,
+          openSequence: index,
+          chestType: "defender-trunk" as const,
+          focusDefender: "discount-wizard" as const,
+          rolledRarity: "S+++" as const,
+          rarity: "S+++" as const,
+          itemId: "wand-of-definitely-winter",
+          duplicate: true,
+          questCrownsSpent: 180,
+          craftingDustGranted: 450,
+        })),
+      },
       inventory: {
         ownedItemIds: itemIds,
         metadata: Object.fromEntries(
@@ -321,13 +347,14 @@ describe("API", () => {
       },
     };
     expect(JSON.stringify(data).length).toBeLessThan(200 * 1024);
+    expect(() => parseSaveDataWithMigration(data)).not.toThrow();
 
     const response = await app.inject({
       method: "PUT",
       url: "/api/saves/campaign",
       payload: { expectedRevision: 0, data },
     });
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode, response.body).toBe(200);
   });
 
   it("relays auth responses and cookies", async () => {

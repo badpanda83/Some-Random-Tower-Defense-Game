@@ -6,6 +6,7 @@ import type {
   SaveData,
   Settings,
 } from "@srtg/protocol";
+import { grantMissionRewards, type MissionRewardLine } from "@srtg/game-core";
 import {
   lazy,
   Suspense,
@@ -23,7 +24,10 @@ import {
   synchronizeSave,
 } from "./api.js";
 import { CampaignScreen } from "./screens/CampaignScreen.js";
+import { ProgressionScreen } from "./screens/ProgressionScreen.js";
+import { RewardSummaryScreen } from "./screens/RewardSummaryScreen.js";
 import { TitleScreen } from "./screens/TitleScreen.js";
+import type { HubTab } from "./components/HubNavigation.js";
 import {
   createLocalSaveWriter,
   loadLocalSave,
@@ -38,6 +42,7 @@ import {
 } from "./save.js";
 import { reconcileCompletedSync } from "./sync-state.js";
 import {
+  createRetryBattleSetup,
   prepareBattleRetry,
   randomAttemptId,
   randomSeed,
@@ -49,7 +54,8 @@ const GameScreen = lazy(async () => {
   return { default: module.GameScreen };
 });
 
-type Screen = "title" | "campaign" | "game";
+type Screen =
+  "title" | "campaign" | "defenders" | "chests" | "rewards" | "game";
 type SyncStatus = "local" | "syncing" | "synced" | "offline" | "conflict";
 
 export function App() {
@@ -64,6 +70,13 @@ export function App() {
     useState<BeforeInstallPromptEvent | null>(null);
   const [battle, setBattle] = useState<BattleSetup | null>(null);
   const [updateReady, setUpdateReady] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [lastRewards, setLastRewards] = useState<{
+    readonly result: BattleResult;
+    readonly lines: readonly MissionRewardLine[];
+  } | null>(null);
+  const [tourStep, setTourStep] = useState(0);
+  const [training, setTraining] = useState(false);
   const recordRef = useRef<LocalSaveRecord | null>(null);
   const conflictRef = useRef<CloudSave | null>(null);
   const conflictResolutionRef = useRef(false);
@@ -225,7 +238,9 @@ export function App() {
     levelId: string,
     modifierIds: readonly string[],
     checkpoint: BattleCheckpoint | null = null,
+    isTraining = false,
   ) {
+    setTraining(isTraining);
     setBattle({
       levelId: checkpoint?.levelId ?? levelId,
       seed: checkpoint?.seed ?? randomSeed(),
@@ -244,6 +259,27 @@ export function App() {
       key: Date.now(),
     });
     setScreen("game");
+  }
+
+  function navigateHub(tab: HubTab) {
+    setScreen(tab);
+  }
+
+  function updateGuidance(changes: Partial<SaveData["guidance"]>) {
+    const current = recordRef.current;
+    if (!current) {
+      return;
+    }
+    void commit({
+      ...current.data,
+      guidance: { ...current.data.guidance, ...changes },
+    }).catch((error: unknown) => {
+      setFatalError(
+        error instanceof Error
+          ? error.message
+          : "The help progress could not be stored locally.",
+      );
+    });
   }
 
   async function startCampaignBattle(
@@ -389,6 +425,39 @@ export function App() {
             }
             onSettings={updateSettings}
             onHome={() => setScreen("title")}
+            onNavigate={navigateHub}
+            onTraining={() => beginBattle("muddy-moat", [], null, true)}
+            onReplayBattleGuidance={() => {
+              updateGuidance({
+                battleTutorialComplete: false,
+                replayBattleGuidance: true,
+              });
+              beginBattle("muddy-moat", [], null, true);
+            }}
+          />
+        )}
+
+        {(screen === "defenders" || screen === "chests") && (
+          <ProgressionScreen
+            tab={screen}
+            save={record.data}
+            syncStatus={syncStatus}
+            selectedItemId={selectedItemId}
+            onSelectedItem={setSelectedItemId}
+            onCommit={commit}
+            onHome={() => setScreen("title")}
+            onNavigate={navigateHub}
+          />
+        )}
+
+        {screen === "rewards" && lastRewards && (
+          <RewardSummaryScreen
+            save={record.data}
+            result={lastRewards.result}
+            lines={lastRewards.lines}
+            syncStatus={syncStatus}
+            onHome={() => setScreen("title")}
+            onNavigate={navigateHub}
           />
         )}
 
@@ -411,6 +480,8 @@ export function App() {
               attemptId={battle.attemptId}
               loadoutSnapshot={battle.loadoutSnapshot}
               settings={record.data.settings}
+              guidance={record.data.guidance}
+              training={training}
               synchronizationBlocked={Boolean(conflict)}
               onCheckpoint={(checkpoint) => {
                 void commit(
@@ -424,11 +495,30 @@ export function App() {
                 });
               }}
               onComplete={async (result: BattleResult) => {
-                await commit(withBattleResult(recordRef.current!.data, result));
-                setScreen("campaign");
+                if (training) {
+                  setScreen("campaign");
+                  setBattle(null);
+                  setTraining(false);
+                  return;
+                }
+                const reward = grantMissionRewards(
+                  recordRef.current!.data,
+                  result,
+                );
+                await commit(withBattleResult(reward.save, result));
+                if (result.result === "victory") {
+                  setLastRewards({ result, lines: reward.lines });
+                  setScreen("rewards");
+                } else {
+                  setScreen("campaign");
+                }
                 setBattle(null);
               }}
               onRetry={async () => {
+                if (training) {
+                  setBattle(createRetryBattleSetup(battle));
+                  return;
+                }
                 const retry = await prepareBattleRetry(
                   battle,
                   recordRef.current!.data,
@@ -437,15 +527,86 @@ export function App() {
                 setBattle(retry);
               }}
               onAbandon={async () => {
-                await commit(withoutBattleCheckpoint(recordRef.current!.data));
+                if (!training) {
+                  await commit(
+                    withoutBattleCheckpoint(recordRef.current!.data),
+                  );
+                }
                 setScreen("campaign");
                 setBattle(null);
+                setTraining(false);
               }}
               onSettings={updateSettings}
+              onGuidance={(guidance) => updateGuidance(guidance)}
+              onTrainingComplete={async () => {
+                setScreen("campaign");
+                setBattle(null);
+                setTraining(false);
+              }}
             />
           </Suspense>
         )}
       </div>
+
+      {(record.data.guidance.rpgTourPending ||
+        record.data.guidance.replayRpgGuidance) &&
+        screen !== "title" &&
+        screen !== "game" && (
+          <div className="modal-backdrop">
+            <section
+              className="tour-dialog card"
+              role="dialog"
+              aria-modal="true"
+            >
+              <span className="eyebrow">RPG tour · {tourStep + 1}/3</span>
+              <h2>
+                {
+                  [
+                    "Victories earn Quest Crowns.",
+                    "Chests show every chance.",
+                    "Equip between missions.",
+                  ][tourStep]
+                }
+              </h2>
+              <p>
+                {
+                  [
+                    "This Veteran Welcome Grant includes 120 bonus Crowns, plus credit for your old victories.",
+                    "Duplicates become Dust, and pity tells you the next guaranteed rarity.",
+                    "Defenders each use a weapon, armor, and charm. Empty gear is always okay.",
+                  ][tourStep]
+                }
+              </p>
+              <div className="result-actions">
+                {tourStep > 0 && (
+                  <button
+                    className="button button-ghost"
+                    onClick={() => setTourStep((step) => step - 1)}
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  className="button button-primary"
+                  onClick={() => {
+                    if (tourStep < 2) {
+                      setTourStep((step) => step + 1);
+                      return;
+                    }
+                    setTourStep(0);
+                    updateGuidance({
+                      rpgTourPending: false,
+                      rpgTourComplete: true,
+                      replayRpgGuidance: false,
+                    });
+                  }}
+                >
+                  {tourStep < 2 ? "Next" : "Tour complete"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
 
       {conflict && (
         <div className="modal-backdrop">

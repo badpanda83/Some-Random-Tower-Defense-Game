@@ -9,7 +9,7 @@ import {
   type BattleResult,
   type SaveData,
 } from "@srtg/protocol";
-import { campaignNodes } from "@srtg/game-core";
+import { battleAttemptKey, campaignNodes } from "@srtg/game-core";
 
 const MAX_RECORDED_ATTEMPTS = 2000;
 
@@ -76,19 +76,6 @@ export function withCheckpoint(
 
 export function withoutBattleCheckpoint(save: SaveData): SaveData {
   return { ...save, checkpoint: null };
-}
-
-function battleAttemptKey(result: BattleResult): string {
-  if (result.attemptId) {
-    return `attempt:${result.attemptId}`;
-  }
-  return [
-    result.contentVersion,
-    result.levelId,
-    result.seed,
-    [...result.modifierIds].sort().join(","),
-    result.completedAt,
-  ].join(":");
 }
 
 export function victoriousLevelIds(save: SaveData): ReadonlySet<string> {
