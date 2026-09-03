@@ -1,16 +1,44 @@
 import type { Profile } from "@srtg/protocol";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { sendMagicLink } from "../auth.js";
 
+export type AccountSyncStatus =
+  "local" | "syncing" | "synced" | "offline" | "conflict";
+
 interface AccountPanelProps {
   readonly profile: Profile | null;
+  readonly syncStatus: AccountSyncStatus;
+  readonly onSignOut: () => Promise<void>;
 }
 
-export function AccountPanel({ profile }: AccountPanelProps) {
+const SYNC_COPY: Record<AccountSyncStatus, string> = {
+  local: "Saved on this device. Cloud sync is waiting.",
+  syncing: "Saving to the cloud now…",
+  synced: "Cloud save is up to date.",
+  offline: "Offline. Progress is safe here and will sync later.",
+  conflict: "Two saves need your choice. Neither has been overwritten.",
+};
+
+export function AccountPanel({
+  profile,
+  syncStatus,
+  onSignOut,
+}: AccountPanelProps) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const emailInput = useRef<HTMLInputElement>(null);
+  const wasSignedIn = useRef(Boolean(profile && !profile.isAnonymous));
+
+  useEffect(() => {
+    const signedIn = Boolean(profile && !profile.isAnonymous);
+    if (wasSignedIn.current && !signedIn) {
+      emailInput.current?.focus();
+    }
+    wasSignedIn.current = signedIn;
+  }, [profile]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -19,7 +47,7 @@ export function AccountPanel({ profile }: AccountPanelProps) {
     try {
       await sendMagicLink(email);
       setMessage(
-        "Magic link dispatched. Check the inbox (and the mimic folder).",
+        "Magic link sent. Open it on this device to sign in. We will then load that account's cloud save; if both saves have progress, you choose which one to keep.",
       );
       setEmail("");
     } catch (error) {
@@ -31,27 +59,68 @@ export function AccountPanel({ profile }: AccountPanelProps) {
     }
   }
 
+  async function signOut() {
+    setSigningOut(true);
+    setMessage(null);
+    try {
+      await onSignOut();
+      setMessage(
+        "Signed out here. This device's progress is still safe. Enter an email below to switch accounts.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not switch accounts.",
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   if (profile && !profile.isAnonymous) {
     return (
       <section className="account-panel card">
-        <span className="eyebrow">Cloud oath active</span>
-        <strong>{profile.displayName}</strong>
-        <span className="muted">{profile.email}</span>
+        <span className="eyebrow">Signed in and saving to cloud</span>
+        <strong>{profile.email ?? profile.displayName}</strong>
+        <p className="account-sync" role="status">
+          {SYNC_COPY[syncStatus]}
+        </p>
+        <button
+          className="button button-ghost button-small"
+          type="button"
+          onClick={() => void signOut()}
+          disabled={signingOut}
+        >
+          {signingOut ? "Signing out…" : "Sign out / switch account"}
+        </button>
+        {message && (
+          <p className="form-message" role="status">
+            {message}
+          </p>
+        )}
       </section>
     );
   }
 
   return (
     <section className="account-panel card">
-      <span className="eyebrow">Protect this guest save</span>
+      <span className="eyebrow">Account and cloud save</span>
+      <h2>Save this guest progress</h2>
       <p>
-        Link an email to carry progress across devices. No password, no royal
-        paperwork.
+        On your first device, enter an email to protect this adventure in the
+        cloud. No password or royal paperwork.
+      </p>
+      <h3>Continue on another device</h3>
+      <p>
+        Already linked an email? Enter the same email and open the magic link.
+        You will sign in to that account and load its cloud save. If this device
+        also has progress, you choose which save survives—neither is silently
+        overwritten.
       </p>
       <form onSubmit={submit}>
         <label>
-          <span className="sr-only">Email address</span>
+          <span className="sr-only">Email for saving or signing in</span>
           <input
+            ref={emailInput}
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -65,10 +134,14 @@ export function AccountPanel({ profile }: AccountPanelProps) {
           type="submit"
           disabled={sending}
         >
-          {sending ? "Sending…" : "Send magic link"}
+          {sending ? "Sending…" : "Email me a sign-in link"}
         </button>
       </form>
-      {message && <p className="form-message">{message}</p>}
+      {message && (
+        <p className="form-message" role="status">
+          {message}
+        </p>
+      )}
     </section>
   );
 }

@@ -197,7 +197,8 @@ h3,
   min-height: 100vh;
   min-height: 100dvh;
   place-items: center;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: max(2rem, env(safe-area-inset-top))
     max(1.25rem, env(safe-area-inset-right))
     max(2rem, env(safe-area-inset-bottom))
@@ -895,6 +896,23 @@ h3,
   margin-top: 0.35rem;
 }
 
+.account-panel h2,
+.account-panel h3 {
+  margin: 0.55rem 0 0.25rem;
+}
+
+.account-panel h2 {
+  font-size: 1.1rem;
+}
+
+.account-panel h3 {
+  font-size: 0.95rem;
+}
+
+.account-panel .account-sync {
+  color: var(--gold-light);
+}
+
 .account-panel form {
   display: flex;
   gap: 0.55rem;
@@ -913,6 +931,12 @@ h3,
   border-radius: 9px;
   color: var(--ink);
   background: rgba(0, 0, 0, 0.22);
+}
+
+.title-account {
+  width: min(100%, 34rem);
+  margin: 1rem auto 0;
+  text-align: left;
 }
 
 .form-message {

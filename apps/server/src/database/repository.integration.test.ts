@@ -116,4 +116,25 @@ describe.runIf(Boolean(databaseUrl))("PostgreSQL game repository", () => {
       data: saveData,
     });
   });
+
+  it("keeps both saves when a returning account already has cloud progress", async () => {
+    const slot = "returning-campaign";
+    const returningData = {
+      ...saveData,
+      settings: { ...saveData.settings, muted: true },
+    };
+    await repository.putSave(linkGuestId, slot, 0, saveData);
+    await repository.putSave(linkedUserId, slot, 0, returningData);
+
+    await repository.migrateGuestData(linkGuestId, linkedUserId);
+
+    expect(await repository.getSave(linkGuestId, slot)).toMatchObject({
+      revision: 1,
+      data: saveData,
+    });
+    expect(await repository.getSave(linkedUserId, slot)).toMatchObject({
+      revision: 1,
+      data: returningData,
+    });
+  });
 });

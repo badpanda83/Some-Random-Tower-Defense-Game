@@ -154,11 +154,7 @@ export async function synchronizeSave(
         profile,
       };
     }
-    if (
-      identityUnknown &&
-      local.cloudRevision === 0 &&
-      saveDataEqual(local.data, createFreshSave())
-    ) {
+    if (saveDataEqual(local.data, createFreshSave())) {
       return {
         type: "synced",
         record: fromCloud(remote, profile.id),
