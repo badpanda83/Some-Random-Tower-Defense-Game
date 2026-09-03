@@ -68,6 +68,7 @@ export interface StatusApplication {
   readonly status: EnemyStatusState;
   readonly outcome: "applied" | "immune" | "rejected";
   readonly appliedTicks: number;
+  readonly rejectionReason?: "boss" | "dominated-slow" | "resolve";
 }
 
 export function expireEnemyStatus(
@@ -121,7 +122,7 @@ export function applyEnemyStatus(
         markSourceMode: request.sourceMode ?? null,
       },
       outcome: "applied",
-      appliedTicks: request.ticks,
+      appliedTicks: 0,
     };
   }
   if (target.slowImmune) {
@@ -133,21 +134,32 @@ export function applyEnemyStatus(
       Math.max(0, request.percent),
     );
     const candidate = { percent, untilTick: tick + request.ticks };
-    const slow =
+    const shouldApply =
       !status.slow ||
       candidate.percent > status.slow.percent ||
       (candidate.percent === status.slow.percent &&
-        candidate.untilTick > status.slow.untilTick)
-        ? candidate
-        : status.slow;
+        candidate.untilTick > status.slow.untilTick);
+    if (!shouldApply) {
+      return {
+        status,
+        outcome: "rejected",
+        appliedTicks: 0,
+        rejectionReason: "dominated-slow",
+      };
+    }
     return {
-      status: { ...status, slow },
+      status: { ...status, slow: candidate },
       outcome: "applied",
-      appliedTicks: slow === candidate ? request.ticks : 0,
+      appliedTicks: request.ticks,
     };
   }
   if (target.boss || status.hardControl || status.resolveUntilTick > tick) {
-    return { status, outcome: "rejected", appliedTicks: 0 };
+    return {
+      status,
+      outcome: "rejected",
+      appliedTicks: 0,
+      rejectionReason: target.boss ? "boss" : "resolve",
+    };
   }
   const ticks =
     request.kind === "freeze"

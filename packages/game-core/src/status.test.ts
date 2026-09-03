@@ -33,6 +33,53 @@ describe("deterministic enemy statuses", () => {
     expect(activeSlowPercent(equal, 13)).toBe(20);
   });
 
+  it("rejects weaker and non-extending equal slows as explicit no-ops", () => {
+    const active = applyEnemyStatus(
+      EMPTY_ENEMY_STATUS,
+      { kind: "slow", percent: 20, ticks: 100 },
+      { boss: true, slowImmune: false },
+      10,
+    );
+    const weaker = applyEnemyStatus(
+      active.status,
+      { kind: "slow", percent: 10, ticks: 200 },
+      { boss: true, slowImmune: false },
+      11,
+    );
+    const equalShorter = applyEnemyStatus(
+      active.status,
+      { kind: "slow", percent: 20, ticks: 50 },
+      { boss: true, slowImmune: false },
+      12,
+    );
+
+    expect(weaker).toMatchObject({
+      outcome: "rejected",
+      appliedTicks: 0,
+      rejectionReason: "dominated-slow",
+      status: active.status,
+    });
+    expect(equalShorter).toMatchObject({
+      outcome: "rejected",
+      appliedTicks: 0,
+      rejectionReason: "dominated-slow",
+      status: active.status,
+    });
+  });
+
+  it("applies marks without reporting control duration", () => {
+    const marked = applyEnemyStatus(
+      EMPTY_ENEMY_STATUS,
+      { kind: "mark", ticks: 60, damagePercent: 10 },
+      { boss: true, slowImmune: false },
+      0,
+    );
+
+    expect(marked.outcome).toBe("applied");
+    expect(marked.appliedTicks).toBe(0);
+    expect(marked.status.markUntilTick).toBe(60);
+  });
+
   it("caps boss slow and rejects slow-immune targets", () => {
     const boss = applyEnemyStatus(
       EMPTY_ENEMY_STATUS,
