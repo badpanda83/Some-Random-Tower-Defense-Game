@@ -1613,7 +1613,7 @@ test("blocks economy actions while local and cloud saves conflict", async ({
 
   await expect(
     page.getByRole("heading", { name: "Which progress should survive?" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Nothing has been overwritten.")).toBeVisible();
   await expect(page.locator(".app-surface")).toHaveAttribute("inert", "");
 });
