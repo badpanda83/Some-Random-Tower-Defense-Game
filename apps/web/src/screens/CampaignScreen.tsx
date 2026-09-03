@@ -7,7 +7,7 @@ import {
   rewardDefinitions,
 } from "@srtg/game-core";
 import type { Profile, SaveData, Settings } from "@srtg/protocol";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { AccountPanel } from "../components/AccountPanel.js";
 import { HubNavigation, type HubTab } from "../components/HubNavigation.js";
@@ -30,6 +30,7 @@ interface CampaignScreenProps {
   readonly onNavigate?: (tab: HubTab) => void;
   readonly onTraining?: () => void;
   readonly onReplayBattleGuidance?: () => void;
+  readonly developmentTools?: ReactNode;
 }
 
 function levelById(levelId: string) {
@@ -49,6 +50,7 @@ export function CampaignScreen({
   onNavigate = () => undefined,
   onTraining = () => undefined,
   onReplayBattleGuidance = () => undefined,
+  developmentTools,
 }: CampaignScreenProps) {
   const unlocked = useMemo(
     () => new Set(save.campaign.unlockedNodeIds),
@@ -540,6 +542,7 @@ export function CampaignScreen({
                     </small>
                   </span>
                 </label>
+                {developmentTools}
               </div>
             </details>
 

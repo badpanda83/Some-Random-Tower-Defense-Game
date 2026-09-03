@@ -1,10 +1,12 @@
 import type {
   BattleCheckpoint,
+  BattleResult,
   LoadoutSnapshot,
   SaveData,
 } from "@srtg/protocol";
+import { grantMissionRewards, type MissionRewardLine } from "@srtg/game-core";
 
-import { withoutBattleCheckpoint } from "./save.js";
+import { withBattleResult, withoutBattleCheckpoint } from "./save.js";
 
 export interface BattleSetup {
   readonly levelId: string;
@@ -15,6 +17,32 @@ export interface BattleSetup {
   readonly attemptId: string;
   readonly loadoutSnapshot: LoadoutSnapshot;
   readonly key: number;
+}
+
+export interface BattleCompletion {
+  readonly save: SaveData;
+  readonly lines: readonly MissionRewardLine[];
+  readonly recorded: boolean;
+}
+
+export function resolveBattleCompletion(
+  save: SaveData,
+  result: BattleResult,
+  recordCampaignResult: boolean,
+): BattleCompletion {
+  if (!recordCampaignResult) {
+    return {
+      save: withoutBattleCheckpoint(save),
+      lines: [],
+      recorded: false,
+    };
+  }
+  const reward = grantMissionRewards(save, result);
+  return {
+    save: withBattleResult(reward.save, result),
+    lines: reward.lines,
+    recorded: true,
+  };
 }
 
 export function randomSeed(): number {

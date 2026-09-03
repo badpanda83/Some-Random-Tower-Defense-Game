@@ -318,6 +318,9 @@ test("installs as a local-first PWA and opens the campaign", async ({
     }),
   ).toBeVisible();
   await expect(page.getByText("The Muddy Moat").first()).toBeVisible();
+  await page.getByText("Traveling settings cart").click();
+  await expect(page.getByText("Developer tools")).toHaveCount(0);
+  await expect(page.getByText("Grant test resources")).toHaveCount(0);
 
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;

@@ -22,6 +22,18 @@ export function reconcileCompletedSync(
     return { type: "resolved", record: synchronized };
   }
 
+  if (latest.localOnly) {
+    return {
+      type: "resolved",
+      record: {
+        ...latest,
+        cloudOwnerId: synchronized.cloudOwnerId,
+        cloudRevision: synchronized.cloudRevision,
+        pending: true,
+      },
+    };
+  }
+
   const unseenRemoteChange = !saveDataEqual(synchronized.data, submitted.data);
   if (unseenRemoteChange) {
     return {

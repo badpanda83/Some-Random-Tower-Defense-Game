@@ -52,6 +52,7 @@ jobs:
       - run: pnpm test
       - run: pnpm report:balance > /dev/null
       - run: pnpm build
+      - run: pnpm test:production-boundary
       - run: pnpm db:migrate
       - run: pnpm test:integration
       - run: pnpm exec playwright install --with-deps chromium

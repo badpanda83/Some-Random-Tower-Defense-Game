@@ -4,6 +4,7 @@ import { CONTENT_VERSION } from "@srtg/protocol";
 import { createFreshSave } from "./save.js";
 import {
   createLocalSaveWriter,
+  markLocalChange,
   parseLocalSaveData,
   type LocalSaveRecord,
 } from "./storage.js";
@@ -14,11 +15,26 @@ function record(updatedAt: string): LocalSaveRecord {
     cloudOwnerId: null,
     cloudRevision: 0,
     pending: true,
+    localOnly: false,
     updatedAt,
   };
 }
 
 describe("local save writer", () => {
+  it("preserves the local-only synchronization block across changes", () => {
+    const current = { ...record("first"), localOnly: true };
+    const changed = {
+      ...current.data,
+      settings: { ...current.data.settings, muted: true },
+    };
+
+    expect(markLocalChange(current, changed)).toMatchObject({
+      data: changed,
+      localOnly: true,
+      pending: true,
+    });
+  });
+
   it("serializes every IndexedDB write and continues after a failure", async () => {
     const writes: string[] = [];
     let releaseFirst: () => void = () => undefined;

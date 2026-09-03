@@ -73,6 +73,30 @@ corepack pnpm dev
 
 The Vite client runs at <http://localhost:5173> and proxies the API at <http://localhost:3001>. Magic links are captured by Mailpit.
 
+### Development-only test resources
+
+The Vite development client exposes a clearly marked **Developer tools** panel
+inside the campaign's **Traveling settings cart**. It is intentionally absent
+from production builds. After the guest identity check completes, use **Grant
+test resources** and confirm to set Quest Crowns and Crafting Dust to at least
+10,000 and enable a 10,000 mission-gold floor for new or resumed test battles.
+The mission gold is battle-only: it does not grant campaign currency, create
+synthetic spend telemetry, or enter the normal save schema. Results from a
+local-only test battle, including scores, masteries, and rewards, are discarded
+instead of being added to campaign progress, even if the mission-gold toggle is
+later switched off.
+
+Activation snapshots the complete pre-test save and marks subsequent changes
+local-only, so cloud synchronization is blocked. The panel is disabled for a
+linked non-guest account. **Restore pre-test snapshot** removes the test session
+and returns the full save to its exact pre-test state; all progress made after
+activation is intentionally discarded.
+
+> **WARNING:** These controls are only for the Vite development server at
+> `localhost:5173`. They cannot be used on Railway or any production build.
+> `pnpm test:production-boundary` asserts that the production output contains
+> none of the panel, action, badge, or development storage implementation.
+
 ## Commands
 
 ```powershell
@@ -83,6 +107,7 @@ corepack pnpm lint
 corepack pnpm test             # Unit and injected API tests
 corepack pnpm test:integration # Requires TEST_DATABASE_URL and migrated PostgreSQL
 corepack pnpm test:e2e         # Requires a migrated database and built app
+corepack pnpm test:production-boundary # Scans a completed production build
 corepack pnpm db:generate      # Generate a migration after schema changes
 corepack pnpm db:migrate       # Apply checked-in migrations
 ```

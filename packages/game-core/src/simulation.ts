@@ -255,6 +255,14 @@ class GameSimulation implements Simulation {
     if (!Number.isInteger(seed) || seed < 1 || seed > 2_147_483_647) {
       throw new Error("Seed must be a positive 32-bit integer");
     }
+    if (
+      options.goldFloor !== undefined &&
+      (!Number.isSafeInteger(options.goldFloor) ||
+        options.goldFloor < 0 ||
+        options.goldFloor > 999_999)
+    ) {
+      throw new Error("Gold floor must be an integer from 0 through 999999");
+    }
 
     const modifierIds = [
       ...(options.checkpoint?.modifierIds ?? options.modifierIds ?? []),
@@ -305,6 +313,12 @@ class GameSimulation implements Simulation {
       0,
     );
     const checkpoint = options.checkpoint;
+    const authoredGold =
+      checkpoint?.gold ?? Math.max(0, level.startingGold + goldDelta);
+    const gold =
+      options.goldFloor === undefined
+        ? authoredGold
+        : Math.max(authoredGold, options.goldFloor);
     const loadoutSnapshot = cloneLoadouts(
       checkpoint?.loadoutSnapshot ??
         options.loadoutSnapshot ??
@@ -364,7 +378,7 @@ class GameSimulation implements Simulation {
       waveStartedAtTick: null,
       nextSpawnIndex: 0,
       lives: checkpoint?.lives ?? level.startingLives,
-      gold: checkpoint?.gold ?? Math.max(0, level.startingGold + goldDelta),
+      gold,
       score: checkpoint?.score ?? 0,
       abilityChargeTicks: Math.min(
         checkpoint?.abilityChargeTicks ?? 0,

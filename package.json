@@ -17,6 +17,7 @@
     "test:integration": "corepack pnpm --filter @srtg/server test:integration",
     "test:unit": "corepack pnpm --filter @srtg/protocol --filter @srtg/game-core --filter @srtg/server test",
     "test:e2e": "playwright test",
+    "test:production-boundary": "node scripts/assert-production-no-dev-tools.mjs",
     "typecheck": "corepack pnpm --filter @srtg/protocol build && corepack pnpm --filter @srtg/game-core build && corepack pnpm -r --if-present typecheck",
     "db:generate": "corepack pnpm --filter @srtg/server db:generate",
     "db:migrate": "corepack pnpm --filter @srtg/server db:migrate",

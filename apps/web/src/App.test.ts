@@ -1,14 +1,43 @@
 import type {
   BattleCheckpoint,
+  BattleResult,
   LoadoutSnapshot,
   SaveData,
 } from "@srtg/protocol";
 import { describe, expect, it } from "vitest";
 
 import { createFreshSave } from "./save.js";
-import { createRetryBattleSetup, prepareBattleRetry } from "./battle-setup.js";
+import {
+  createRetryBattleSetup,
+  prepareBattleRetry,
+  resolveBattleCompletion,
+} from "./battle-setup.js";
 
 describe("battle retry setup", () => {
+  it("discards test-battle results without campaign rewards or mastery progress", () => {
+    const fresh = createFreshSave();
+    const result: BattleResult = {
+      levelId: "muddy-moat",
+      seed: 101,
+      contentVersion: fresh.contentVersion,
+      modifierIds: [],
+      result: "victory",
+      score: 999_999,
+      completedMasteryIds: ["rainy-day-fund"],
+      completedAt: "2026-09-03T02:00:00.000Z",
+      attemptId: "test-attempt",
+    };
+
+    const completion = resolveBattleCompletion(fresh, result, false);
+
+    expect(completion.recorded).toBe(false);
+    expect(completion.lines).toEqual([]);
+    expect(completion.save).toEqual(fresh);
+    expect(completion.save.economy.questCrowns).toBe(0);
+    expect(completion.save.campaign.levels).toEqual({});
+    expect(completion.save.campaign.recentResults).toEqual([]);
+  });
+
   it("uses a fresh seed and attempt while preserving the battle loadout snapshot", () => {
     const loadoutSnapshot: LoadoutSnapshot = {
       "fork-knight": {
