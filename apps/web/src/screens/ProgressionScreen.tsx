@@ -74,6 +74,13 @@ function oddsCopy(chestType: ChestType): string {
     .join(" · ");
 }
 
+function ownedItemCount(
+  ownedItemIds: readonly string[],
+  itemId: string,
+): number {
+  return ownedItemIds.filter((ownedItemId) => ownedItemId === itemId).length;
+}
+
 function RarityBadge({ rarity }: { readonly rarity: EquipmentRarity }) {
   return (
     <span className={`rarity rarity-${rarity.replaceAll("+", "plus")}`}>
@@ -794,6 +801,49 @@ function ChestsView({
             </article>
           );
         })}
+      </section>
+      <section
+        className="chest-catalog"
+        aria-labelledby="chest-catalog-heading"
+      >
+        <div className="chest-catalog-heading">
+          <div>
+            <span className="eyebrow">No mystery silhouettes</span>
+            <h2 id="chest-catalog-heading">
+              Everything the chests can cough up
+            </h2>
+          </div>
+          <p>
+            All {MVP_EQUIPMENT.length} possible items, including the ones still
+            hiding under the royal packing straw.
+          </p>
+        </div>
+        <div className="chest-catalog-grid">
+          {MVP_EQUIPMENT.map((item) => {
+            const ownedCount = ownedItemCount(
+              save.inventory.ownedItemIds,
+              item.id,
+            );
+            return (
+              <article className="chest-catalog-item card" key={item.id}>
+                {ownedCount > 0 && (
+                  <span
+                    className="owned-count-badge"
+                    aria-label={`Owned quantity: ${ownedCount}`}
+                  >
+                    ×{ownedCount}
+                  </span>
+                )}
+                <RarityBadge rarity={item.rarity} />
+                <h3>{item.name}</h3>
+                <p className="item-flavor">“{item.flavor}”</p>
+                <small>
+                  {item.slot} · {itemEligibilityCopy(item)}
+                </small>
+              </article>
+            );
+          })}
+        </div>
       </section>
       {message && (
         <p className="action-message" role="alert">
